@@ -21,6 +21,9 @@ import {
   type SaveV3,
 } from '../src/v3/storage';
 import { snapshotRunes } from '../src/v3/controls';
+import { NEW_CARDS, DEFENSIVE_KINDS } from '../src/v3/catalog';
+import { createRun as createModernRun, rewardForRun as modernReward } from '../src/v3/engine';
+import type { RunV3 } from '../src/v3/types';
 
 async function reset() {
   await new Promise<void>((resolve, reject) => {
@@ -61,6 +64,20 @@ function runSave(): SaveV3 {
     runes: snapshotRunes(save.progression.runes),
     autocast: save.progression.autocast,
   };
+  return save;
+}
+function modernSave(): SaveV3 {
+  const save = runSave();
+  Object.assign(save.run!, {
+    rulesVersion: 3,
+    mode: 'quick',
+    level: 12,
+    xp: 3.5,
+    xpRequired: 22,
+    offerRng: 919,
+    runeSnapshot: snapshotRunes(save.progression.runes),
+  });
+  save.progression.active!.rulesVersion = 3;
   return save;
 }
 beforeEach(reset);
@@ -209,6 +226,9 @@ describe('v3 persistence and migration', () => {
   });
   it('accepts a valid advanced ALL rule and rejects a radius on non-nearby conditions', () => {
     const save = runSave();
+    save.progression.runes.owned.autoSignature = 1;
+    save.progression.runes.selected.autoSignature = 1;
+    save.progression.active!.runes.autoSignature = 1;
     save.progression.autocast.signature = {
       enabled: true,
       preset: 'advanced',
@@ -354,5 +374,194 @@ describe('v3 persistence and migration', () => {
     expect(settled.run?.settled).toBe(false);
     expect(settled.progression.active).toEqual(next.progression.active);
     expect(settled.profile.settledRuns).toContain(old.run!.id);
+  });
+  it('round-trips every new family and defensive core without losing modern progression', () => {
+    for (const kind of DEFENSIVE_KINDS) {
+      const save = modernSave();
+      const run = save.run as RunV3;
+      run.tower = 'monolith';
+      save.profile.unlocked.push('monolith');
+      Object.assign(run.weapons[0], {
+        kind,
+        masteryRank: 4,
+        masteryProgress: 400,
+        masteryRequired: 600,
+        fusionReady: false,
+      });
+      run.cards = NEW_CARDS.map((card) => ({
+        cardId: card.id,
+        stacks: 2,
+        mastery: 2,
+        rarity: 'rare',
+        ...(card.id === 'utility-apprenticeship' ? { targetId: run.weapons[0].id } : {}),
+      }));
+      run.pendingRewards = [
+        {
+          id: 'xp-choice',
+          kind: 'draft',
+          wave: 20,
+          level: 12,
+          offers: [{ id: 'new-offer', cardId: 'mod-insight', rarity: 'rare', price: 0 }],
+          rerolls: 0,
+          repairStock: 0,
+        },
+      ];
+      const parsed = parseGame(exportGame(save));
+      expect(parsed.run).toEqual(run);
+      expect(parsed.profile.unlocked).toContain('monolith');
+      expect(parsed.progression.active?.rulesVersion).toBe(3);
+    }
+  });
+  it('persists real new-run snapshots for all modes, including Monolith ownership and selected runes', async () => {
+    for (const mode of ['quick', 'normal', 'endless'] as const) {
+      const save = emptySave();
+      save.profile.unlocked.push('monolith');
+      save.progression.runes.owned.vitality = 3;
+      save.progression.runes.selected.vitality = 1;
+      save.profile.upgrades.vitality = 3;
+      const runes = snapshotRunes(save.progression.runes);
+      save.run = createModernRun(save.profile, 'monolith', 0, 0, 123, { mode, runes });
+      save.progression.active = {
+        runId: save.run.id,
+        rulesVersion: 3,
+        runes,
+        autocast: save.progression.autocast,
+      };
+      await replaceGame(save);
+      const parsed = await loadGame();
+      expect(parsed.run).toEqual(save.run);
+      expect(parsed.run?.tower).toBe('monolith');
+      expect(parsed.profile.upgrades.vitality).toBe(3);
+      expect(parsed.progression.active?.runes.vitality).toBe(1);
+    }
+  });
+  it.each([
+    ['unknown run field', (r: RunV3) => Object.assign(r, { hiddenRule: 9 })],
+    ['unknown core field', (r: RunV3) => Object.assign(r.weapons[0], { hiddenRule: 9 })],
+    ['unknown equipment', (r: RunV3) => Object.assign(r.weapons[0], { kind: 'core-invented' })],
+    ['seventh mastery', (r: RunV3) => Object.assign(r.weapons[0], { masteryRank: 7 })],
+    ['mastery overflow', (r: RunV3) => Object.assign(r.weapons[0], { masteryProgress: 901 })],
+    [
+      'unknown card',
+      (r: RunV3) => r.cards.push({ cardId: 'unknown', stacks: 1, mastery: 1, rarity: 'normal' }),
+    ],
+    [
+      'card cap overflow',
+      (r: RunV3) =>
+        r.cards.push({ cardId: 'mod-insight', stacks: 13, mastery: 1, rarity: 'normal' }),
+    ],
+    [
+      'missing chosen core',
+      (r: RunV3) =>
+        r.cards.push({ cardId: 'utility-apprenticeship', stacks: 1, mastery: 1, rarity: 'normal' }),
+    ],
+    [
+      'unexpected global target',
+      (r: RunV3) =>
+        r.cards.push({
+          cardId: 'mod-insight',
+          stacks: 1,
+          mastery: 1,
+          rarity: 'normal',
+          targetId: r.weapons[0].id,
+        }),
+    ],
+    [
+      'unknown chosen core',
+      (r: RunV3) =>
+        r.cards.push({
+          cardId: 'utility-apprenticeship',
+          stacks: 1,
+          mastery: 1,
+          rarity: 'normal',
+          targetId: 'gone',
+        }),
+    ],
+    [
+      'negative XP',
+      (r: RunV3) => {
+        r.xp = -1;
+      },
+    ],
+    [
+      'invalid offer RNG',
+      (r: RunV3) => {
+        r.offerRng = 0;
+      },
+    ],
+    ['invalid mode', (r: RunV3) => Object.assign(r, { mode: 'invented' })],
+  ] as const)('strictly rejects modern %s', (_label, alter) => {
+    const save = modernSave();
+    alter(save.run as RunV3);
+    expect(() => parseGame(save)).toThrow(SaveError);
+  });
+  it('does not grant autocast from an enabled configuration without the run unlock', () => {
+    const save = modernSave();
+    save.progression.active!.autocast.signature.enabled = true;
+    expect(() => parseGame(save)).toThrow(/not unlocked/);
+  });
+  it('requires matching explicit modern rune snapshots', () => {
+    const save = modernSave();
+    (save.run as RunV3).runeSnapshot.power = 1;
+    expect(() => parseGame(save)).toThrow(/disagree/);
+    save.progression.active = null;
+    expect(() => parseGame(save)).toThrow(/snapshot/);
+  });
+  it('settles Quick once and records mode-specific rune investment transactionally', async () => {
+    const save = modernSave();
+    const run = save.run as RunV3;
+    run.cleared = true;
+    run.wave = 50;
+    run.time = 1100;
+    run.earned = 500;
+    await saveGame(save);
+    const results = await Promise.all([settleGame(save), settleGame(save)]);
+    const settled = await loadGame();
+    expect(settled.profile.runs).toBe(1);
+    expect(results[0].profile.credits).toBe(results[1].profile.credits);
+    expect(settled.profile.credits).toBe(modernReward(run));
+    expect(settled.profile.clears).toEqual([0]);
+    expect(settled.profile.stageUnlocked).toBe(2);
+    expect(settled.progression.records).toEqual([
+      {
+        runId: run.id,
+        mode: 'quick',
+        stage: 0,
+        difficulty: 0,
+        tower: 'bastion',
+        runes: run.runeSnapshot,
+        wave: 50,
+        cleared: true,
+        seconds: 1100,
+        credits: modernReward(run),
+      },
+    ]);
+    expect((await settleGame(save)).progression.records).toHaveLength(1);
+  });
+  it('keeps completed legacy modes out of invented modern records and rejects legacy extension fields', () => {
+    const save = runSave();
+    expect(settleInMemory(save).progression.records).toEqual([]);
+    Object.assign(save.run!, { xp: 5 });
+    expect(() => parseGame(save)).toThrow(SaveError);
+  });
+  it('keeps optional engine visual fields but rejects sparse nested arrays and accessor data', () => {
+    const save = modernSave();
+    const run = save.run as RunV3;
+    run.visuals.push({
+      kind: 'pulse',
+      x: 500,
+      y: 400,
+      color: '#fff',
+      size: 20,
+      life: 0.3,
+      maxLife: 0.3,
+      x2: undefined,
+    });
+    expect(parseGame(save).run?.visuals[0]).not.toHaveProperty('x2');
+    run.weapons[0].infusions = new Array(1);
+    expect(() => parseGame(save)).toThrow(/holes/);
+    run.weapons[0].infusions = [];
+    Object.defineProperty(run, 'level', { get: () => 1 });
+    expect(() => parseGame(save)).toThrow(/accessor/);
   });
 });

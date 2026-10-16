@@ -10,6 +10,7 @@ const COLORS: Record<Element, string> = {
 const TOWERS: Record<TowerId, string> = {
   bastion: '#d9c28b', pyre: COLORS.fire, tempest: COLORS.lightning,
   glacier: COLORS.frost, verdant: COLORS.poison, null: COLORS.void,
+  monolith: '#c2e3db',
 };
 type Ctx = CanvasRenderingContext2D;
 const clamp = (v: number, lo = 0, hi = 1) => Math.max(lo, Math.min(hi, v));

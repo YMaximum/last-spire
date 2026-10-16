@@ -29,6 +29,7 @@ const TOWER: Record<TowerId, string> = {
   glacier: '#94e8ed',
   verdant: '#b4df7c',
   null: '#d39df5',
+  monolith: '#c2e3db',
 };
 const PALETTES = [
   {

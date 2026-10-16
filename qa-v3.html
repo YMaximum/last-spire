@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+  <meta charset="utf-8" /><meta
+    name="viewport"
+    content="width=device-width,initial-scale=1"
+  /><title>Last Spire synthetic checkpoint viewer</title
+  ><style>
+    body {
+      background: #15241e;
+      color: #e1dac2;
+      font: 18px system-ui;
+      max-width: 900px;
+      margin: 30px auto;
+      padding: 20px;
+    }
+    button,
+    textarea {
+      font: inherit;
+      padding: 12px;
+      margin: 8px 0;
+    }
+    textarea {
+      width: 95%;
+      height: 440px;
+      background: #0b1510;
+      color: #c7dfc3;
+    }
+    button {
+      background: #a59769;
+      color: #121c15;
+    }
+  </style>
+  <h1>Synthetic mechanics checkpoints</h1>
+  <p>
+    Development only, separate from the normal player save. Choose a generated fixture, then use
+    Settings → Paste save in the isolated preview on port 4174.
+  </p>
+  <div id="choices"></div>
+  <p id="status"></p>
+  <label>Checkpoint JSON<textarea id="checkpoint-json" spellcheck="false"></textarea></label>
+  <script type="module">
+    if (location.port !== '5175')
+      document.querySelector('#status').textContent = 'Open this development viewer on port 5175.';
+    else
+      for (const name of ['quick', 'normal', 'endless', 'fusion']) {
+        const button = document.createElement('button');
+        button.textContent = `Load ${name} checkpoint`;
+        button.onclick = async () => {
+          const response = await fetch(`/qa-data/v3-${name}.json`);
+          if (!response.ok) {
+            document.querySelector('#status').textContent =
+              'Generate fixtures with the QA script first.';
+            return;
+          }
+          document.querySelector('#checkpoint-json').value = await response.text();
+          document.querySelector('#status').textContent = `Loaded ${name} synthetic checkpoint.`;
+        };
+        document.querySelector('#choices').append(button);
+      }
+  </script>
+</html>

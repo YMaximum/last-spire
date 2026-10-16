@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+  <meta charset="utf-8" /><title>Last Spire · isolated browser QA</title
+  ><style>
+    body {
+      background: #14201d;
+      color: #e7d5ae;
+      font: 20px system-ui;
+      padding: 50px;
+    }
+    button,
+    a {
+      padding: 20px;
+      margin: 12px;
+      font: inherit;
+      display: block;
+      color: inherit;
+      background: #263b32;
+    }
+    p {
+      max-width: 700px;
+      line-height: 1.6;
+    }
+  </style>
+  <h1>Isolated Last Spire checkpoint QA</h1>
+  <p>
+    This development page operates only on port 5175. Each button explicitly loads synthetic test
+    data into this test origin. It cannot modify the player's save on port 5173.
+  </p>
+  <button data-fixture="shop">Load milestone shop</button
+  ><button data-fixture="effects">Load dense mixed-weapon scene</button
+  ><button data-fixture="victory">Load v2 victory · 15,001 lifetime shots</button
+  ><button data-fixture="legacy">Load recovered v1 result · 15,001 lifetime shots</button>
+  <p id="status"></p>
+  <label
+    >Selected checkpoint JSON<textarea
+      id="checkpoint-json"
+      rows="6"
+      style="display: block; width: 90%; font: 14px monospace"
+    ></textarea></label
+  ><a href="/">Open game with this checkpoint →</a>
+  <script type="module">
+    import { parseGame, saveGame } from '/src/v2/storage.ts';
+    for (const b of document.querySelectorAll('button'))
+      b.onclick = async () => {
+        try {
+          if (location.port !== '5175') throw Error('Use isolated QA server on port 5175.');
+          const raw = await (await fetch(`/qa-data/${b.dataset.fixture}.json`)).json();
+          await saveGame(parseGame(raw), true);
+          document.querySelector('#checkpoint-json').value = JSON.stringify(raw);
+          document.querySelector('#status').textContent =
+            `Loaded ${b.dataset.fixture}. Open the game to verify it.`;
+        } catch (e) {
+          document.querySelector('#status').textContent = e.message;
+        }
+      };
+  </script>
+</html>

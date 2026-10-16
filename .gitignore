@@ -1,0 +1,22 @@
+node_modules/
+dist/
+*.log
+.DS_Store
+
+qa-data/
+
+# Local tooling, credentials, and generated recovery archives
+.agents/
+.aws/
+.codex/
+.serena/
+.env
+.env.*
+!.env.example
+checkpoints/
+.private/
+reports/
+docs/RESUME-v2.md
+docs/VALIDATION.md
+docs/plans/
+playlogs/

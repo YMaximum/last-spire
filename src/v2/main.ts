@@ -15,8 +15,9 @@ import {
 } from '../v3/controls';
 import type { SaveV3 } from '../v3/storage';
 import { STAGES, ELEMENT_COLORS, PATTERNS } from '../content';
-import { TOWERS, isDefensiveKind } from '../v3/catalog';
+import { TOWERS, isDefensiveKind, FUSIONS, FUSION_BY_ID } from '../v3/catalog';
 import type { RunV3, RunMode } from '../v3/types';
+import { LocalTelemetry } from '../v3/telemetry';
 import {
   step as legacyStep,
   selectDraft,
@@ -56,6 +57,9 @@ import {
   describeNextThreat,
   REPAIR_COST,
   rewardRerollCost,
+  availableFusions,
+  previewFusion,
+  fuseCores,
 } from '../v3/engine';
 import { BattleRenderer } from '../v3/render';
 import { WindowManager } from './windows';
@@ -87,6 +91,10 @@ const esc = (v: unknown) =>
     /[&<>"']/g,
     (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!,
   );
+const equipmentIcon = (kind: string) =>
+  CARDS.find((c) => c.weapon === kind)?.iconId ??
+  FUSIONS.find((f) => f.kind === kind)?.iconId ??
+  'unknown';
 const glyph = (kind: string) => {
   const paths: Record<string, string> = {
     tower: 'M12 2 7 9v11h10V9L12 2ZM5 20h14M10 13h4',
@@ -126,7 +134,9 @@ let chosenTower: TowerId = 'bastion',
   lastWave = 0,
   lastPhase = '',
   persistTimer = 0;
+const observedOffers = new Set<string>();
 let selectedOffer: { rewardId: string; offerId: string; purchase: boolean } | null = null;
+const telemetry = new LocalTelemetry();
 const app = $('app');
 app.innerHTML = `<main id="battlefield"><canvas id="arena" aria-label="Last Spire battlefield"></canvas><div class="arena-shade"></div><header class="battle-hud"><button class="brand-button" id="menu-btn" aria-label="Expedition menu">${glyph('tower')}<span>LAST SPIRE<small>THE RUNEFORGED AGE</small></span>${glyph('menu')}</button><div class="wave-hud"><span id="stage-label">VERDANT WILDS</span><strong id="wave-label">Wave 01 <em>/ 100</em></strong><div id="wave-progress"><i></i></div></div><div class="resource-hud"><span title="Scrap is spent during this expedition">${glyph('diamond')}<b id="scrap-value">0</b><small>SCRAP</small></span><span title="Credits unlock towers between expeditions">${glyph('diamond')}<b id="credit-value">0</b><small>CREDITS</small></span><button id="settings-btn" class="square-button" aria-label="Settings">${glyph('gear')}</button></div></header><div class="threat-strip"><span id="threat-text">One spire. A thousand ways to fight.</span><button id="pause-indicator" class="hidden">PAUSED · RESUME</button></div><nav class="field-tools" aria-label="Battlefield panels"><button id="arsenal-btn" title="Arsenal (A)">${glyph('tower')}<span>Arsenal</span></button><button id="codex-btn" title="Codex (C)">${glyph('book')}<span>Codex</span></button><button id="stats-btn" title="Combat statistics">${glyph('stats')}<span>Ledger</span></button><button id="autocast-btn" title="Conditional skill autocast">${glyph('bolt')}<span>Autocast</span></button><button id="rewards-btn" class="reward-tool hidden">${glyph('diamond')}<span id="reward-count">Choose upgrade</span></button></nav><div id="buff-strip" aria-label="Active buffs"></div><div id="event-toast" role="status" aria-live="polite"></div><div id="boss-warning" class="hidden"></div><footer class="combat-controls"><div class="integrity"><div><span>${glyph('heart')} SPIRE INTEGRITY</span><strong id="hp-value">—</strong></div><div class="hp-track"><i id="hp-fill"></i><i id="shield-fill"></i></div><span id="barrier-value">Barrier dormant</span></div><div class="ability-tray"><button class="ability" id="signature-btn"><span>${glyph('shield')}</span><div><small>SIGNATURE <kbd>Q</kbd></small><b id="signature-name">Bulwark</b></div><em id="signature-cd"></em><span id="signature-auto" class="auto-indicator" hidden>AUTO</span></button><button class="ability" id="secondary-btn"><span>${glyph('bolt')}</span><div><small>SECONDARY <kbd>E</kbd></small><b id="secondary-name">Mend</b></div><em id="secondary-cd"></em><span id="secondary-auto" class="auto-indicator" hidden>AUTO</span></button></div><div class="playback"><button class="square-button" id="pause-btn" aria-label="Pause combat">${glyph('pause')}</button><button id="speed-btn" title="Speed (1, 2, 3)">1×</button><button id="target-btn" title="Target priority">${glyph('target')}<span id="target-label">Nearest</span></button></div></footer><div id="xp-hud" hidden><span id="xp-label"></span><div class="xp-track"><i id="xp-fill"></i></div></div><div id="window-host"></div><div id="window-dock"></div><div id="loading-screen"><div class="loading-rune">${glyph('tower')}</div><h1>LAST SPIRE</h1><p>Waking the ancient machines…</p></div></main>`;
 const manager = new WindowManager(
@@ -158,6 +168,15 @@ function openEntity(ref: EntityRef) {
   );
 }
 $('battlefield').addEventListener('click', (event) => {
+  const fuse = (event.target as HTMLElement).closest<HTMLButtonElement>('[data-fuse-recipe]');
+  if (fuse && !fuse.disabled) {
+    openFusionPreview(
+      fuse.dataset.fuseRecipe!,
+      fuse.dataset.ingredientA!,
+      fuse.dataset.ingredientB!,
+    );
+    return;
+  }
   const link = (event.target as HTMLElement).closest<HTMLElement>(
     '[data-entity-kind][data-entity-id]',
   );
@@ -220,6 +239,7 @@ async function persist() {
   }
 }
 async function settle() {
+  if (data.run && isV2(data.run) && data.run.phase === 'ended') void telemetry.finish(data.run);
   if (settlePromise) return settlePromise;
   if (!data.run || data.run.settled) return;
   const task = async () => {
@@ -287,7 +307,7 @@ function updateHud() {
   $('xp-hud').hidden = !playing || !progress;
   if (progress) {
     $('xp-label').textContent =
-      `LEVEL ${progress.level} · ${progress.xp.toFixed(1)} / ${progress.xpRequired} XP · ${progress.pendingRewards.filter((r) => r.kind === 'draft').length} choices`;
+      `LEVEL ${progress.level}${progress.level >= 200 ? ' · MAX' : ` · ${progress.xp.toFixed(1)} / ${progress.xpRequired} XP`} · ${progress.pendingRewards.filter((r) => r.kind === 'draft').length} choices`;
     $('xp-fill').style.width = `${Math.min(100, (progress.xp / progress.xpRequired) * 100)}%`;
   }
   $('scrap-value').textContent = Math.floor(s.scrap).toLocaleString();
@@ -437,6 +457,11 @@ function openLaunch() {
     data.progression.active.autocast.secondary.enabled &&=
       data.progression.active.runes.autoSecondary > 0;
     recordDamageSample(data.run);
+    void telemetry.begin(data.run, {
+      build: '3.0.0',
+      mode: chosenMode,
+      runes: data.progression.active.runes,
+    });
     playing = true;
     paused = false;
     lastRewardId = '';
@@ -475,7 +500,9 @@ function scopeLabel(c: CardDefinition) {
   if (c.group === 'weapon')
     return isDefensiveKind(c.weapon!) ? 'Arsenal core · defensive engine' : 'Arsenal core · weapon';
   return c.scope === 'projectiles'
-    ? 'All eligible projectiles'
+    ? ['damage', 'range', 'rate'].includes(c.effect)
+      ? 'All eligible arsenal cores'
+      : 'All eligible projectiles'
     : c.scope === 'defense'
       ? 'Tower defense'
       : c.scope === 'weapon'
@@ -557,6 +584,23 @@ function showRewards(id?: string) {
     s.pendingRewards.find((p) => p.id === (id ?? rewardSelection)) ?? s.pendingRewards[0];
   rewardSelection = reward.id;
   const shop = reward.kind === 'shop';
+  const offerKey = `${s.id}:${reward.id}:${reward.offers.map((o) => o.id).join(',')}`;
+  if (!observedOffers.has(offerKey)) {
+    observedOffers.add(offerKey);
+    telemetry.event(s.id, s.time, 'offers', {
+      rewardId: reward.id,
+      kind: reward.kind,
+      level: reward.level ?? 0,
+      wave: reward.wave,
+      offers: reward.offers.map((o) => ({
+        id: o.id,
+        cardId: o.cardId,
+        rarity: o.rarity,
+        price: o.price,
+      })),
+    });
+  }
+
   manager.open(
     'rewards',
     {
@@ -620,6 +664,10 @@ function showRewards(id?: string) {
 function applyOffer(rewardId: string, offerId: string, purchase: boolean, targetId?: string) {
   const s = current();
   if (!isV2(s)) return;
+  const offer = s.pendingRewards
+    .find((r) => r.id === rewardId)
+    ?.offers.find((o) => o.id === offerId);
+  const scrapBefore = s.scrap;
   const ok = purchase
     ? buyOffer(s, rewardId, offerId, targetId)
     : chooseReward(s, rewardId, offerId, targetId);
@@ -631,6 +679,21 @@ function applyOffer(rewardId: string, offerId: string, purchase: boolean, target
     data.profile.tutorialDone = true;
     s.tutorialStep = 4;
   }
+  telemetry.event(s.id, s.time, purchase ? 'shop-purchase' : 'level-choice', {
+    rewardId,
+    offerId,
+    cardId: offer?.cardId ?? '',
+    rarity: offer?.rarity ?? '',
+    targetId: targetId ?? '',
+    scrapBefore,
+    scrapAfter: s.scrap,
+    equipment: s.weapons.map((w) => ({
+      id: w.id,
+      kind: w.kind,
+      rank: w.masteryRank ?? 0,
+      investment: w.mastery,
+    })),
+  });
   sound(620);
   scheduleSave();
   showRewards(rewardId);
@@ -654,7 +717,7 @@ function showTargetPicker(offer: CardOffer) {
     `<p class="lead">${replacing ? 'All global cards stay. This explicitly replaces one weapon; its infusions and weapon mastery are released.' : 'Your other weapons keep their current effects. This infusion adds to the selected weapon.'}</p><div class="target-weapons">${s.weapons
       .map(
         (w) =>
-          `<button data-target="${esc(w.id)}">${cardIcon(CARDS.find((c) => c.weapon === w.kind)!.iconId, 44)}<span><b>${WEAPON_BY_ID[w.kind].name}</b><small>${w.infusions.length ? w.infusions.join(' + ') : 'Uninfused'} · ${rarityLabel(w.rarity)}</small><small>${esc(previewCard(s, offer, w.id).summary)}</small>${previewCard(
+          `<button data-target="${esc(w.id)}" ${previewCard(s, offer, w.id).canApply === false ? 'disabled' : ''}>${cardIcon(equipmentIcon(w.kind), 44)}<span><b>${WEAPON_BY_ID[w.kind].name}</b><small>${w.infusions.length ? w.infusions.join(' + ') : 'Uninfused'} · ${rarityLabel(w.rarity)}</small><small>${esc(previewCard(s, offer, w.id).summary)}</small>${previewCard(
             s,
             offer,
             w.id,
@@ -749,12 +812,74 @@ function showLegacyRewards(s: RunState) {
   });
 }
 let arsenalTab = 'weapons';
+function fusionPanel(input: RunV2 | RunState) {
+  const s = modern(input);
+  if (!s)
+    return '<p>Mastered fusions are available in new XP expeditions. This recovered run keeps its original rules.</p>';
+  const ready = availableFusions(s as RunV2);
+  return `<p>Two equipped ingredients at mastery 6 become one fused core, freeing a socket. Fusion is free. Compatible investments carry over; a fused core cannot fuse again.</p><div class="fusion-list">${FUSIONS.map(
+    (recipe) => {
+      const match = ready.find((f) => f.recipeId === recipe.id);
+      return `<article class="fusion-recipe"><div class="fusion-heading">${cardIcon(recipe.iconId, 56)}<div><h3><button class="build-reference" data-entity-kind="fusion" data-entity-id="${recipe.id}">${recipe.name}</button></h3><p>${recipe.description}</p></div></div><div class="fusion-ingredients">${recipe.ingredients
+        .map((kind) => {
+          const w = s.weapons.find((w) => w.kind === kind && !w.fusion);
+          return `<span>${cardIcon(equipmentIcon(kind), 32)} ${WEAPON_BY_ID[kind].name} · ${w ? `mastery ${w.masteryRank ?? 1}/6` : 'not equipped'}</span>`;
+        })
+        .join(
+          '',
+        )}</div><button class="${match ? 'gold-button' : 'outline-button'} full" data-fuse-recipe="${recipe.id}" data-ingredient-a="${match?.ingredientIds[0] ?? ''}" data-ingredient-b="${match?.ingredientIds[1] ?? ''}" ${match ? '' : 'disabled'}>${match ? 'Preview fusion' : 'Both ingredients must reach mastery 6'}</button></article>`;
+    },
+  ).join(
+    '',
+  )}</div><p class="quiet">Flame and Singularity have no authored fusion path in this set. They retain their full support-card and passive-synergy compatibility.</p>`;
+}
+function openFusionPreview(recipeId: string, a: string, b: string) {
+  const s = modern(current());
+  if (!s) return;
+  const info = previewFusion(s as RunV2, recipeId, a, b);
+  if (!info) {
+    notify('Those ingredients are no longer ready.');
+    return;
+  }
+  const recipe = FUSION_BY_ID[recipeId];
+  manager.open(
+    'fusion-preview',
+    {
+      title: info.name,
+      subtitle: 'FUSION PREVIEW · TWO CORES BECOME ONE',
+      width: 650,
+      height: 700,
+      choice: true,
+    },
+    `${cardIcon(recipe.iconId, 88)}<p class="lead">${esc(info.description)}</p><p>${esc(info.summary)}</p><h3>Consumed equipment</h3><p>${info.ingredients.map(esc).join(' + ')}</p><h3>Inherited investments</h3><ul>${info.inherited.map((x) => `<li>${esc(x)}</li>`).join('')}</ul>${info.conversions.length ? `<h3>Conversions and limits</h3><ul>${info.conversions.map((x) => `<li>${esc(x)}</li>`).join('')}</ul>` : ''}<p>${info.awaken.length ? `Awakens: ${info.awaken.map(esc).join(', ')}. ` : ''}${info.lost.length ? `Releases: ${info.lost.map(esc).join(', ')}.` : 'Compatible passive synergies are preserved.'}</p><button id="confirm-fusion" class="gold-button full">Forge ${esc(info.name)} · free</button><button id="cancel-fusion" class="outline-button full">Keep ingredients</button>`,
+  );
+  $('cancel-fusion').onclick = () => manager.close('fusion-preview');
+  $('confirm-fusion').onclick = () => {
+    if (!fuseCores(s as RunV2, recipeId, a, b)) {
+      notify('Fusion requirements changed; inspect the arsenal again.');
+      return;
+    }
+    telemetry.event(s.id, s.time, 'fusion', {
+      recipeId,
+      ingredients: [a, b],
+      equipment: s.weapons.map((w) => ({ id: w.id, kind: w.kind, rank: w.masteryRank ?? 0 })),
+    });
+    manager.close('fusion-preview');
+    manager.close('arsenal');
+    scheduleSave();
+    inspector.update();
+    updateHud();
+    notify(`${info.name} awakened. A socket is free.`);
+    const base = 430 + FUSIONS.findIndex((f) => f.id === recipeId) * 23;
+    [0, 100, 200].forEach((delay, i) => window.setTimeout(() => sound(base + i * 140), delay));
+  };
+}
 function openArsenal() {
   const s = current(),
     modern = isV2(s);
   const weapons = modern ? s.weapons : [];
   const active = modern ? s.synergies : [];
-  let body = `<div class="panel-tabs"><button data-arsenal-tab="weapons" class="${arsenalTab === 'weapons' ? 'active' : ''}">Arsenal ${modern ? weapons.length : s.attacks.length}/6</button><button data-arsenal-tab="cards" class="${arsenalTab === 'cards' ? 'active' : ''}">Collected cards</button><button data-arsenal-tab="synergies" class="${arsenalTab === 'synergies' ? 'active' : ''}">Synergies ${active.length}</button></div>`;
+  let body = `<div class="panel-tabs"><button data-arsenal-tab="weapons" class="${arsenalTab === 'weapons' ? 'active' : ''}">Arsenal ${modern ? weapons.length : s.attacks.length}/6</button><button data-arsenal-tab="cards" class="${arsenalTab === 'cards' ? 'active' : ''}">Collected cards</button><button data-arsenal-tab="fusions" class="${arsenalTab === 'fusions' ? 'active' : ''}">Mastered fusions</button><button data-arsenal-tab="synergies" class="${arsenalTab === 'synergies' ? 'active' : ''}">Synergies ${active.length}</button></div>`;
   if (!modern) {
     body += `<p class="notice">Recovered expedition: original weapons and upgrades are preserved until this run ends.</p>${s.attacks.map((a) => `<article class="weapon-inspector"><h3>${PATTERNS.find((p) => p.id === a.pattern)?.name}</h3><p>${a.element} + ${a.modifier} · rank ${a.rank}</p><p>Lifetime attacks: ${a.shots.toLocaleString()}</p></article>`).join('')}`;
   } else if (arsenalTab === 'weapons') {
@@ -762,7 +887,7 @@ function openArsenal() {
       .map((w) => {
         const d = WEAPON_BY_ID[w.kind],
           stats = getWeaponStats(s, w);
-        return `<article class="weapon-inspector" style="--rarity:${RARITY_COLORS[w.rarity]}"><div class="weapon-heading">${cardIcon(CARDS.find((c) => c.weapon === w.kind)!.iconId, 52)}<div><small>${rarityLabel(w.rarity)}</small><h3>${d.name}</h3></div><span class="weapon-mastery">${w.masteryRank ? `Mastery ${w.masteryRank}/6` : `Investment ${w.mastery}`}</span></div><p>${esc(d.description)}</p><div class="infusions">${stats.elements.length ? stats.elements.map((e) => `<span style="--element:${ELEMENT_COLORS[e]}">${e}</span>`).join('') : '<span>Uninfused</span>'}</div><dl class="weapon-stats"><div><dt>Damage</dt><dd>${stats.damage.toFixed(1)}</dd></div><div><dt>Interval</dt><dd>${stats.cooldown.toFixed(2)}s</dd></div><div><dt>Projectiles</dt><dd>${stats.count}</dd></div><div><dt>Size</dt><dd>${stats.size.toFixed(1)}</dd></div><div><dt>Speed</dt><dd>${Math.round(stats.speed)}</dd></div><div><dt>Range</dt><dd>${Math.round(stats.range)}</dd></div><div><dt>Pulse</dt><dd>${stats.pulse > 0 ? `0.80s` : '—'}</dd></div><div><dt>Pierce / bounce</dt><dd>${stats.pierce} / ${stats.bounces}</dd></div></dl><p class="quiet">${stats.trail > 0 ? 'Damaging trail · ' : ''}${stats.homing > 0 ? 'Homing · ' : ''}${stats.returning ? 'Returns to spire · ' : ''}${stats.split > 0 ? `Splits ×${stats.split} · ` : ''}${w.lifetimeShots.toLocaleString()} lifetime attacks</p></article>`;
+        return `<article class="weapon-inspector" style="--rarity:${RARITY_COLORS[w.rarity]}"><div class="weapon-heading">${cardIcon(equipmentIcon(w.kind), 52)}<div><small>${rarityLabel(w.rarity)}</small><h3>${d.name}</h3></div><span class="weapon-mastery">${w.masteryRank ? `Mastery ${w.masteryRank}/6` : `Investment ${w.mastery}`}</span></div><p>${esc(d.description)}</p><div class="infusions">${stats.elements.length ? stats.elements.map((e) => `<span style="--element:${ELEMENT_COLORS[e]}">${e}</span>`).join('') : '<span>Uninfused</span>'}</div><dl class="weapon-stats"><div><dt>Damage</dt><dd>${stats.damage.toFixed(1)}</dd></div><div><dt>Interval</dt><dd>${stats.cooldown.toFixed(2)}s</dd></div><div><dt>Projectiles</dt><dd>${stats.count}</dd></div><div><dt>Size</dt><dd>${stats.size.toFixed(1)}</dd></div><div><dt>Speed</dt><dd>${Math.round(stats.speed)}</dd></div><div><dt>Range</dt><dd>${Math.round(stats.range)}</dd></div><div><dt>Pulse</dt><dd>${stats.pulse > 0 ? `0.80s` : '—'}</dd></div><div><dt>Pierce / bounce</dt><dd>${stats.pierce} / ${stats.bounces}</dd></div></dl><p class="quiet">${stats.trail > 0 ? 'Damaging trail · ' : ''}${stats.homing > 0 ? 'Homing · ' : ''}${stats.returning ? 'Returns to spire · ' : ''}${stats.split > 0 ? `Splits ×${stats.split} · ` : ''}${w.lifetimeShots.toLocaleString()} lifetime attacks</p></article>`;
       })
       .join(
         '',
@@ -778,9 +903,11 @@ function openArsenal() {
             .join('')
         : '<p>Your first cards arrive when the tower levels up. Every family has its own icon and effect.</p>'
     }</div>`;
+  } else if (arsenalTab === 'fusions') {
+    body += fusionPanel(s);
   } else
     body += `<p class="panel-note">Recipes require specific cards and interactions. Adding elements alone does not awaken every recipe.</p><div class="synergy-list">${SYNERGIES.map((y) => `<article class="synergy ${s.synergies.includes(y.id) ? 'awakened' : ''}" style="--element:${y.color}"><span class="synergy-sigil">${s.synergies.includes(y.id) ? '✦' : '◇'}</span><div><small>${s.synergies.includes(y.id) ? 'AWAKENED' : 'DORMANT'}</small><h3>${esc(y.name)}</h3><p>${esc(y.description)}</p><div class="requirements">${y.requires.map((id) => `<span class="${s.cards.some((c) => c.cardId === id) || (id.startsWith('infusion-') && s.weapons.some((w) => w.infusions.some((e) => e === id.slice(9)))) || (id.startsWith('weapon-') && s.weapons.some((w) => w.kind === id.slice(7))) ? 'met' : ''}">${esc(CARD_BY_ID[id]?.name ?? id)}</span>`).join('')}</div></div></article>`).join('')}</div>`;
-  if (isV2(s))
+  if (isV2(s) && arsenalTab !== 'fusions')
     body += `<section class="secondary-picker"><h3>Secondary ritual</h3><p>Choose Mend for survival, Stasis for control, or Solar Nova for offense. Collected skill cards can become an empowered secondary ritual.</p><label>Equipped secondary<select id="secondary-select"><option value="repair" ${s.secondary === 'repair' ? 'selected' : ''}>Mend · restore 25% integrity</option><option value="stasis" ${s.secondary === 'stasis' ? 'selected' : ''}>Stasis · 3 second crowd control</option><option value="nova" ${s.secondary === 'nova' ? 'selected' : ''}>Solar Nova · strike all enemies</option>${s.cards
       .filter((stack) => CARD_BY_ID[stack.cardId].group === 'skill')
       .map(
@@ -837,11 +964,11 @@ function openCodex() {
     'codex',
     {
       title: 'The field codex.',
-      subtitle: '124 CARD FAMILIES · 40 PASSIVE SYNERGIES',
+      subtitle: '124 CARDS · 40 PASSIVE SYNERGIES · 12 FUSIONS',
       width: 650,
       height: 760,
     },
-    `<div class="codex-search"><input id="codex-query" type="search" placeholder="Search names, effects, or mechanics…" aria-label="Search cards" value="${esc(codexQuery)}"><select id="codex-group" aria-label="Card category"><option value="all">All card families</option>${['weapon', 'infusion', 'modifier', 'defense', 'trigger', 'skill', 'utility', 'synergy', 'rules'].map((g) => `<option value="${g}" ${g === codexGroup ? 'selected' : ''}>${g[0].toUpperCase() + g.slice(1)}</option>`).join('')}</select></div><div id="codex-results"></div>`,
+    `<div class="codex-search"><input id="codex-query" type="search" placeholder="Search names, effects, or mechanics…" aria-label="Search cards" value="${esc(codexQuery)}"><select id="codex-group" aria-label="Card category"><option value="all">All card families</option>${['weapon', 'infusion', 'modifier', 'defense', 'trigger', 'skill', 'utility', 'synergy', 'fusion', 'rules'].map((g) => `<option value="${g}" ${g === codexGroup ? 'selected' : ''}>${g[0].toUpperCase() + g.slice(1)}</option>`).join('')}</select></div><div id="codex-results"></div>`,
   );
   $('codex-query').oninput = () => {
     codexQuery = $<HTMLInputElement>('codex-query').value;
@@ -858,6 +985,20 @@ function renderCodexResults() {
   if (codexGroup === 'rules') {
     $('codex-results').innerHTML =
       `<article class="rules"><h3>Build something that works together.</h3><p>Six shared sockets accept weapons or defensive cores. Duplicates strengthen investment and accelerate six-rank combat mastery. Global projectile cards modify every eligible weapon. Infusions add effects to the weapon you choose.</p><h3>Rarity is earned as well as found.</h3><p>Normal → Rare → Epic → Legendary → Mythic. Repeated investment at 3, 6, 9, and 12 picks promotes a family. Equipment combat mastery is a separate rank from 1–6, earned through use. A higher-tier drop never downgrades what you own. Legendary weapon cores gain one pierce; Mythic cores emit traveling damage pulses. Higher card tiers increase family strength by 20% per tier.</p><h3>Power has shape.</h3><p>Damage, speed, size, count, range, and lifetime interact. Additional infusions split direct damage across their elements. Diminishing returns, trigger cooldowns, and bounded proc chains prevent infinite loops. Effective values are shown in your arsenal. Infusion damage is divided equally; status and movement caps remain visible there. Enemy formations cap at 96. At 4,096 active shots, primary attacks wait; bounded split children and existing damaging shots finish. Cosmetic quality never changes combat.</p><h3>Defense can become offense.</h3><p>Thorns and reflected hits are retaliation damage. Shield breaks, incoming damage, and kills can trigger other effects, within each card’s cooldown and chain limit. Some cards leave persistent damage zones.</p><h3>Time is yours to manage.</h3><p>Information windows never pause combat. Drafts and shops pause by default, with a switch to keep combat live. Closing or minimizing the choice window banks it for later; rewards remain queued.</p><h3>The economy asks you to choose.</h3><p>Scrap is temporary. Credits unlock towers and permanent runes after the run. Repairs have limited stock, rerolls grow more expensive, and split enemies cannot generate extra bounty.</p></article>`;
+    return;
+  }
+  if (codexGroup === 'fusion') {
+    const s = current();
+    $('codex-results').innerHTML = modern(s)
+      ? fusionPanel(s)
+      : `<p>Twelve authored fusion recipes, each requiring two fully mastered equipped ingredients.</p>${FUSIONS.filter(
+          (f) => (f.name + ' ' + f.description).toLowerCase().includes(q),
+        )
+          .map(
+            (f) =>
+              `<article class="fusion-recipe">${cardIcon(f.iconId, 56)}<h3>${f.name}</h3><p>${f.description}</p><p>${f.ingredients.map((k) => WEAPON_BY_ID[k].name).join(' + ')} · mastery 6 each</p></article>`,
+          )
+          .join('')}`;
     return;
   }
   if (codexGroup === 'synergy') {
@@ -921,7 +1062,17 @@ function statsBody() {
       .filter(([, v]) => v > 0)
       .sort((a, b) => b[1] - a[1])
       .map(([id, v]) =>
-        line(esc(WEAPONS.find((w) => w.id === id)?.name ?? id), Math.round(v).toLocaleString()),
+        line(
+          esc(
+            isV2(s)
+              ? (WEAPON_BY_ID[s.weapons.find((w) => w.id === id)?.kind as keyof typeof WEAPON_BY_ID]
+                  ?.name ??
+                  WEAPONS.find((w) => w.id === id)?.name ??
+                  (id.startsWith('weapon-') ? 'Replaced core' : id))
+              : id,
+          ),
+          Math.round(v).toLocaleString(),
+        ),
       )
       .join('');
   return { towerStats, results };
@@ -989,7 +1140,7 @@ function runeMarkup() {
     visibleRunes
       .map(
         (id) =>
-          `<article class="rune-row"><b>${RUNE_NAMES[id]}</b><span>${runeBenefit(id, r.selected[id])}</span><span>Purchased ${r.owned[id]}/${RUNE_CAPS[id]} · selected <strong id="rune-value-${id}">${r.selected[id]}</strong></span><label>Selected level<input data-rune-select="${id}" type="range" min="0" max="${r.owned[id]}" value="${r.selected[id]}" ${playing ? 'disabled' : ''}></label><button data-rune-buy="${id}" class="outline-button" ${playing || r.owned[id] >= RUNE_CAPS[id] || data.profile.credits < runePrice(id, r.owned[id] + 1) ? 'disabled' : ''}>${r.owned[id] >= RUNE_CAPS[id] ? 'Fully purchased' : `Buy level ${r.owned[id] + 1} · ${runePrice(id, r.owned[id] + 1)} credits`}</button></article>`,
+          `<article class="rune-row"><b>${RUNE_NAMES[id]}</b><span>${runeBenefit(id, r.selected[id])}</span><span>Purchased ${r.owned[id]}/${Math.max(r.owned[id], RUNE_CAPS[id])} · selected <strong id="rune-value-${id}">${r.selected[id]}</strong></span><label>Selected level<input data-rune-select="${id}" type="range" min="0" max="${r.owned[id]}" value="${r.selected[id]}" ${playing ? 'disabled' : ''}></label><button data-rune-buy="${id}" class="outline-button" ${playing || r.owned[id] >= RUNE_CAPS[id] || data.profile.credits < runePrice(id, r.owned[id] + 1) ? 'disabled' : ''}>${r.owned[id] >= RUNE_CAPS[id] ? 'Fully purchased' : `Buy level ${r.owned[id] + 1} · ${runePrice(id, r.owned[id] + 1)} credits`}</button></article>`,
       )
       .join('') +
     '<button id="configure-autocast" class="outline-button full">Configure conditional autocast</button>'
@@ -1042,9 +1193,10 @@ function bindRunes() {
 }
 function openAutocast() {
   const active = playing ? data.progression.active : null;
-  const rules = active?.runId === data.run?.id ? active!.autocast : data.progression.autocast;
+  const rules =
+    active && active.runId === data.run?.id ? active!.autocast : data.progression.autocast;
   const runes =
-    active?.runId === data.run?.id ? active!.runes : snapshotRunes(data.progression.runes);
+    active && active.runId === data.run?.id ? active!.runes : snapshotRunes(data.progression.runes);
   manager.open(
     'autocast',
     {
@@ -1062,7 +1214,7 @@ function openAutocast() {
         return `<section class="autocast-slot"><h3>${slot === 'signature' ? 'Signature' : 'Secondary'} ${unlocked ? '' : '· Rune not selected'}</h3><label>Enable autocast<input type="checkbox" id="auto-${slot}-enabled" ${c.enabled ? 'checked' : ''} ${!unlocked ? 'disabled' : ''}></label><label>Strategy<select id="auto-${slot}-preset">${[
           ['always', 'Every time'],
           ['boss', 'Boss present'],
-          ['emergency', 'Emergency'],
+          ['emergency', 'Emergency · health ≤35%'],
           ['advanced', 'Advanced rule'],
         ]
           .map(([v, t]) => `<option value="${v}" ${c.preset === v ? 'selected' : ''}>${t}</option>`)
@@ -1101,11 +1253,13 @@ function openAutocast() {
       };
     }
     const normalized = normalizeAutocastConfig(next);
-    if (active?.runId === data.run?.id) active!.autocast = normalized;
+    if (active && active.runId === data.run?.id) active!.autocast = normalized;
     else data.progression.autocast = normalized;
     scheduleSave();
     updateHud();
     manager.close('autocast');
+    if (data.run)
+      telemetry.event(data.run.id, data.run.time, 'autocast-strategy', { rules: normalized });
     notify('Autocast strategy saved.');
   };
 }
@@ -1169,6 +1323,38 @@ function downloadCurrent() {
     );
   }
 }
+function openTelemetry() {
+  const state = telemetry.status();
+  manager.open(
+    'telemetry',
+    {
+      title: 'Observations stay here.',
+      subtitle: 'PRIVATE LOCAL GAMEPLAY DATA',
+      width: 600,
+      height: 600,
+    },
+    `<p>Balance observations are stored only in this browser, separately from your saved progress. Nothing is uploaded.</p><p>Up to 30 runs or 30 MB are retained; oldest records are removed automatically. Offers, decisions, mastery, fusions, combat outcomes and sampled performance help diagnose balance.</p><div class="stat-line"><span>Stored runs</span><b>${state.runs}</b></div><div class="stat-line"><span>Storage</span><b>${(state.bytes / 1024 / 1024).toFixed(2)} MB</b></div><p class="quiet">${state.available ? 'Local logging available.' : 'Logging unavailable. Combat and progress saving continue independently.'}</p><label>Record local gameplay<input id="analytics-enabled" type="checkbox" ${state.enabled ? 'checked' : ''}></label><div class="save-actions"><button id="analytics-export" class="outline-button">Export local logs</button><button id="analytics-clear" class="outline-button">Delete local logs</button></div><p id="analytics-message" role="status"></p><p class="quiet">Disable stops new observations. Deleting logs keeps your credits, purchases and saved expedition.</p>`,
+  );
+  $('analytics-enabled').onchange = async () => {
+    await telemetry.setEnabled($<HTMLInputElement>('analytics-enabled').checked);
+    $('analytics-message').textContent = telemetry.status().enabled
+      ? 'Local recording enabled.'
+      : 'Local recording disabled.';
+  };
+  $('analytics-export').onclick = async () => {
+    try {
+      download(await telemetry.exportLogs(), 'last-spire-local-gameplay.json');
+      $('analytics-message').textContent = 'Local export prepared.';
+    } catch {
+      $('analytics-message').textContent =
+        'Logs could not be exported; your game save is unaffected.';
+    }
+  };
+  $('analytics-clear').onclick = async () => {
+    await telemetry.clear();
+    $('analytics-message').textContent = 'Local logs deleted. Your game save is unchanged.';
+  };
+}
 function openSettings() {
   manager.open(
     'settings',
@@ -1178,7 +1364,7 @@ function openSettings() {
       width: 610,
       height: 760,
     },
-    `<div class="settings-list"><label>Sound effects<input id="setting-sound" type="checkbox" ${data.settings.sound ? 'checked' : ''}></label><label>Reduced motion<input id="setting-motion" type="checkbox" ${data.settings.reducedMotion ? 'checked' : ''}></label><label>Camera shake<input id="setting-shake" type="checkbox" ${data.settings.shake ? 'checked' : ''}></label><label>Pause draft & shop windows<input id="setting-pause" type="checkbox" ${data.settings.autoPauseChoices ? 'checked' : ''}></label><label>Text & interface scale<select id="setting-scale">${[100, 115, 130, 150].map((v) => `<option value="${v}" ${data.settings.uiScale === v ? 'selected' : ''}>${v}%</option>`).join('')}</select></label><label>Weapon spectacle<select id="setting-intensity">${['subtle', 'balanced', 'spectacular'].map((v) => `<option value="${v}" ${v === data.settings.intensity ? 'selected' : ''}>${v[0].toUpperCase() + v.slice(1)}</option>`).join('')}</select></label><label>Effects quality<select id="setting-quality"><option value="high" ${data.settings.effects === 'high' ? 'selected' : ''}>High detail</option><option value="low" ${data.settings.effects === 'low' ? 'selected' : ''}>Battery friendly</option></select></label></div><div class="save-status ${storageFailed || blocked ? 'warning' : ''}">${blocked ? 'A saved checkpoint needs recovery. Automatic writes are stopped to protect it.' : storageFailed ? 'Storage is unavailable. Progress is kept in this tab: export before closing.' : 'Local saves are active. Combat checkpoints and queued choices are autosaved.'}</div><div class="save-actions"><button id="export-save" class="outline-button">Export current save</button><label class="file-button outline-button">Import save<input id="import-save" type="file" accept="application/json,.json"></label><button id="paste-import" class="outline-button">Paste a save</button><button id="export-backup" class="outline-button">Download pre-v2 backup</button></div><p class="quiet">Save files stay on your device. Import shows a review before replacing progress. A recovered original expedition keeps its old rules until it ends.</p><div class="controls-reference"><h3>At your command</h3><p><kbd>Space</kbd> pause · <kbd>Q</kbd> signature · <kbd>E</kbd> secondary<br><kbd>A</kbd> arsenal · <kbd>C</kbd> codex · <kbd>1 / 2 / 3</kbd> speed<br><kbd>Esc</kbd> close the top window, then pause<br>Drag window headers, or focus a header and use <kbd>Alt + arrows</kbd>.</p></div><a class="outline-button full" href="/icon-contact-sheet.html" target="_blank" rel="noopener">Inspect the original card icon collection ↗</a>`,
+    `<div class="settings-list"><label>Sound effects<input id="setting-sound" type="checkbox" ${data.settings.sound ? 'checked' : ''}></label><label>Reduced motion<input id="setting-motion" type="checkbox" ${data.settings.reducedMotion ? 'checked' : ''}></label><label>Camera shake<input id="setting-shake" type="checkbox" ${data.settings.shake ? 'checked' : ''}></label><label>Pause draft & shop windows<input id="setting-pause" type="checkbox" ${data.settings.autoPauseChoices ? 'checked' : ''}></label><label>Text & interface scale<select id="setting-scale">${[100, 115, 130, 150].map((v) => `<option value="${v}" ${data.settings.uiScale === v ? 'selected' : ''}>${v}%</option>`).join('')}</select></label><label>Weapon spectacle<select id="setting-intensity">${['subtle', 'balanced', 'spectacular'].map((v) => `<option value="${v}" ${v === data.settings.intensity ? 'selected' : ''}>${v[0].toUpperCase() + v.slice(1)}</option>`).join('')}</select></label><label>Effects quality<select id="setting-quality"><option value="high" ${data.settings.effects === 'high' ? 'selected' : ''}>High detail</option><option value="low" ${data.settings.effects === 'low' ? 'selected' : ''}>Battery friendly</option></select></label></div><div class="save-status ${storageFailed || blocked ? 'warning' : ''}">${blocked ? 'A saved checkpoint needs recovery. Automatic writes are stopped to protect it.' : storageFailed ? 'Storage is unavailable. Progress is kept in this tab: export before closing.' : 'Local saves are active. Combat checkpoints and queued choices are autosaved.'}</div><div class="save-actions"><button id="local-analytics" class="outline-button">Local gameplay data</button><button id="export-save" class="outline-button">Export current save</button><label class="file-button outline-button">Import save<input id="import-save" type="file" accept="application/json,.json"></label><button id="paste-import" class="outline-button">Paste a save</button><button id="export-backup" class="outline-button">Download pre-v2 backup</button></div><p class="quiet">Save files stay on your device. Import shows a review before replacing progress. A recovered original expedition keeps its old rules until it ends.</p><div class="controls-reference"><h3>At your command</h3><p><kbd>Space</kbd> pause · <kbd>Q</kbd> signature · <kbd>E</kbd> secondary<br><kbd>A</kbd> arsenal · <kbd>C</kbd> codex · <kbd>1 / 2 / 3</kbd> speed<br><kbd>Esc</kbd> close the top window, then pause<br>Drag window headers, or focus a header and use <kbd>Alt + arrows</kbd>.</p></div><a class="outline-button full" href="/icon-contact-sheet.html" target="_blank" rel="noopener">Inspect the original card icon collection ↗</a>`,
   );
   const bindCheck = (id: string, key: 'sound' | 'reducedMotion' | 'shake' | 'autoPauseChoices') => {
     $(id).onchange = () => {
@@ -1208,6 +1394,7 @@ function openSettings() {
     scheduleSave();
   };
   $('export-save').onclick = downloadCurrent;
+  $('local-analytics').onclick = openTelemetry;
   $('export-backup').onclick = async () => {
     try {
       const raw = await readLegacyBackup();
@@ -1268,7 +1455,7 @@ function showImportReview(incoming: SaveV3, name: string) {
       height: 450,
       choice: true,
     },
-    `<p class="lead">${esc(name)}</p><div class="ledger-grid"><div><small>Credits</small><b>${incoming.profile.credits}</b></div><div><small>Towers</small><b>${incoming.profile.unlocked.length}/6</b></div><div><small>Best wave</small><b>${incoming.profile.bestWave}</b></div><div><small>Active run</small><b>${incoming.run ? `Wave ${incoming.run.wave}` : 'None'}</b></div></div><p>This replaces the current local progress. Export your current save first if you want to keep both.</p><div class="result-actions"><button id="cancel-import" class="outline-button">Cancel</button><button id="confirm-import" class="gold-button">Restore this save</button></div>`,
+    `<p class="lead">${esc(name)}</p><div class="ledger-grid"><div><small>Credits</small><b>${incoming.profile.credits}</b></div><div><small>Towers</small><b>${incoming.profile.unlocked.length}/${TOWERS.length}</b></div><div><small>Best wave</small><b>${incoming.profile.bestWave}</b></div><div><small>Active run</small><b>${incoming.run ? `Wave ${incoming.run.wave}` : 'None'}</b></div></div><p>This replaces the current local progress. Export your current save first if you want to keep both.</p><div class="result-actions"><button id="cancel-import" class="outline-button">Cancel</button><button id="confirm-import" class="gold-button">Restore this save</button></div>`,
   );
   $('cancel-import').onclick = () => manager.close('import');
   $('confirm-import').onclick = async () => {
@@ -1484,6 +1671,7 @@ function activate(which: 'signature' | 'secondary') {
   if (!s || paused || manager.choicesPause() || s.phase !== 'combat') return;
   const success = isV2(s) ? useSkill(s, which) : legacySkill(s, which);
   if (success) {
+    telemetry.event(s.id, s.time, 'skill', { slot: which, automatic: false });
     sound(which === 'signature' ? 590 : 440);
     updateHud();
   }
@@ -1565,7 +1753,11 @@ function frame(now: number) {
     while (accumulator >= TICK) {
       if (isV2(s)) {
         const active = data.progression.active;
-        if (active?.runId === s.id) tickAutocast(s, active.autocast);
+        if (active?.runId === s.id) {
+          const casts = tickAutocast(s, active.autocast);
+          for (const slot of ['signature', 'secondary'] as const)
+            if (casts[slot]) telemetry.event(s.id, s.time, 'skill', { slot, automatic: true });
+        }
         step(s, TICK);
         recordDamageSample(s);
       } else legacyStep(s, TICK);
@@ -1584,6 +1776,11 @@ function frame(now: number) {
     $('arena').dataset.enemies = String(s.enemies.length);
     $('arena').dataset.projectiles = String(s.projectiles.length);
     perfTime = 0;
+    if (playing && isV2(s))
+      telemetry.sample(s, {
+        fps: Number($('arena').dataset.fps),
+        renderMs: Number($('arena').dataset.renderMs),
+      });
     frames = 0;
     drawCost = 0;
   }
@@ -1612,6 +1809,7 @@ function frame(now: number) {
         if (s.phase === 'ended') {
           manager.close('rewards');
           manager.close('victory');
+          if (isV2(s)) void telemetry.finish(s);
           openResults();
         }
         scheduleSave();
@@ -1647,6 +1845,7 @@ function frame(now: number) {
 }
 async function init() {
   let recovery = '';
+  await telemetry.init();
   try {
     data = await loadGame();
   } catch (e) {
@@ -1668,7 +1867,15 @@ async function init() {
   playing = !!data.run;
   paused = playing && data.run?.phase === 'combat';
   makePreview();
-  if (isV2(current())) recordDamageSample(current() as RunV2);
+  if (isV2(current())) {
+    recordDamageSample(current() as RunV2);
+    if (playing && data.run)
+      void telemetry.begin(data.run as RunV2, {
+        build: '3.0.0',
+        mode: modern(data.run)?.mode ?? 'legacy',
+        runes: data.progression.active?.runes ?? {},
+      });
+  }
   applySettings();
   loading = false;
   $('loading-screen').remove();

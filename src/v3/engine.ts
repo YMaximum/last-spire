@@ -1,6 +1,6 @@
 import { STAGES } from '../content';
 import * as legacy from '../v2/engine';
-import { TOWERS, isDefensiveKind } from './catalog';
+import { TOWERS, isDefensiveKind, isFusedKind, FUSIONS, FUSION_BY_ID } from './catalog';
 import type { RunV3, RunOptions } from './types';
 import { MASTERY_THRESHOLDS } from './types';
 export type { RunV3, RunOptions, RunMode } from './types';
@@ -23,10 +23,11 @@ import type {
 export const TICK = 1 / 30;
 export const RARITIES: Rarity[] = ['normal', 'rare', 'epic', 'legendary', 'mythic'];
 export const isModern = (s: RunV2): s is RunV3 => s.rulesVersion === 3;
-export const finalWave = (s: RunV2) => s.mode === 'quick' ? 50 : 100;
-export const bossWave = (s: RunV2, wave: number) => s.mode === 'quick'
-  ? [12, 25, 37, 50].includes(wave) || (s.endless && wave > 50 && wave % 12 === 0)
-  : wave % 25 === 0;
+export const finalWave = (s: RunV2) => (s.mode === 'quick' ? 50 : 100);
+export const bossWave = (s: RunV2, wave: number) =>
+  s.mode === 'quick'
+    ? [12, 25, 37, 50].includes(wave) || (s.endless && wave > 50 && wave % 12 === 0)
+    : wave % 25 === 0;
 const ELEMENTS: Element[] = ['fire', 'frost', 'lightning', 'poison', 'solar', 'void'];
 const MAX_DEPTH = 2;
 const projectilePools = new WeakMap<RunV2, ProjectileV2[]>();
@@ -140,9 +141,20 @@ export function createRun(
     version: 2,
     rulesVersion: 3,
     mode: options.mode || 'normal',
-    level: 1, xp: 0, xpRequired: 12,
+    level: 1,
+    xp: 0,
+    xpRequired: 12,
     offerRng: (seed ^ 0x9e3779b9) >>> 0 || 1,
-    runeSnapshot: { power: profile.upgrades.power, vitality: profile.upgrades.vitality, fortune: options.runes?.fortune ?? profile.upgrades.fortune, experience: 0, choices: 0, autoSignature: 0, autoSecondary: 0, ...options.runes },
+    runeSnapshot: {
+      power: profile.upgrades.power,
+      vitality: profile.upgrades.vitality,
+      fortune: options.runes?.fortune ?? profile.upgrades.fortune,
+      experience: 0,
+      choices: 0,
+      autoSignature: 0,
+      autoSecondary: 0,
+      ...options.runes,
+    },
     id: `v3-${seed}-${towerId}-${Date.now()}`,
     tower: t.id,
     stage: clamp(stage, 0, 2),
@@ -207,7 +219,10 @@ export function createRun(
     shotCycle: 0,
     lifetimeShots: 0,
     mastery: 1,
-    masteryRank: 1, masteryProgress: 0, masteryRequired: 60, fusionReady: false,
+    masteryRank: 1,
+    masteryProgress: 0,
+    masteryRequired: 60,
+    fusionReady: false,
     rarity: 'normal',
     infusions: [t.element],
     angle: 0,
@@ -219,6 +234,11 @@ export function activeSynergies(s: RunV2): string[] {
   if (s.rulesVersion !== 3) return legacy.activeSynergies(s);
   const tags = new Set<string>([s.tower, `tower:${s.tower}`, `tower-${s.tower}`]);
   for (const w of s.weapons) {
+    for (const ingredient of w.fusion?.ingredients || []) {
+      tags.add(ingredient.kind);
+      tags.add(`weapon:${ingredient.kind}`);
+      tags.add(`weapon-${ingredient.kind}`);
+    }
     tags.add(w.kind);
     tags.add(`weapon:${w.kind}`);
     tags.add(`weapon-${w.kind}`);
@@ -239,6 +259,7 @@ export function activeSynergies(s: RunV2): string[] {
 }
 export function getWeaponStats(s: RunV2, w: WeaponInstance): WeaponStats {
   if (s.rulesVersion !== 3) return legacy.getWeaponStats(s, w);
+  if (w.fusion) return fusedStats(s, w);
   const d = weapon(w.kind),
     p = (k: string) => ep(s, k, w.id),
     t = tower(s),
@@ -246,6 +267,7 @@ export function getWeaponStats(s: RunV2, w: WeaponInstance): WeaponStats {
   const damage =
     d.damage *
     t.damage *
+    (s.tower === 'monolith' && isDefensiveKind(w.kind) ? 1.5 : 1) *
     (1 + s.counters.profilePower + 0.1 * ((w.masteryRank || 1) - 1) + 0.03 * (w.mastery - 1)) *
     rarityPower(w.rarity) *
     (1 + p('damage') + buff(s, 'damage')) *
@@ -259,7 +281,10 @@ export function getWeaponStats(s: RunV2, w: WeaponInstance): WeaponStats {
       (d.cooldown * (1 + (p('charge') * 0.16) / 0.35)) /
         (t.rate * (1 + p('rate') + buff(s, 'rate'))),
     ),
-    range: d.range * (1 + p('range')) * (isDefensiveKind(w.kind) ? 1 + Math.min(0.5, p('defense-range')) : 1),
+    range:
+      d.range *
+      (1 + p('range')) *
+      (isDefensiveKind(w.kind) ? 1 + Math.min(0.5, p('defense-range')) : 1),
     speed: Math.max(35, (d.speed * (1 + p('speed'))) / (1 + slow + p('size') * 0.7)),
     size: Math.min(75, 5 * (1 + p('size'))),
     count: Math.min(12, 1 + Math.floor(p('count'))),
@@ -288,6 +313,17 @@ export function getWeaponStats(s: RunV2, w: WeaponInstance): WeaponStats {
   if (tier(w.rarity) >= 3) b.pierce = Math.min(15, b.pierce + 1);
   if (tier(w.rarity) >= 4) b.pulse = Math.max(b.pulse, 0.12);
 
+  const view = fusionViewMeta.get(w);
+  if (view) {
+    b.damage *= 1.22 * (1 + (view.parent.fusion?.overflowPower || 0));
+    if (view.recipeId === 'fusion-prism') b.bounces = Math.min(8, b.bounces + 1);
+    if (view.recipeId === 'fusion-orrery') {
+      b.returning = true;
+      b.pulse = Math.max(b.pulse, 0.08);
+    }
+    if (view.recipeId === 'fusion-lance' && w.kind === 'bolt')
+      b.pierce = Math.min(15, b.pierce + 2);
+  }
   return b;
 }
 function promote(r: Rarity, mastery: number): Rarity {
@@ -298,8 +334,14 @@ export function acquireCard(s: RunV2, offer: CardOffer, targetId?: string): bool
   const d = card(offer.cardId);
   if (!d) return false;
   targetId = targetId || offer.targetId;
-  if (d.group !== 'infusion' && d.group !== 'weapon' && d.effect !== 'mastery-focus') targetId = undefined;
-  if (d.effect === 'mastery-focus' && (!targetId || !s.weapons.some(w => w.id === targetId))) return false;
+  if (d.group !== 'infusion' && d.group !== 'weapon' && d.effect !== 'mastery-focus')
+    targetId = undefined;
+  if (
+    d.effect === 'mastery-focus' &&
+    (!targetId ||
+      !s.weapons.some((w) => w.id === targetId && !w.fusion && (w.masteryRank || 1) < 6))
+  )
+    return false;
   const prior = s.cards.find((c) => c.cardId === d.id && c.targetId === targetId);
   if (prior && prior.stacks >= d.maxStacks && tier(prior.rarity) >= tier(offer.rarity))
     return false;
@@ -325,7 +367,10 @@ export function acquireCard(s: RunV2, offer: CardOffer, targetId?: string): bool
         shotCycle: 0,
         lifetimeShots: 0,
         mastery: 1,
-        masteryRank: 1, masteryProgress: 0, masteryRequired: 60, fusionReady: false,
+        masteryRank: 1,
+        masteryProgress: 0,
+        masteryRequired: 60,
+        fusionReady: false,
         rarity: offer.rarity,
         infusions: [],
         angle: 0,
@@ -388,9 +433,14 @@ export function acquireCard(s: RunV2, offer: CardOffer, targetId?: string): bool
       maxLife: 1.8,
     });
   }
+  refreshFusionReady(s);
   return true;
 }
-export function previewCard(s: RunV2, offer: CardOffer, targetId?: string) {
+export function previewCard(
+  s: RunV2,
+  offer: CardOffer,
+  targetId?: string,
+): { summary: string; awaken: string[]; lost: string[]; canApply?: boolean } {
   if (s.rulesVersion !== 3) return legacy.previewCard(s, offer, targetId);
   const copy = JSON.parse(
     JSON.stringify({ ...s, enemies: [], projectiles: [], areas: [], visuals: [] }),
@@ -422,7 +472,9 @@ export function previewCard(s: RunV2, offer: CardOffer, targetId?: string) {
   else if (d?.group === 'weapon') {
     const w = copy.weapons.find((w) => w.kind === d.weapon)!;
     const st = getWeaponStats(copy, w);
-    summary = `${s.weapons.some((x) => x.kind === w.kind) ? 'Strengthens' : 'Adds'} ${weapon(w.kind).name} · ${st.damage.toFixed(1)} damage / ${st.cooldown.toFixed(2)}s · mastery ${w.masteryRank || 1}/6 · investment ${w.mastery} · ${w.rarity}`;
+    const prior = s.weapons.find((x) => x.kind === w.kind),
+      previous = prior ? getWeaponStats(s, prior) : undefined;
+    summary = `${prior ? 'Strengthens' : 'Adds'} ${weapon(w.kind).name} · ${previous ? `${previous.damage.toFixed(1)} → ` : ''}${st.damage.toFixed(1)} damage / ${previous && previous.cooldown !== st.cooldown ? `${previous.cooldown.toFixed(2)} → ` : ''}${st.cooldown.toFixed(2)}s · mastery ${prior ? `${prior.masteryRank || 1} → ` : ''}${w.masteryRank || 1}/6 · investment ${w.mastery} · ${w.rarity}`;
   } else if (d?.group === 'infusion') {
     const w = copy.weapons.find((w) => w.id === targetId)!;
     summary = `${weapon(w.kind).name}: ${w.infusions.join(' + ')} · direct damage shared across ${w.infusions.length} elements.`;
@@ -463,6 +515,7 @@ export function previewCard(s: RunV2, offer: CardOffer, targetId?: string) {
     summary = `Effective ${d.effect.replaceAll('-', ' ')}: ${a.toFixed(2)} → ${b.toFixed(2)} · ${copy.cards.find((c) => c.cardId === d.id)?.rarity || offer.rarity}`;
   }
   return {
+    canApply: ok,
     summary,
     awaken: activeSynergies(copy)
       .filter((id) => !before.includes(id))
@@ -480,56 +533,107 @@ export function rewardRerollCost(s: RunV2, id: string) {
 function offerRandom(s: RunV2) {
   const v = s as RunV3;
   let x = v.offerRng | 0;
-  x ^= x << 13; x ^= x >>> 17; x ^= x << 5;
+  x ^= x << 13;
+  x ^= x >>> 17;
+  x ^= x << 5;
   v.offerRng = x >>> 0 || 1;
   return v.offerRng / 4294967296;
 }
-function eligibleFamily(s: RunV2, c: typeof CARDS[number]): boolean {
-  const copies = s.cards.filter(x => x.cardId === c.id);
-  if (copies.length && copies.every(x => x.stacks >= c.maxStacks && x.rarity === 'mythic')) {
+function eligibleFamily(s: RunV2, c: (typeof CARDS)[number]): boolean {
+  const copies = s.cards.filter((x) => x.cardId === c.id);
+  if (copies.length && copies.every((x) => x.stacks >= c.maxStacks && x.rarity === 'mythic')) {
     if (c.group !== 'infusion' && c.effect !== 'mastery-focus') return false;
-    if (s.weapons.every(w => copies.some(x => x.targetId === w.id))) return false;
+    if (s.weapons.every((w) => copies.some((x) => x.targetId === w.id))) return false;
   }
   if (c.group === 'infusion' && !s.weapons.length) return false;
-  const offensive = s.weapons.some(w => !isDefensiveKind(w.kind));
-  if (c.scope === 'projectiles' && !offensive && !['damage', 'range', 'infusion', 'skill-cooldown'].includes(c.effect)) return false;
-  if (c.effect === 'mastery-focus' && !s.weapons.some(w => !w.fusionReady)) return false;
+  const offensive = s.weapons.some((w) => !isDefensiveKind(w.kind));
+  if (
+    c.scope === 'projectiles' &&
+    !offensive &&
+    !['damage', 'range', 'rate', 'infusion', 'skill-cooldown'].includes(c.effect)
+  )
+    return false;
+  if (c.effect === 'mastery-focus' && !s.weapons.some((w) => !w.fusion && (w.masteryRank || 1) < 6))
+    return false;
   return true;
 }
 function usableOffer(s: RunV2, offer: CardOffer): boolean {
   const c = card(offer.cardId);
   if (!c || !eligibleFamily(s, c)) return false;
   const applicable = (targetId?: string) => {
-    const prior = s.cards.find(x => x.cardId === c.id && x.targetId === targetId);
+    const prior = s.cards.find((x) => x.cardId === c.id && x.targetId === targetId);
     return !prior || prior.stacks < c.maxStacks || tier(prior.rarity) < tier(offer.rarity);
   };
   if (c.group === 'infusion' || c.effect === 'mastery-focus')
-    return s.weapons.some(w => (c.effect !== 'mastery-focus' || !w.fusionReady) && applicable(w.id));
+    return s.weapons.some(
+      (w) =>
+        (c.effect !== 'mastery-focus' || (!w.fusion && (w.masteryRank || 1) < 6)) &&
+        applicable(w.id),
+    );
   return applicable();
 }
-function rollOffer(s: RunV2, d: typeof CARDS[number], shop: boolean): CardOffer | undefined {
-  const roll = offerRandom(s) + Math.min(0.12, (s.counters.fortune || 0) * 0.008 + ep(s, 'fortune'));
-  let rarity: Rarity = roll > 0.995 ? 'mythic' : roll > 0.965 ? 'legendary' : roll > 0.86 ? 'epic' : roll > 0.6 ? 'rare' : 'normal';
+function rollOffer(s: RunV2, d: (typeof CARDS)[number], shop: boolean): CardOffer | undefined {
+  const roll =
+    offerRandom(s) + Math.min(0.12, (s.counters.fortune || 0) * 0.008 + ep(s, 'fortune'));
+  let rarity: Rarity =
+    roll > 0.995
+      ? 'mythic'
+      : roll > 0.965
+        ? 'legendary'
+        : roll > 0.86
+          ? 'epic'
+          : roll > 0.6
+            ? 'rare'
+            : 'normal';
   const offer = { id: `offer-${s.nextId++}`, cardId: d.id, rarity, price: 0 };
-  while (!usableOffer(s, offer) && tier(offer.rarity) < 4) offer.rarity = RARITIES[tier(offer.rarity) + 1];
+  while (!usableOffer(s, offer) && tier(offer.rarity) < 4)
+    offer.rarity = RARITIES[tier(offer.rarity) + 1];
   if (!usableOffer(s, offer)) return undefined;
-  offer.price = shop ? Math.round((42 + tier(offer.rarity) * 15) * (1 - Math.min(0.3, ep(s, 'discount')))) : 0;
+  offer.price = shop
+    ? Math.round((42 + tier(offer.rarity) * 15) * (1 - Math.min(0.3, ep(s, 'discount'))))
+    : 0;
   return offer;
 }
 function makeOffers(s: RunV2, count: number, shop: boolean): CardOffer[] {
-  const available = CARDS.filter(c => eligibleFamily(s, c));
+  const available = CARDS.filter((c) => eligibleFamily(s, c));
   const offers: CardOffer[] = [];
   const attempted = new Set<string>();
   while (offers.length < count) {
-    let options = available.filter(c => !attempted.has(c.id));
+    let options = available.filter((c) => !attempted.has(c.id));
     if (!options.length) break;
     const i = offers.length;
     if (!shop && i === 0) {
-      const owned = options.filter(c => s.cards.some(x => x.cardId === c.id) || (c.weapon && s.weapons.some(w => w.kind === c.weapon)));
+      const owned = options.filter(
+        (c) =>
+          s.cards.some((x) => x.cardId === c.id) ||
+          (c.weapon && s.weapons.some((w) => w.kind === c.weapon)),
+      );
       if (owned.length) options = owned;
     } else if (!shop && i === 1) {
-      const fresh = options.filter(c => !s.cards.some(x => x.cardId === c.id));
+      const fresh = options.filter((c) => !s.cards.some((x) => x.cardId === c.id));
       if (fresh.length) options = fresh;
+      const partners = options.filter(
+        (c) =>
+          c.weapon &&
+          FUSIONS.some(
+            (f) =>
+              f.ingredients.includes(c.weapon!) &&
+              f.ingredients.some(
+                (kind) => kind !== c.weapon && s.weapons.some((w) => !w.fusion && w.kind === kind),
+              ),
+          ) &&
+          !s.weapons.some((w) => w.kind === c.weapon),
+      );
+      if ((s.level || 1) % 4 === 0 && partners.length) options = partners;
+      else if (s.weapons.length < 3) {
+        const equipment = options.filter(
+          (c) => c.weapon && !s.weapons.some((w) => w.kind === c.weapon),
+        );
+        const defensive = equipment.filter((c) => isDefensiveKind(c.weapon!));
+        if (!s.weapons.some((w) => !isDefensiveKind(w.kind)) && defensive.length)
+          options = defensive;
+        else if (equipment.length) options = equipment;
+      }
     }
     const d = options[Math.floor(offerRandom(s) * options.length)];
     attempted.add(d.id);
@@ -543,13 +647,25 @@ export function refreshPendingOffers(s: RunV2): void {
   if (!isModern(s)) return;
   for (const reward of s.pendingRewards) {
     const used = new Set<string>();
-    reward.offers = reward.offers.flatMap(offer => {
-      if (!used.has(offer.cardId) && usableOffer(s, offer)) { used.add(offer.cardId); return [offer]; }
-      const candidates = CARDS.filter(c => !used.has(c.id) && !reward.offers.some(o => o !== offer && o.cardId === c.id) && eligibleFamily(s, c));
+    reward.offers = reward.offers.flatMap((offer) => {
+      if (!used.has(offer.cardId) && usableOffer(s, offer)) {
+        used.add(offer.cardId);
+        return [offer];
+      }
+      const candidates = CARDS.filter(
+        (c) =>
+          !used.has(c.id) &&
+          !reward.offers.some((o) => o !== offer && o.cardId === c.id) &&
+          eligibleFamily(s, c),
+      );
       while (candidates.length) {
-        const index = Math.floor(offerRandom(s) * candidates.length), candidate = candidates.splice(index, 1)[0];
+        const index = Math.floor(offerRandom(s) * candidates.length),
+          candidate = candidates.splice(index, 1)[0];
         const replacement = rollOffer(s, candidate, reward.kind === 'shop');
-        if (replacement) { used.add(replacement.cardId); return [replacement]; }
+        if (replacement) {
+          used.add(replacement.cardId);
+          return [replacement];
+        }
       }
       return [];
     });
@@ -560,7 +676,11 @@ function queueReward(s: RunV2, kind: 'draft' | 'shop', wave: number) {
     id: `reward-${s.nextId++}`,
     kind,
     wave,
-    offers: makeOffers(s, kind === 'shop' ? 4 : 3 + Math.min(2, (s as RunV3).runeSnapshot.choices || 0), kind === 'shop'),
+    offers: makeOffers(
+      s,
+      kind === 'shop' ? 4 : 3 + Math.min(2, (s as RunV3).runeSnapshot.choices || 0),
+      kind === 'shop',
+    ),
     rerolls: 0,
     repairStock: kind === 'shop' ? 1 : 0,
   });
@@ -600,7 +720,11 @@ export function rerollReward(s: RunV2, id: string) {
   s.scrap -= cost;
   s.stats.spent += cost;
   r.rerolls++;
-  r.offers = makeOffers(s, r.kind === 'shop' ? r.offers.length : 3 + Math.min(2, (s as RunV3).runeSnapshot.choices || 0), r.kind === 'shop');
+  r.offers = makeOffers(
+    s,
+    r.kind === 'shop' ? r.offers.length : 3 + Math.min(2, (s as RunV3).runeSnapshot.choices || 0),
+    r.kind === 'shop',
+  );
   return true;
 }
 export function closeShop(s: RunV2, id: string) {
@@ -634,13 +758,19 @@ export function retire(s: RunV2) {
 }
 export function rewardForRun(s: RunV2) {
   if (s.rulesVersion !== 3) return legacy.rewardForRun(s);
-  return Math.floor(s.time * 0.055 + s.earned * 0.08 + (s.cleared ? (s.mode === 'quick' ? 55 : 110) : 0));
+  return Math.floor(
+    s.time * 0.055 + s.earned * 0.08 + (s.cleared ? (s.mode === 'quick' ? 55 : 110) : 0),
+  );
 }
 export function describeNextThreat(s: RunV2) {
   if (s.rulesVersion !== 3) return legacy.describeNextThreat(s);
   const n = s.wave + (s.phase === 'victory' ? 1 : 0);
+  const bossIndex =
+    s.mode === 'quick' && [12, 25, 37, 50].includes(n)
+      ? [12, 25, 37, 50].indexOf(n)
+      : (((Math.floor(n / 25) - 1) % 4) + 4) % 4;
   return bossWave(s, n)
-    ? `${STAGES[s.stage].bosses[Math.floor(n / 25 - 1) % 4]}: watch the marked strike zones.`
+    ? `${STAGES[s.stage].bosses[bossIndex]}: watch the marked strike zones.`
     : n % 10 === 0
       ? 'Elite formation: armor, support and ranged pressure.'
       : n % 7 === 0
@@ -653,7 +783,10 @@ function shieldCap(s: RunV2) {
   return s.maxHp * 0.45 + ep(s, 'shield');
 }
 function grantShield(s: RunV2, n: number) {
+  const previous = s.shield;
   s.shield = Math.min(shieldCap(s), s.shield + n);
+  s.counters.protectionShieldGenerated =
+    (s.counters.protectionShieldGenerated || 0) + Math.max(0, s.shield - previous);
 }
 function ready(s: RunV2, key: string, seconds: number) {
   if ((s.counters[key] || 0) > s.time) return false;
@@ -738,11 +871,15 @@ function kill(s: RunV2, e: EnemyV2, event: DamageEvent) {
     if (synergyEffect(s, 'kill-bounty')) s.scrap += 3;
   }
   if (e.kind === 'splitter') {
-    const known = new Set(s.enemies.map(enemy => enemy.id));
+    const known = new Set(s.enemies.map((enemy) => enemy.id));
     const first = spawnEnemy(s, 'swarmer', e.x - 13, e.y, 0);
-    if (!known.has(first.id)) { first.xpBudget = budget * 0.25; known.add(first.id); } else grantXp(s, budget * 0.25);
+    if (!known.has(first.id)) {
+      first.xpBudget = budget * 0.25;
+      known.add(first.id);
+    } else grantXp(s, budget * 0.25);
     const second = spawnEnemy(s, 'swarmer', e.x + 13, e.y, 0);
-    if (!known.has(second.id)) second.xpBudget = budget * 0.25; else grantXp(s, budget * 0.25);
+    if (!known.has(second.id)) second.xpBudget = budget * 0.25;
+    else grantXp(s, budget * 0.25);
   }
   visual(s, 'hit', e.x, e.y, '#f5d996', e.radius * 1.4);
   void event;
@@ -771,7 +908,8 @@ export function dealDamage(s: RunV2, e: EnemyV2, event: DamageEvent): number {
   s.damageByWeapon[event.weaponId] = (s.damageByWeapon[event.weaponId] || 0) + dealt;
   s.damageByElement[el] += dealt;
   if (event.source === 'proc') s.stats.procCount++;
-  if (event.source === 'primary' && ep(s, 'hit-shield') && ready(s, 'hit-shield', 0.25)) grantShield(s, Math.min(8, ep(s, 'hit-shield')));
+  if (event.source === 'primary' && ep(s, 'hit-shield') && ready(s, 'hit-shield', 0.25))
+    grantShield(s, Math.min(8, ep(s, 'hit-shield')));
   if (event.source === 'primary') {
     const scale = 1 + ep(s, 'infusion', event.weaponId) * 0.3;
     if (el === 'fire')
@@ -880,15 +1018,20 @@ export function takeDamage(
   attacker?: EnemyV2,
 ) {
   if (s.rulesVersion !== 3) return legacy.takeDamage(s, amount, element, attacker);
-  const defense = getDefenseStats(s);
+  const defense = getDefenseStats(s),
+    rawIncoming = amount;
   amount *= 1 - defense.mitigation[element];
+  s.counters.protectionPrevented =
+    (s.counters.protectionPrevented || 0) + Math.max(0, rawIncoming - amount);
   const previousShield = s.shield,
     absorbed = Math.min(s.shield, amount);
   s.shield -= absorbed;
   s.hp -= amount - absorbed;
   s.stats.damageTaken += amount - absorbed;
+  s.counters.protectionAbsorbed = (s.counters.protectionAbsorbed || 0) + absorbed;
   reactCores(s, amount, absorbed, attacker, element);
-  if (ep(s, 'hurt-charge') && ready(s, 'hurt-charge', 0.6)) addBuff(s, 'hurt-charge', 'damage', Math.min(0.5, ep(s, 'hurt-charge')), 4);
+  if (ep(s, 'hurt-charge') && ready(s, 'hurt-charge', 0.6))
+    addBuff(s, 'hurt-charge', 'damage', Math.min(0.5, ep(s, 'hurt-charge')), 4);
   if (attacker && dist(attacker, origin) < 90 && ep(s, 'thorns')) {
     dealDamage(s, attacker, {
       rootId: s.nextId++,
@@ -993,7 +1136,8 @@ export function spawnEnemy(
                 : 'splitter');
   const encounterWave = s.mode === 'quick' ? s.wave * 2 : s.wave;
   const scale =
-      (1 + encounterWave * 0.075 + Math.pow(encounterWave / 13, 2)) * (s.mode === 'quick' ? 0.78 : 1) *
+      (1 + encounterWave * 0.075 + Math.pow(encounterWave / 13, 2)) *
+      (s.mode === 'quick' ? 0.22 : 1) *
       (1 + s.stage * 0.03) *
       (1 + s.difficulty * 0.2) *
       (1 + Math.max(0, s.wave - finalWave(s)) * 0.055),
@@ -1035,7 +1179,8 @@ export function spawnEnemy(
           : kind === 'ranged'
             ? 5.2
             : 4) *
-      (1 + s.wave * 0.03),
+      (1 + s.wave * 0.03) *
+      (s.mode === 'quick' ? 1.35 : 1),
     radius: kind === 'boss' ? 29 : kind === 'elite' ? 19 : kind === 'armored' ? 13 : 9,
     armor: kind === 'armored' ? 0.3 : kind === 'boss' ? 0.15 : 0,
     attackCd: 1.5,
@@ -1099,6 +1244,7 @@ function projectile(
   const p: ProjectileV2 = Object.assign(projectilePools.get(s)?.pop() || ({} as ProjectileV2), {
     id: s.nextId++,
     weaponId: w.id,
+    fusionId: w.fusion?.recipeId || fusionViewMeta.get(w)?.recipeId,
     kind,
     x,
     y,
@@ -1132,6 +1278,7 @@ function projectile(
   return p;
 }
 function fireWeapon(s: RunV2, w: WeaponInstance) {
+  if (w.fusion) return fireFusedWeapon(s, w);
   if (isDefensiveKind(w.kind)) return false;
   if (s.projectiles.length >= 4096) return false;
   const st = getWeaponStats(s, w),
@@ -1154,9 +1301,13 @@ function fireWeapon(s: RunV2, w: WeaponInstance) {
         along = x * dx + y * dy,
         perp = Math.abs(x * dy - y * dx);
       if (along > 0 && along < st.range && perp < e.radius + st.size) {
-        const flightGain = Math.min(0.35, (p.maxLife - p.life) * ep(s, 'flight-damage', p.weaponId));
-      hit(s, e, p, p.damage * (1 + flightGain));
-      if (p.depth === 0 && ep(s, 'mass-knockback', p.weaponId)) push(e, Math.min(80, ep(s, 'mass-knockback', p.weaponId) * p.radius / 5));
+        const flightGain = Math.min(
+          0.35,
+          (p.maxLife - p.life) * ep(s, 'flight-damage', p.weaponId),
+        );
+        hit(s, e, p, p.damage * (1 + flightGain));
+        if (p.depth === 0 && ep(s, 'mass-knockback', p.weaponId))
+          push(e, Math.min(80, (ep(s, 'mass-knockback', p.weaponId) * p.radius) / 5));
         if (p.pierce-- <= 0) break;
       }
     }
@@ -1333,9 +1484,11 @@ function stepProjectiles(s: RunV2, dt: number) {
     p.previousX = p.x;
     p.previousY = p.y;
     if (p.depth === 0 && ep(s, 'flight-acceleration', p.weaponId)) {
-      const age = p.maxLife - p.life, rate = ep(s, 'flight-acceleration', p.weaponId);
+      const age = p.maxLife - p.life,
+        rate = ep(s, 'flight-acceleration', p.weaponId);
       const ratio = (1 + Math.min(1, age * rate)) / (1 + Math.min(1, Math.max(0, age - dt) * rate));
-      p.vx *= ratio; p.vy *= ratio;
+      p.vx *= ratio;
+      p.vy *= ratio;
     }
     if (p.kind === 'drone') {
       const angle = p.seed + (p.maxLife - p.life) * 0.55;
@@ -1346,7 +1499,23 @@ function stepProjectiles(s: RunV2, dt: number) {
       if (w && target && s.projectiles.length < 4096 && ready(s, `drone-${p.id}`, 0.65)) {
         const st = getWeaponStats(s, w);
         st.damage = p.damage * 0.4;
-        projectile(s, w, st, Math.atan2(target.y - p.y, target.x - p.x), 'bolt', p.x, p.y, 0);
+        const carrier = p.fusionId === 'fusion-citadel';
+        if (carrier) {
+          for (let launch = -1; launch <= 1; launch++) {
+            const shot = projectile(
+              s,
+              w,
+              { ...st, damage: st.damage / 3, homing: Math.max(4, st.homing) },
+              Math.atan2(target.y - p.y, target.x - p.x) + launch * 0.1,
+              'swarm',
+              p.x,
+              p.y,
+              0,
+            );
+            shot.fusionId = p.fusionId;
+          }
+        } else
+          projectile(s, w, st, Math.atan2(target.y - p.y, target.x - p.x), 'bolt', p.x, p.y, 0);
         visual(s, 'chain', p.x, p.y, '#a8daca', 1, target.x, target.y);
       }
       continue;
@@ -1430,7 +1599,8 @@ function stepProjectiles(s: RunV2, dt: number) {
       const traveled = (s.counters[key] || 0) + Math.hypot(p.x - p.previousX, p.y - p.previousY);
       if (Math.floor(traveled / 140) > Math.floor((s.counters[key] || 0) / 140)) {
         const damage = Math.min(40, ep(s, 'distance-pulse', p.weaponId));
-        for (const e of grid.near(p.x, p.y, 100)) if (dist(e, p) < 80) hit(s, e, { ...p, depth: 1 }, damage);
+        for (const e of grid.near(p.x, p.y, 100))
+          if (dist(e, p) < 80) hit(s, e, { ...p, depth: 1 }, damage);
         visual(s, 'pulse', p.x, p.y, '#d4e6c9', 80);
       }
       s.counters[key] = traveled;
@@ -1443,16 +1613,20 @@ function stepProjectiles(s: RunV2, dt: number) {
       p.hit.push(e.id);
       const flightGain = Math.min(0.35, (p.maxLife - p.life) * ep(s, 'flight-damage', p.weaponId));
       hit(s, e, p, p.damage * (1 + flightGain));
-      if (p.depth === 0 && ep(s, 'mass-knockback', p.weaponId)) push(e, Math.min(80, ep(s, 'mass-knockback', p.weaponId) * p.radius / 5));
+      if (p.depth === 0 && ep(s, 'mass-knockback', p.weaponId))
+        push(e, Math.min(80, (ep(s, 'mass-knockback', p.weaponId) * p.radius) / 5));
       if (p.kind === 'mine') {
-        splash(s, e, p.damage, 85, {
-          rootId: p.id,
-          source: 'proc',
-          depth: 0,
-          weaponId: p.weaponId,
-          damage: p.damage,
-          element: p.elements[0] || 'physical',
-        });
+        if (p.fusionId === 'fusion-cataclysm')
+          makeArea(s, 'meteor', p.x, p.y, p.damage * 0.7, 85, 3.8, 'fire', p.weaponId, 0.65, 0);
+        else
+          splash(s, e, p.damage, 85, {
+            rootId: p.id,
+            source: 'proc',
+            depth: 0,
+            weaponId: p.weaponId,
+            damage: p.damage,
+            element: p.elements[0] || 'physical',
+          });
         p.life = 0;
         visual(s, 'ring', p.x, p.y, '#dab184', 85);
         break;
@@ -1732,10 +1906,16 @@ function stepEnemies(s: RunV2, dt: number) {
     }
     e.attackCd -= dt;
     if (e.kind === 'support' && e.attackCd <= 0) {
-      for (const other of s.enemies)
-        if (dist(other, e) < 100) other.hp = Math.min(other.maxHp, other.hp + other.maxHp * 0.025);
-      e.attackCd = 3;
-      visual(s, 'ring', e.x, e.y, '#91d3a6', 100);
+      const key=`support-pulse-${e.id}`;
+      if(s.counters[key] && s.time>=s.counters[key]) {
+        takeDamage(s,e.damage*.75,e.damageType,e);
+        delete s.counters[key];e.attackCd=3;
+      } else if(!s.counters[key]) {
+        for (const other of s.enemies) if(dist(other,e)<100)other.hp=Math.min(other.maxHp,other.hp+other.maxHp*.025);
+        visual(s,'ring',e.x,e.y,'#91d3a6',100);
+        if(s.waveTime>=12&&d<=360){s.counters[key]=s.time+.8;visual(s,'hazard',e.x,e.y,'#c8b6dd',14,origin.x,origin.y);}
+        else e.attackCd=3;
+      }
     }
     if (e.kind === 'boss') {
       const phase = Math.min(3, Math.floor((1 - e.hp / e.maxHp) * 4));
@@ -1759,7 +1939,7 @@ function stepEnemies(s: RunV2, dt: number) {
           s.visuals[s.visuals.length - 1].life = 1.1;
           s.visuals[s.visuals.length - 1].maxLife = 1.1;
         } else if (s.time >= s.counters[telegraphKey]) {
-          const variant = Math.floor((e.spawnWave - 1) / 25) % 4;
+          const variant = s.mode==='quick'&&e.spawnWave<=50?[12,25,37,50].indexOf(e.spawnWave):Math.floor((e.spawnWave - 1) / 25) % 4;
           takeDamage(
             s,
             e.damage *
@@ -1816,10 +1996,16 @@ export function step(s: RunV2, dt = TICK): void {
     if (s.waveTime < 41)
       s.notices.push('Prolonged siege: reinforcements arrive and enemy attacks grow stronger.');
   }
-  if (s.waveTime > 70 && ready(s, `siege-pressure-${s.wave}`, 8)) {
-    takeDamage(s, (6 + (s.waveTime - 70) * 0.7) * (1 + s.difficulty * 0.15), 'void');
+  const siegeStart = s.mode === 'quick' ? 40 : 70;
+  if (s.waveTime > siegeStart && ready(s, `siege-pressure-${s.wave}`, s.mode === 'quick' ? 6 : 8)) {
+    takeDamage(
+      s,
+      (6 + (s.waveTime - siegeStart) * (s.mode === 'quick' ? 1.1 : 0.7)) *
+        (1 + s.difficulty * 0.15),
+      'void',
+    );
     visual(s, 'retaliation', origin.x, origin.y, '#d394c7', 280);
-    if (s.waveTime < 79)
+    if (s.waveTime < siegeStart + 9)
       s.notices.push('Siege collapse: break the formation before pressure overwhelms the spire.');
   }
   s.spawnTimer -= dt;
@@ -1832,7 +2018,7 @@ export function step(s: RunV2, dt = TICK): void {
     s.spawnTimer = Math.max(0.32, 1.2 - s.wave * 0.007);
   }
   for (const w of s.weapons) {
-    w.cooldown -= dt;
+    w.cooldown = Math.max(0, w.cooldown - dt);
     if (w.cooldown <= 0) fireWeapon(s, w);
   }
   stepProjectiles(s, dt);
@@ -1853,10 +2039,9 @@ export function step(s: RunV2, dt = TICK): void {
   }
   if (s.spawned >= s.spawnTotal && !s.enemies.length && s.waveTime >= 18) {
     const cleared = s.wave;
-    if (cleared === finalWave(s) && !s.endless) {
-      s.phase = 'victory';
+    if (cleared === finalWave(s)) {
       s.cleared = true;
-      return;
+      if(!s.endless) {s.phase='victory';return;}
     }
     // Level-up drafts are awarded by XP, independently of waves.
     if (cleared % 10 === 0) queueReward(s, 'shop', cleared);
@@ -1866,7 +2051,7 @@ export function step(s: RunV2, dt = TICK): void {
     const living = new Set(s.enemies.map((e) => e.id));
     for (const key of Object.keys(s.counters)) {
       if (key.startsWith('distance-')) {
-        if (!s.projectiles.some(p => p.id === Number(key.slice(9)))) delete s.counters[key];
+        if (!s.projectiles.some((p) => p.id === Number(key.slice(9)))) delete s.counters[key];
       } else if (key.startsWith('boss-heals-')) {
         if (!living.has(Number(key.slice(11)))) delete s.counters[key];
       } else if (
@@ -1882,30 +2067,54 @@ export function step(s: RunV2, dt = TICK): void {
 /** Cumulative active participation, independent of firing frequency and render rate. */
 export function advanceMastery(w: WeaponInstance, seconds: number): void {
   w.masteryProgress = Math.min(900, Math.max(0, (w.masteryProgress || 0) + Math.max(0, seconds)));
-  w.masteryRank = MASTERY_THRESHOLDS.reduce<number>((rank, threshold, index) => w.masteryProgress! >= threshold ? index + 1 : rank, 1);
+  w.masteryRank = MASTERY_THRESHOLDS.reduce<number>(
+    (rank, threshold, index) => (w.masteryProgress! >= threshold ? index + 1 : rank),
+    1,
+  );
   w.masteryRequired = MASTERY_THRESHOLDS[Math.min(5, w.masteryRank)];
-  w.fusionReady = w.masteryRank === 6;
+  w.fusionReady = w.masteryRank === 6 && !w.fusion;
 }
 function stepMastery(s: RunV2, dt: number): void {
-  if (!s.enemies.some(e => e.hp > 0)) return;
+  refreshFusionReady(s);
+  if (!s.enemies.some((e) => e.hp > 0)) return;
   for (const w of s.weapons) {
     const range = getWeaponStats(s, w).range;
-    const active = s.enemies.some(e => e.hp > 0 && dist(e, origin) <= range)
-      || s.projectiles.some(p => p.weaponId === w.id) || s.areas.some(a => a.weaponId === w.id);
-    if (active) advanceMastery(w, dt * (s.mode === 'quick' ? 1.5 : 1)
-      * (1 + Math.min(0.5, ep(s, 'mastery-focus', w.id))));
+    const active =
+      s.enemies.some((e) => e.hp > 0 && dist(e, origin) <= range) ||
+      s.projectiles.some((p) => p.weaponId === w.id) ||
+      s.areas.some((a) => a.weaponId === w.id);
+    if (active && !w.fusion)
+      advanceMastery(
+        w,
+        dt * (s.mode === 'quick' ? 1.5 : 1) * (1 + Math.min(0.5, ep(s, 'mastery-focus', w.id))),
+      );
   }
+  refreshFusionReady(s);
 }
 /** XP is paid from a finite spawn budget; procs and summoned entities cannot mint it. */
 export function grantXp(s: RunV2, amount: number, kind: EnemyV2['kind'] = 'swarmer'): number {
-  if (!isModern(s) || s.phase !== 'combat' || !Number.isFinite(amount) || amount <= 0 || s.level >= 200) return 0;
-  const chain = s.time - (s.counters.lastLearningKill ?? -100) <= 2
-    ? Math.min(5, (s.counters.learningChain || 0) + 1) : 0;
+  if (
+    !isModern(s) ||
+    s.phase !== 'combat' ||
+    !Number.isFinite(amount) ||
+    amount <= 0 ||
+    s.level >= 200
+  )
+    return 0;
+  const chain =
+    s.time - (s.counters.lastLearningKill ?? -100) <= 2
+      ? Math.min(5, (s.counters.learningChain || 0) + 1)
+      : 0;
   s.counters.lastLearningKill = s.time;
   s.counters.learningChain = chain;
-  const bonus = Math.min(0.5, (s.counters.profileExperience || 0) + ep(s, 'xp-gain')
-    + ((kind === 'elite' || kind === 'boss') ? ep(s, 'xp-elite') : 0)
-    + chain * ep(s, 'xp-chain') + (s.hp <= s.maxHp * 0.35 ? ep(s, 'xp-low-health') : 0));
+  const bonus = Math.min(
+    0.5,
+    (s.counters.profileExperience || 0) +
+      ep(s, 'xp-gain') +
+      (kind === 'elite' || kind === 'boss' ? ep(s, 'xp-elite') : 0) +
+      chain * ep(s, 'xp-chain') +
+      (s.hp <= s.maxHp * 0.35 ? ep(s, 'xp-low-health') : 0),
+  );
   const earned = amount * (s.mode === 'quick' ? 0.75 : 1) * (1 + bonus);
   s.xp += earned;
   s.counters.totalXp = (s.counters.totalXp || 0) + earned;
@@ -1921,137 +2130,615 @@ export function grantXp(s: RunV2, amount: number, kind: EnemyV2['kind'] = 'swarm
 }
 function corePower(s: RunV2, w: WeaponInstance) {
   const stats = getWeaponStats(s, w);
-  return { ...stats, damage: stats.damage * ((s.counters.monolithOverdrive || 0) > s.time ? 1.8 : 1) };
+  return {
+    ...stats,
+    damage: stats.damage * ((s.counters.monolithOverdrive || 0) > s.time ? 1.8 : 1),
+  };
 }
 /** One root defensive strike and, at most, one depth-two echo. */
-function coreStrike(s: RunV2, w: WeaponInstance, enemy: EnemyV2, damage: number, element: Element | 'physical' = 'physical', echo = true) {
+function coreStrike(
+  s: RunV2,
+  w: WeaponInstance,
+  enemy: EnemyV2,
+  damage: number,
+  element: Element | 'physical' = 'physical',
+  echo = true,
+) {
   if (enemy.hp <= 0) return;
   const parts: (Element | 'physical')[] = w.infusions.length ? w.infusions : [element];
   for (const el of parts) {
-    dealDamage(s, enemy, { rootId: s.nextId++, source: 'retaliation', depth: 1, weaponId: w.id, damage: damage / parts.length, element: el });
-    if (el === 'fire') enemy.burn = Math.min(enemy.maxHp * 0.3, enemy.burn + damage * 0.1 / parts.length);
-    if (el === 'poison') enemy.poison = Math.min(enemy.maxHp * 0.45, enemy.poison + damage * 0.08 / parts.length);
+    dealDamage(s, enemy, {
+      rootId: s.nextId++,
+      source: 'retaliation',
+      depth: 1,
+      weaponId: w.id,
+      damage: damage / parts.length,
+      element: el,
+    });
+    if (el === 'fire')
+      enemy.burn = Math.min(enemy.maxHp * 0.3, enemy.burn + (damage * 0.1) / parts.length);
+    if (el === 'poison')
+      enemy.poison = Math.min(enemy.maxHp * 0.45, enemy.poison + (damage * 0.08) / parts.length);
     if (el === 'frost') enemy.chill = Math.min(0.65, enemy.chill + 0.1 / parts.length);
     if (el === 'solar') enemy.mark = Math.max(2, enemy.mark);
     if (el === 'lightning' && echo) {
-      const other = s.enemies.find(e => e.id !== enemy.id && e.hp > 0 && dist(e, enemy) < 110);
+      const other = s.enemies.find((e) => e.id !== enemy.id && e.hp > 0 && dist(e, enemy) < 110);
       if (other) {
-        dealDamage(s, other, { rootId: s.nextId++, source: 'retaliation', depth: 2, weaponId: w.id, damage: damage * 0.2 / parts.length, element: 'lightning' });
+        dealDamage(s, other, {
+          rootId: s.nextId++,
+          source: 'retaliation',
+          depth: 2,
+          weaponId: w.id,
+          damage: (damage * 0.2) / parts.length,
+          element: 'lightning',
+        });
         visual(s, 'chain', enemy.x, enemy.y, '#c2dfef', 2, other.x, other.y);
       }
     }
     if (el === 'void') push(enemy, -5);
   }
-  visual(s, w.kind === 'core-mirror' ? 'reflect' : w.kind === 'core-thorn' ? 'thorns' : 'retaliation', 500, 400, weapon(w.kind).color, 22, enemy.x, enemy.y);
-  if (echo) for (const other of s.weapons) {
-    if (other.kind !== 'core-echo' || !ready(s, `echo-core-${other.id}`, Math.max(0.6, corePower(s, other).cooldown))) continue;
-    dealDamage(s, enemy, { rootId: s.nextId++, source: 'retaliation', depth: 2, weaponId: other.id,
-      damage: damage * 0.35 + corePower(s, other).damage, element: other.infusions[0] || element });
-    visual(s, 'chain', 500, 400, '#d6b5ed', 3, enemy.x, enemy.y);
-  }
+  visual(
+    s,
+    w.kind === 'core-mirror' ? 'reflect' : w.kind === 'core-thorn' ? 'thorns' : 'retaliation',
+    500,
+    400,
+    weapon(w.kind).color,
+    22,
+    enemy.x,
+    enemy.y,
+  );
+  if (echo)
+    for (const other of defensiveViews(s)) {
+      if (
+        other.kind !== 'core-echo' ||
+        !ready(s, `echo-core-${coreKey(other)}`, Math.max(0.6, corePower(s, other).cooldown))
+      )
+        continue;
+      dealDamage(s, enemy, {
+        rootId: s.nextId++,
+        source: 'retaliation',
+        depth: 2,
+        weaponId: other.id,
+        damage: damage * 0.35 + corePower(s, other).damage,
+        element: other.infusions[0] || element,
+      });
+      visual(s, 'chain', 500, 400, '#d6b5ed', 3, enemy.x, enemy.y);
+    }
 }
 function coreBurst(s: RunV2, w: WeaponInstance, damage: number, element: Element | 'physical') {
   const range = corePower(s, w).range;
-  for (const enemy of s.enemies) if (enemy.hp > 0 && dist(enemy, origin) <= range) coreStrike(s, w, enemy, damage, element);
+  for (const enemy of s.enemies)
+    if (enemy.hp > 0 && dist(enemy, origin) <= range) coreStrike(s, w, enemy, damage, element);
   visual(s, 'pulse', 500, 400, weapon(w.kind).color, range);
 }
-function reactCores(s: RunV2, amount: number, absorbed: number, attacker: EnemyV2 | undefined, element: Element | 'physical') {
-  for (const w of s.weapons) {
+function reactCores(
+  s: RunV2,
+  amount: number,
+  absorbed: number,
+  attacker: EnemyV2 | undefined,
+  element: Element | 'physical',
+) {
+  for (const w of defensiveViews(s)) {
     if (!isDefensiveKind(w.kind)) continue;
-    const st = corePower(s, w), inRange = attacker && attacker.hp > 0 && dist(attacker, origin) <= st.range;
+    const st = corePower(s, w),
+      inRange = attacker && attacker.hp > 0 && dist(attacker, origin) <= st.range;
     if (w.kind === 'core-capacitor') {
-      const key = `charge-core-${w.id}`;
+      const key = `charge-core-${coreKey(w)}`;
       s.counters[key] = Math.min(240, (s.counters[key] || 0) + absorbed);
-      if (s.counters[key] >= 20 && ready(s, `release-core-${w.id}`, st.cooldown)) {
-        const charge = s.counters[key]; s.counters[key] = 0;
-        coreBurst(s, w, st.damage + charge * 0.8, 'lightning');
+      if (s.counters[key] >= 20 && ready(s, `release-core-${coreKey(w)}`, st.cooldown)) {
+        const charge = s.counters[key];
+        s.counters[key] = 0;
+        const dynamo = fusionViewMeta.get(w)?.recipeId === 'fusion-dynamo';
+        coreBurst(s, w, st.damage + charge * (dynamo ? 1.1 : 0.8), dynamo ? 'frost' : 'lightning');
+        if (dynamo)
+          for (const e of s.enemies)
+            if (dist(e, origin) <= st.range) {
+              e.chill = Math.max(e.chill, e.kind === 'boss' ? 0.18 : 0.55);
+            }
+        if (fusionViewMeta.get(w)?.recipeId === 'fusion-thunder')
+          s.counters[`thunder-${w.id}`] = Math.min(0.25, charge / 400);
       }
     }
-    if (!inRange || !attacker || !ready(s, `react-core-${w.id}`, st.cooldown)) continue;
+    if (!inRange || !attacker || !ready(s, `react-core-${coreKey(w)}`, st.cooldown)) continue;
     if (w.kind === 'core-mirror') {
       const damage = st.damage + amount * (0.8 + Math.min(1, ep(s, 'reflect')));
       coreStrike(s, w, attacker, damage, element);
       let previous = attacker;
-      const count = Math.min(4, Math.floor(ep(s, 'reflect-bounce')));
+      const count = Math.min(
+        4,
+        Math.floor(ep(s, 'reflect-bounce')) +
+          (fusionViewMeta.get(w)?.recipeId === 'fusion-cathedral' ? 1 : 0),
+      );
       const hitIds = new Set([attacker.id]);
       for (let i = 0; i < count; i++) {
-        const next = s.enemies.filter(e => e.hp > 0 && !hitIds.has(e.id) && dist(e, previous) <= 150).sort((a,b) => dist(a, previous) - dist(b, previous))[0];
+        const next = s.enemies
+          .filter((e) => e.hp > 0 && !hitIds.has(e.id) && dist(e, previous) <= 150)
+          .sort((a, b) => dist(a, previous) - dist(b, previous))[0];
         if (!next) break;
-        hitIds.add(next.id); coreStrike(s, w, next, damage * Math.pow(0.65, i + 1), element, false); previous = next;
+        hitIds.add(next.id);
+        coreStrike(
+          s,
+          w,
+          next,
+          damage *
+            Math.pow(fusionViewMeta.get(w)?.recipeId === 'fusion-cathedral' ? 0.35 : 0.65, i + 1),
+          element,
+          false,
+        );
+        previous = next;
       }
       if (ep(s, 'reflect-barbs') && ready(s, 'reflect-barbs', 0.5))
-        for (const enemy of s.enemies) if (enemy.hp > 0 && dist(enemy, attacker) <= 100) coreStrike(s, w, enemy, Math.min(40, ep(s, 'reflect-barbs')), 'physical', false);
+        for (const enemy of s.enemies)
+          if (enemy.hp > 0 && dist(enemy, attacker) <= 100)
+            coreStrike(s, w, enemy, Math.min(40, ep(s, 'reflect-barbs')), 'physical', false);
     }
-    if (w.kind === 'core-thorn') coreStrike(s, w, attacker, st.damage + ep(s, 'thorns'), 'physical');
+    if (w.kind === 'core-thorn') {
+      const briar = fusionViewMeta.get(w)?.recipeId === 'fusion-briar';
+      coreStrike(s, w, attacker, st.damage + ep(s, 'thorns'), 'physical');
+      if (briar) healTower(s, Math.min(6, st.damage * 0.06), false);
+      if (fusionViewMeta.get(w)?.recipeId === 'fusion-barbed') {
+        const stinger = projectile(
+          s,
+          w,
+          { ...st, damage: st.damage * 0.15, pierce: 1 },
+          Math.atan2(attacker.y - 400, attacker.x - 500),
+          'bolt',
+          500,
+          400,
+          1,
+        );
+        stinger.fusionId = 'fusion-barbed';
+      }
+    }
     if (w.kind === 'core-cinder') {
       coreStrike(s, w, attacker, st.damage, 'fire');
       attacker.burn = Math.min(attacker.maxHp * 0.3, attacker.burn + st.damage * 0.45);
+      if (fusionViewMeta.get(w)?.recipeId === 'fusion-crucible')
+        makeArea(s, 'fire', attacker.x, attacker.y, st.damage * 0.08, 65, 2.5, 'fire', w.id, 0, 1);
     }
     if (w.kind === 'core-frost') {
       coreStrike(s, w, attacker, st.damage, 'frost');
       attacker.chill = Math.min(attacker.kind === 'boss' ? 0.3 : 0.65, attacker.chill + 0.2);
       grantShield(s, Math.min(10, amount * 0.15));
     }
-    if (w.kind === 'core-gravitic') { coreStrike(s, w, attacker, st.damage, 'void'); push(attacker, 20); }
+    if (w.kind === 'core-gravitic') {
+      coreStrike(s, w, attacker, st.damage, 'void');
+      push(attacker, 20);
+    }
     if (w.kind === 'core-echo') coreStrike(s, w, attacker, st.damage * 0.7, element, false);
   }
 }
 function healTower(s: RunV2, amount: number, allowDischarge = true) {
   if (amount <= 0) return;
-  const missing = Math.max(0, s.maxHp - s.hp), healed = Math.min(missing, amount), overheal = Math.max(0, amount - healed);
+  const missing = Math.max(0, s.maxHp - s.hp),
+    healed = Math.min(missing, amount),
+    overheal = Math.max(0, amount - healed);
   s.hp = Math.min(s.maxHp, s.hp + amount);
   s.counters.totalHealing = (s.counters.totalHealing || 0) + healed;
-  for (const w of s.weapons) if (w.kind === 'core-mending') s.counters[`recovery-core-${w.id}`] = Math.min(100, (s.counters[`recovery-core-${w.id}`] || 0) + healed);
-  if (allowDischarge && overheal > 0 && ep(s, 'overheal-discharge') && ready(s, 'overheal-discharge', 1)) {
+  s.counters.protectionHealing = (s.counters.protectionHealing || 0) + healed;
+  for (const w of defensiveViews(s))
+    if (w.kind === 'core-mending')
+      s.counters[`recovery-core-${coreKey(w)}`] = Math.min(
+        100,
+        (s.counters[`recovery-core-${coreKey(w)}`] || 0) + healed,
+      );
+  if (
+    allowDischarge &&
+    overheal > 0 &&
+    ep(s, 'overheal-discharge') &&
+    ready(s, 'overheal-discharge', 1)
+  ) {
     const damage = Math.min(80, ep(s, 'overheal-discharge') * Math.min(3, overheal));
-    const core = s.weapons.find(w => isDefensiveKind(w.kind));
+    const core = s.weapons.find((w) => isDefensiveKind(w.kind));
     if (core) coreBurst(s, core, damage, 'solar');
-    else for (const e of s.enemies) if (e.hp > 0 && dist(e, origin) < 200) dealDamage(s, e, { rootId: s.nextId++, source: 'retaliation', depth: 2, weaponId: 'overheal-discharge', damage, element: 'solar' });
+    else
+      for (const e of s.enemies)
+        if (e.hp > 0 && dist(e, origin) < 200)
+          dealDamage(s, e, {
+            rootId: s.nextId++,
+            source: 'retaliation',
+            depth: 2,
+            weaponId: 'overheal-discharge',
+            damage,
+            element: 'solar',
+          });
   }
 }
 function stepDefensiveCores(s: RunV2, dt: number) {
-  const active = s.enemies.some(e => e.hp > 0 && dist(e, origin) < 460);
+  const active = s.enemies.some((e) => e.hp > 0 && dist(e, origin) < 460);
   if (!active) return;
-  for (const w of s.weapons) {
+  for (const w of defensiveViews(s)) {
     const st = isDefensiveKind(w.kind) ? corePower(s, w) : undefined;
     if (!st) continue;
     if (w.kind === 'core-mending') {
       // Recovery is applied once by the common regeneration step.
-      const key = `recovery-core-${w.id}`, recovery = s.counters[key] || 0;
-      if (recovery >= 5 && ready(s, `mending-core-${w.id}`, st.cooldown)) {
-        s.counters[key] = 0; coreBurst(s, w, st.damage + recovery * 0.75, 'solar');
+      const key = `recovery-core-${coreKey(w)}`,
+        recovery = s.counters[key] || 0;
+      if (recovery >= 5 && ready(s, `mending-core-${coreKey(w)}`, st.cooldown)) {
+        s.counters[key] = 0;
+        coreBurst(s, w, st.damage + recovery * 0.75, 'solar');
       }
     }
     // Capacitor regeneration is included in the common shield step.
-    if (w.kind === 'core-frost') for (const e of s.enemies) if (dist(e, origin) <= st.range) e.chill = Math.max(e.chill, e.kind === 'boss' ? 0.06 : 0.18);
-    if (w.kind === 'core-gravitic') for (const e of s.enemies) if (dist(e, origin) <= st.range) {
-      e.chill = Math.max(e.chill, e.kind === 'boss' ? 0.05 : 0.12);
-      if (dist(e, origin) > 85) push(e, -6 * dt);
-    }
+    if (w.kind === 'core-frost')
+      for (const e of s.enemies)
+        if (dist(e, origin) <= st.range)
+          e.chill = Math.max(e.chill, e.kind === 'boss' ? 0.06 : 0.18);
+    if (w.kind === 'core-gravitic')
+      for (const e of s.enemies)
+        if (dist(e, origin) <= st.range) {
+          e.chill = Math.max(e.chill, e.kind === 'boss' ? 0.05 : 0.12);
+          if (dist(e, origin) > 85)
+            push(e, -(fusionViewMeta.get(w)?.recipeId === 'fusion-crucible' ? 10 : 6) * dt);
+        }
   }
 }
 
 /** Effective defenses used by damage resolution, regeneration, and the live statistics panel. */
 export function getDefenseStats(s: RunV2) {
   const p = (effect: string) => ep(s, effect);
-  const modern = isModern(s), active = s.enemies.some(e => e.hp > 0 && dist(e, origin) < 460);
-  const cores = modern ? s.weapons.filter(w => isDefensiveKind(w.kind)) : [];
-  const reduction = p('armor') + (s.tower === 'bastion' ? 0.1 : s.tower === 'monolith' ? 0.2 : 0)
-    + (s.hp < s.maxHp * 0.3 ? p('emergency') : 0)
-    + (cores.some(w => w.kind === 'core-gravitic') ? 0.08 : 0);
-  const mitigation = Object.fromEntries((['physical','fire','frost','lightning','poison','solar','void'] as const).map(element => {
-    const resisted = clamp(reduction + (element === 'physical' ? 0 : p(element === 'lightning' ? 'storm-shield' : `${element}-shield`)), 0, 0.8);
-    return [element, 1 - (1 - resisted) * (s.tower === 'null' ? 1.12 : 1)];
-  })) as Record<Element | 'physical', number>;
-  const mending = active ? cores.filter(w => w.kind === 'core-mending').reduce((sum,w) => sum + 1 + corePower(s,w).damage * 0.06, 0) : 0;
-  const capacitor = active ? cores.filter(w => w.kind === 'core-capacitor').reduce((sum,w) => sum + 2 + corePower(s,w).damage * 0.04, 0) : 0;
-  const mirrors = cores.filter(w => w.kind === 'core-mirror');
+  const modern = isModern(s),
+    active = s.enemies.some((e) => e.hp > 0 && dist(e, origin) < 460);
+  const cores = modern ? defensiveViews(s) : [];
+  const reduction =
+    p('armor') +
+    (s.tower === 'bastion' ? 0.1 : s.tower === 'monolith' ? 0.2 : 0) +
+    (s.hp < s.maxHp * 0.3 ? p('emergency') : 0) +
+    (cores.some((w) => w.kind === 'core-gravitic') ? 0.08 : 0);
+  const mitigation = Object.fromEntries(
+    (['physical', 'fire', 'frost', 'lightning', 'poison', 'solar', 'void'] as const).map(
+      (element) => {
+        const resisted = clamp(
+          reduction +
+            (element === 'physical'
+              ? 0
+              : p(element === 'lightning' ? 'storm-shield' : `${element}-shield`)),
+          0,
+          0.8,
+        );
+        return [element, 1 - (1 - resisted) * (s.tower === 'null' ? 1.12 : 1)];
+      },
+    ),
+  ) as Record<Element | 'physical', number>;
+  const mending = active
+    ? cores
+        .filter((w) => w.kind === 'core-mending')
+        .reduce((sum, w) => sum + 1 + corePower(s, w).damage * 0.06, 0)
+    : 0;
+  const capacitor = active
+    ? cores
+        .filter((w) => w.kind === 'core-capacitor')
+        .reduce((sum, w) => sum + 2 + corePower(s, w).damage * 0.04, 0)
+    : 0;
+  const mirrors = cores.filter((w) => w.kind === 'core-mirror');
   return {
-    maxShield: shieldCap(s), mitigation,
+    maxShield: shieldCap(s),
+    mitigation,
     healthRegen: p('regen') * (synergyEffect(s, 'health-renewal') ? 1.6 : 1) + mending,
     shieldRegen: p('shield-regen') * (synergyEffect(s, 'shield-renewal') ? 1.5 : 1) + capacitor,
-    reflectMultiplier: p('reflect') * (synergyEffect(s, 'solar-reflect') ? 2 : 1) + mirrors.length * (0.8 + Math.min(1, p('reflect'))),
-    retaliationDamage: p('thorns') * (synergyEffect(s, 'thorn-reflect') ? 2 : 1)
-      + cores.filter(w => w.kind === 'core-thorn' || w.kind === 'core-mirror').reduce((sum,w) => sum + corePower(s,w).damage, 0),
+    reflectMultiplier:
+      p('reflect') * (synergyEffect(s, 'solar-reflect') ? 2 : 1) +
+      mirrors.length * (0.8 + Math.min(1, p('reflect'))),
+    retaliationDamage:
+      p('thorns') * (synergyEffect(s, 'thorn-reflect') ? 2 : 1) +
+      cores
+        .filter((w) => w.kind === 'core-thorn' || w.kind === 'core-mirror')
+        .reduce((sum, w) => sum + corePower(s, w).damage, 0),
   };
+}
+
+const fusionViewCache = new WeakMap<WeaponInstance, WeaponInstance[]>();
+const fusionViewMeta = new WeakMap<WeaponInstance, { recipeId: string; parent: WeaponInstance }>();
+function ingredientViews(w: WeaponInstance): WeaponInstance[] {
+  if (!w.fusion) return [w];
+  let views = fusionViewCache.get(w);
+  if (!views) {
+    views = w.fusion.ingredients.map((ingredient) => ({
+      ...ingredient,
+      id: w.id,
+      fusion: undefined,
+      fusionReady: false,
+    }));
+    fusionViewCache.set(w, views);
+    for (const view of views) fusionViewMeta.set(view, { recipeId: w.fusion.recipeId, parent: w });
+  }
+  for (const view of views) {
+    view.infusions = w.infusions;
+    view.rarity = w.rarity;
+  }
+  return views;
+}
+function defensiveViews(s: RunV2): WeaponInstance[] {
+  return s.weapons.flatMap((w) => ingredientViews(w).filter((view) => isDefensiveKind(view.kind)));
+}
+function coreKey(w: WeaponInstance): string {
+  return fusionViewMeta.has(w) ? `${w.id}:${w.kind}` : w.id;
+}
+function fusedStats(s: RunV2, w: WeaponInstance): WeaponStats {
+  const [a, b] = ingredientViews(w).map((view) => getWeaponStats(s, view));
+  const cooldown = Math.min(a.cooldown, b.cooldown);
+  // Each view has already received its global multiplier once. This is a summary,
+  // not a second damage multiplier and not a claim of measured single-target DPS.
+  return {
+    ...a,
+    damage: (a.damage / a.cooldown + b.damage / b.cooldown) * cooldown,
+    cooldown,
+    range: Math.max(a.range, b.range),
+    speed: Math.max(a.speed, b.speed),
+    count: Math.min(16, a.count + b.count),
+    pierce: Math.max(a.pierce, b.pierce),
+    bounces: Math.max(a.bounces, b.bounces),
+    homing: Math.max(a.homing, b.homing),
+    split: Math.max(a.split, b.split),
+    life: Math.max(a.life, b.life),
+    pulse: Math.max(a.pulse, b.pulse),
+    trail: Math.max(a.trail, b.trail),
+    returning: a.returning || b.returning,
+    elements: [...w.infusions],
+  };
+}
+function fireFusedWeapon(s: RunV2, w: WeaponInstance): boolean {
+  if (!w.fusion) return false;
+  let fired = false;
+  for (const [index, view] of ingredientViews(w).entries()) {
+    if (isDefensiveKind(view.kind)) continue;
+    const key = `fusion-cd-${w.id}-${index}`;
+    if ((s.counters[key] || 0) > s.time) continue;
+    view.angle = w.angle;
+    view.shotCycle = w.shotCycle;
+    const before = s.projectiles.length;
+    if (!fireWeapon(s, view)) continue;
+    fired = true;
+    w.angle = view.angle;
+    w.shotCycle = view.shotCycle;
+    w.lifetimeShots++;
+    s.counters[key] = s.time + view.cooldown;
+    const st = getWeaponStats(s, view),
+      target = chooseTarget(s, st.range);
+    if (w.fusion.recipeId === 'fusion-lance' && view.kind === 'rail' && target) {
+      const angle = Math.atan2(target.y - 400, target.x - 500);
+      for (const offset of [-0.12, 0.12])
+        projectile(
+          s,
+          view,
+          { ...st, damage: st.damage * 0.06, homing: Math.max(2, st.homing) },
+          angle + offset,
+          'bolt',
+          500,
+          400,
+          1,
+        );
+    }
+    if (w.fusion.recipeId === 'fusion-conduit' && view.kind === 'beam' && target) {
+      const branch = s.enemies.find((e) => e.id !== target.id && e.hp > 0 && dist(e, target) < 160);
+      if (branch) {
+        dealDamage(s, branch, {
+          rootId: s.nextId++,
+          source: 'proc',
+          depth: 1,
+          weaponId: w.id,
+          damage: st.damage * 0.08,
+          element: 'lightning',
+        });
+        visual(s, 'chain', target.x, target.y, '#e8d79a', 3, branch.x, branch.y);
+      }
+    }
+    if (w.fusion.recipeId === 'fusion-thunder' && view.kind === 'pulse') {
+      const charge = s.counters[`thunder-${w.id}`] || 0;
+      if (charge > 0) {
+        s.counters[`thunder-${w.id}`] = 0;
+        for (const e of s.enemies)
+          if (e.hp > 0 && dist(e, origin) <= st.range)
+            dealDamage(s, e, {
+              rootId: s.nextId++,
+              source: 'proc',
+              depth: 1,
+              weaponId: w.id,
+              damage: st.damage * charge,
+              element: 'lightning',
+            });
+      }
+    }
+    for (let i = before; i < s.projectiles.length; i++) {
+      s.projectiles[i].fusionId = w.fusion.recipeId;
+      if (w.fusion.recipeId === 'fusion-cataclysm' && s.projectiles[i].kind === 'mine')
+        s.projectiles[i].damage *= 0.5;
+    }
+  }
+  const timers = ingredientViews(w)
+    .map((_, i) => s.counters[`fusion-cd-${w.id}-${i}`])
+    .filter(Number.isFinite);
+  w.cooldown = timers.length ? Math.max(TICK, Math.min(...timers) - s.time) : TICK;
+  return fired;
+}
+function fusionCandidates(s: RunV2) {
+  if (!isModern(s) || s.phase !== 'combat') return [];
+  const equipped = s.weapons.filter(
+    (w) => !w.fusion && !isFusedKind(w.kind) && (w.masteryRank || 1) === 6,
+  );
+  return FUSIONS.flatMap((recipe) => {
+    const a = equipped.find((w) => w.kind === recipe.ingredients[0]),
+      b = equipped.find((w) => w.kind === recipe.ingredients[1]);
+    return a && b && a.id !== b.id
+      ? [{ recipeId: recipe.id, ingredientIds: [a.id, b.id] as [string, string] }]
+      : [];
+  });
+}
+export function availableFusions(
+  s: RunV2,
+): { recipeId: string; ingredientIds: [string, string] }[] {
+  return fusionCandidates(s);
+}
+export function refreshFusionReady(s: RunV2): void {
+  if (!isModern(s)) return;
+  const ready = new Set(fusionCandidates(s).flatMap((f) => f.ingredientIds));
+  for (const w of s.weapons) w.fusionReady = ready.has(w.id);
+}
+function fusionInputs(s: RunV2, recipeId: string, a: string, b: string) {
+  const recipe = FUSION_BY_ID[recipeId];
+  if (!recipe || !isModern(s) || s.phase !== 'combat' || a === b) return;
+  const first = s.weapons.find((w) => w.id === a),
+    second = s.weapons.find((w) => w.id === b);
+  if (
+    !first ||
+    !second ||
+    first.fusion ||
+    second.fusion ||
+    isFusedKind(first.kind) ||
+    isFusedKind(second.kind)
+  )
+    return;
+  if (first.masteryRank !== 6 || second.masteryRank !== 6) return;
+  if (!(
+    (first.kind === recipe.ingredients[0] && second.kind === recipe.ingredients[1]) ||
+    (first.kind === recipe.ingredients[1] && second.kind === recipe.ingredients[0])
+  ))
+    return;
+  return { recipe, first, second };
+}
+function combineEquipment(s: RunV2, recipeId: string, a: string, b: string, record: boolean) {
+  const input = fusionInputs(s, recipeId, a, b);
+  if (!input) return;
+  const { recipe, first, second } = input;
+  const ingredients = structuredClone([first, second]) as [WeaponInstance, WeaponInstance];
+  const id = `weapon-${s.nextId++}`,
+    consumed = new Set([a, b]);
+  let overflow = Math.max(0, first.mastery + second.mastery - 24) * 0.005;
+  const merged = new Map<string, RunV2['cards'][number]>();
+  const conversions: string[] = [];
+  for (const c of s.cards.filter((c) => c.targetId && consumed.has(c.targetId))) {
+    const d = card(c.cardId);
+    if (!d) continue;
+    if (d.effect === 'mastery-focus') {
+      overflow += c.stacks * 0.02;
+      conversions.push(
+        `${d.name}: completed mastery acceleration converts to fused damage, within the shared +15% conversion cap.`,
+      );
+      continue;
+    }
+    const prior = merged.get(c.cardId);
+    if (!prior) {
+      merged.set(c.cardId, { ...c, targetId: id });
+      continue;
+    }
+    const excess = Math.max(0, prior.stacks + c.stacks - d.maxStacks);
+    overflow += excess * 0.01;
+    if (excess)
+      conversions.push(
+        `${d.name}: ${excess} excess stacks convert to fused damage, within the shared +15% conversion cap.`,
+      );
+    prior.stacks = Math.min(d.maxStacks, prior.stacks + c.stacks);
+    prior.mastery = Math.min(24, prior.mastery + c.mastery);
+    prior.rarity = promote(
+      tier(prior.rarity) > tier(c.rarity) ? prior.rarity : c.rarity,
+      prior.mastery,
+    );
+  }
+  const output: WeaponInstance = {
+    id,
+    kind: recipe.kind,
+    cooldown: 0,
+    shotCycle: 0,
+    lifetimeShots: Math.min(Number.MAX_SAFE_INTEGER, first.lifetimeShots + second.lifetimeShots),
+    mastery: Math.min(24, first.mastery + second.mastery),
+    rarity: tier(first.rarity) > tier(second.rarity) ? first.rarity : second.rarity,
+    infusions: [...new Set([...first.infusions, ...second.infusions])],
+    angle: first.angle,
+    masteryRank: 6,
+    masteryProgress: 900,
+    masteryRequired: 900,
+    fusionReady: false,
+    fusion: { recipeId, createdAt: s.time, ingredients, overflowPower: Math.min(0.15, overflow) },
+  };
+  s.weapons = s.weapons.filter((w) => !consumed.has(w.id));
+  s.weapons.push(output);
+  s.cards = s.cards.filter(
+    (c) =>
+      !(c.targetId && consumed.has(c.targetId)) &&
+      !(
+        card(c.cardId)?.group === 'weapon' &&
+        [first.kind, second.kind].includes(card(c.cardId)!.weapon!)
+      ),
+  );
+  s.cards.push(...merged.values());
+  s.counters.cardRevision = (s.counters.cardRevision || 0) + 1;
+  powers.delete(s);
+  for (const p of s.projectiles)
+    if (consumed.has(p.weaponId)) {
+      p.weaponId = id;
+      p.fusionId = recipeId;
+    }
+  for (const area of s.areas) if (consumed.has(area.weaponId)) area.weaponId = id;
+  s.damageByWeapon[id] = (s.damageByWeapon[a] || 0) + (s.damageByWeapon[b] || 0);
+  delete s.damageByWeapon[a];
+  delete s.damageByWeapon[b];
+  for (const [index, ingredient] of ingredients.entries()) {
+    for (const prefix of ['charge-core', 'recovery-core']) {
+      const old = `${prefix}-${ingredient.id}`,
+        next = `${prefix}-${id}:${ingredient.kind}`;
+      if (s.counters[old] !== undefined) {
+        s.counters[next] = s.counters[old];
+        delete s.counters[old];
+      }
+    }
+    s.counters[`fusion-cd-${id}-${index}`] = s.time + Math.max(0, ingredient.cooldown);
+  }
+  s.synergies = activeSynergies(s);
+  refreshFusionReady(s);
+  refreshPendingOffers(s);
+  if (record) {
+    s.counters.fusions = (s.counters.fusions || 0) + 1;
+    s.counters[`fusion-${s.counters.fusions}-time`] = s.time;
+    s.notices.push(`Fusion forged: ${recipe.name}`);
+    s.visuals.push({
+      kind: `fusion-${recipe.id}`,
+      x: 500,
+      y: 400,
+      color: recipe.color,
+      size: 120,
+      life: 1.8,
+      maxLife: 1.8,
+      text: recipe.name,
+    });
+  }
+  return { output, conversions };
+}
+export function previewFusion(
+  s: RunV2,
+  recipeId: string,
+  a: string,
+  b: string,
+): import('./types').FusionPreview | undefined {
+  const input = fusionInputs(s, recipeId, a, b);
+  if (!input) return;
+  const copy = structuredClone(s),
+    before = activeSynergies(s),
+    result = combineEquipment(copy, recipeId, a, b, false);
+  if (!result) return;
+  const stats = getWeaponStats(copy, result.output),
+    after = activeSynergies(copy);
+  return {
+    name: input.recipe.name,
+    description: input.recipe.description,
+    ingredients: [weapon(input.first.kind).name, weapon(input.second.kind).name],
+    summary: `Consumes two mastered cores; creates one ${result.output.rarity} core and frees one socket. Inherited cadence ${stats.cooldown.toFixed(2)}s; range ${Math.round(stats.range)}. Shared global bonuses apply once per hit.`,
+    inherited: [
+      `${result.output.infusions.join(', ') || 'Physical'} payload; additional elements share direct damage.`,
+      `Both ingredient investments and compatible targeted cards remain. Direct damage history combines under the fused core; shared status buckets remain separate; ingredient provenance remains.`,
+      ...(result.output.fusion!.overflowPower
+        ? [
+            `Converted fused damage +${Math.round(result.output.fusion!.overflowPower! * 100)}% (cap 15%).`,
+          ]
+        : []),
+    ],
+    conversions: [
+      ...result.conversions,
+      'Fused cores cannot be ingredients or gain a seventh mastery rank. Consumed core cards return to the acquisition pool; their investments live in the fused provenance.',
+    ],
+    awaken: after.filter((id) => !before.includes(id)).map((id) => SYNERGY_MAP.get(id)?.name || id),
+    lost: before.filter((id) => !after.includes(id)).map((id) => SYNERGY_MAP.get(id)?.name || id),
+  };
+}
+export function fuseCores(s: RunV2, recipeId: string, a: string, b: string): boolean {
+  return !!combineEquipment(s, recipeId, a, b, true);
 }

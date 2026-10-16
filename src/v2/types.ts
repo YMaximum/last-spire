@@ -26,7 +26,10 @@ export type WeaponKind =
   | 'meteor'
   | 'singularity'
   | 'core-mirror' | 'core-thorn' | 'core-capacitor' | 'core-cinder'
-  | 'core-frost' | 'core-mending' | 'core-gravitic' | 'core-echo';
+  | 'core-frost' | 'core-mending' | 'core-gravitic' | 'core-echo'
+  | 'fused-lance' | 'fused-prism' | 'fused-orrery' | 'fused-conduit'
+  | 'fused-citadel' | 'fused-cataclysm' | 'fused-cathedral' | 'fused-briar'
+  | 'fused-dynamo' | 'fused-crucible' | 'fused-barbed' | 'fused-thunder';
 export type Rarity = 'normal' | 'rare' | 'epic' | 'legendary' | 'mythic';
 export type CardGroup =
   'weapon' | 'infusion' | 'modifier' | 'defense' | 'trigger' | 'skill' | 'utility';
@@ -93,6 +96,12 @@ export interface WeaponInstance {
   masteryProgress?: number;
   masteryRequired?: number;
   fusionReady?: boolean;
+  fusion?: {
+    recipeId: string;
+    createdAt: number;
+    ingredients: [WeaponInstance, WeaponInstance];
+    overflowPower?: number;
+  };
 }
 export interface EnemyV2 extends Enemy {
   xpBudget?: number;
@@ -102,6 +111,7 @@ export interface EnemyV2 extends Enemy {
   spawnWave: number;
 }
 export interface ProjectileV2 {
+  fusionId?: string;
   id: number;
   weaponId: string;
   kind: WeaponKind;

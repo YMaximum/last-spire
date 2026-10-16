@@ -171,3 +171,32 @@
   letter-spacing: 0.06em;
   line-height: 16px;
 }
+.fusion-recipe {
+  border: 1px solid #65745c;
+  padding: 18px;
+  margin: 14px 0;
+  background: #14271f;
+}
+.fusion-heading {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+.fusion-ingredients {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin: 16px 0;
+}
+.fusion-ingredients span {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 14px;
+}
+.fusion-heading h3 {
+  margin: 0;
+}
+.fusion-heading p {
+  margin: 8px 0;
+}

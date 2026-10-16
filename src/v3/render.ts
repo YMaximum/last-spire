@@ -1,6 +1,7 @@
 import { ArenaRenderer } from '../render';
 import type { Enemy, RunState as LegacyRun, Settings, TowerId } from '../types';
 import type { AreaEffect, Element, ProjectileV2, RunV2, SettingsV2, VisualV2 } from './types';
+import { FUSIONS, FUSION_BY_ID, WEAPON_BY_ID, type FusionDefinition } from './catalog';
 
 const W = 1000,
   H = 800,
@@ -88,6 +89,10 @@ export class BattleRenderer {
   private readonly scratch: HTMLCanvasElement;
   private readonly pixel: PixelScene;
   private readonly glows = new Map<string, HTMLCanvasElement>();
+  private readonly fusionMarks = new Map<string, HTMLCanvasElement>();
+  private readonly fusionOwners = new Map<string, FusionDefinition>();
+  private fusionDecorations = 0;
+  private fusionFields = 0;
   private readonly resizeObserver: ResizeObserver | null;
   private stage = -1;
   private seed = -1;
@@ -137,6 +142,9 @@ export class BattleRenderer {
     this.time = this.motion ? s.time : 0;
     this.intensity =
       settings.intensity === 'subtle' ? 0.48 : settings.intensity === 'spectacular' ? 1.12 : 0.76;
+    this.fusionDecorations = 0;
+    this.fusionFields = 0;
+    this.fusionOwners.clear();
     if (s.version === 1) {
       // A resumed v1 run retains its original presentation and mechanics.
       this.legacy.draw(s, settings);
@@ -146,6 +154,11 @@ export class BattleRenderer {
       c.drawImage(this.scratch, 0, 0, W, H);
       c.setTransform(1, 0, 0, 1, 0, 0);
       return;
+    }
+    for (const core of s.weapons) {
+      const recipeId = (core as typeof core & { fusion?: { recipeId: string } }).fusion?.recipeId;
+      const fusion = this.resolveFusion(recipeId);
+      if (fusion) this.fusionOwners.set(core.id, fusion);
     }
     if (this.stage !== s.stage || this.seed !== s.seed || !this.pixel.background) {
       const adapter = {
@@ -179,30 +192,36 @@ export class BattleRenderer {
     this.environment(c, s);
     // All fields and luminous energy sit beneath the pixel combatants. Hit
     // feedback and text are a separate, crisp final pass.
-    for (const a of s.areas) this.area(c, a);
+    for (const a of s.areas) {
+      this.area(c, a);
+      this.fusionField(c, a);
+    }
     for (const v of s.visuals) if (!this.isForeground(v)) this.visual(c, v);
     for (const p of s.projectiles) this.projectile(c, p);
     this.evolution(c, s);
+    this.fusionCrests(c, s);
     if (s.tower === 'monolith') this.monolith(c, s);
     else this.pixel.tower(c, s.tower, this.time, s.buffs.length > 0, false);
     const enemies = s.enemies.length > 1 ? [...s.enemies].sort((a, b) => a.y - b.y) : s.enemies;
     for (const enemy of enemies) this.pixel.enemy(c, enemy, this.time, settings);
     if (s.shield > 0) this.shield(c, CX, CY - 15, 61, TOWERS[s.tower], clamp(s.shield / s.maxHp));
+    for (const v of s.visuals) if (this.isForeground(v)) this.visual(c, v);
     // Enemy warnings stay visible even when a meteor or a large orb crosses them.
     for (const e of enemies) {
       if (e.kind === 'boss') {
-        c.globalAlpha = 0.8;
-        circle(c, e.x, e.y, e.radius + 6, '#f2a8a0', 1.5);
+        c.globalAlpha = 0.95;
+        circle(c, e.x, e.y, e.radius + 6, '#14201d', 4);
+        circle(c, e.x, e.y, e.radius + 6, '#ffc0ae', 2);
         c.globalAlpha = 1;
       }
       if (e.kind === 'ranged' && e.attackCd < 0.6) {
         c.setLineDash([4, 8]);
-        line(c, e.x, e.y, CX, CY, '#f4c0a4', 1);
+        line(c, e.x, e.y, CX, CY, '#14201d', 3.5);
+        line(c, e.x, e.y, CX, CY, '#ffd1b5', 1.5);
         c.setLineDash([]);
       }
     }
     for (const a of s.areas) if (a.delay > 0) this.warning(c, a);
-    for (const v of s.visuals) if (this.isForeground(v)) this.visual(c, v);
     this.coreBars(c, s);
     c.globalAlpha = 1;
     c.globalCompositeOperation = 'source-over';
@@ -249,6 +268,8 @@ export class BattleRenderer {
     this.resizeObserver?.disconnect();
     this.legacy.dispose();
     this.glows.clear();
+    this.fusionMarks.clear();
+    this.fusionOwners.clear();
     this.terrainPattern = null;
     this.scratch.width = this.scratch.height = 1;
   }
@@ -580,6 +601,201 @@ export class BattleRenderer {
       circle(c, 0, 0, r + 3, '#fff0c4', 1);
     }
     c.restore();
+    this.fusionProjectile(c, p);
+  }
+
+  private resolveFusion(id?: string): FusionDefinition | undefined {
+    if (!id || (!id.startsWith('fusion-') && !id.startsWith('fused-'))) return undefined;
+    return FUSION_BY_ID[id] || FUSION_BY_ID[id.replace(/^fusion-/, '')] || FUSIONS.find(fusion => fusion.kind === id);
+  }
+
+  /** Synchronous cached vector artwork: twelve marks, no image loading or simulation state. */
+  private fusionMark(fusion: FusionDefinition): HTMLCanvasElement {
+    const cached = this.fusionMarks.get(fusion.id);
+    if (cached) return cached;
+    const sprite = document.createElement('canvas');
+    sprite.width = sprite.height = 128;
+    const c = sprite.getContext('2d')!;
+    c.translate(64, 64);
+    c.scale(2.25, 2.25);
+    c.lineCap = 'round';
+    c.lineJoin = 'round';
+    const brass = '#c9ad7c', stone = '#172622', energy = fusion.color;
+    switch (fusion.id) {
+      case 'fusion-lance':
+        poly(c, [[24, 0], [8, -7], [-17, -3], [-22, 0], [-17, 3], [8, 7]], stone, brass, 1.5);
+        line(c, -15, 0, 19, 0, energy, 2.5);
+        for (const y of [-12, 12]) poly(c, [[9, y], [-2, y - 3], [-6, y], [-2, y + 3]], energy, brass);
+        line(c, -9, -8, 3, -8, brass); line(c, -9, 8, 3, 8, brass);
+        break;
+      case 'fusion-prism':
+        poly(c, [[-17, 8], [17, 8], [17, 22], [-17, 22]], stone, brass, 1.5);
+        poly(c, [[0, -19], [13, -7], [0, 8], [-13, -7]], stone, energy, 1.8);
+        line(c, 0, -19, 0, 8, energy); line(c, -13, -7, 13, -7, brass);
+        for (const sign of [-1, 1]) { line(c, sign * 12, -13, sign * 23, -19, energy, 2); line(c, sign * 14, -3, sign * 24, -4, brass); }
+        line(c, -10, 14, 10, 14, brass);
+        break;
+      case 'fusion-orrery':
+        c.save(); c.rotate(-0.5); c.scale(1, 0.48); circle(c, 0, 0, 23, brass, 1.5); c.restore();
+        c.beginPath(); c.arc(0, 0, 16, -1.8, 1.7); c.arc(-4, 0, 11, 1.7, -1.8, true); c.closePath(); c.fillStyle = stone; c.fill(); c.strokeStyle = energy; c.lineWidth = 2; c.stroke();
+        gem(c, 6, energy, brass);
+        for (const sign of [-1, 1]) poly(c, [[sign * 18, -sign * 11], [sign * 24, -sign * 10], [sign * 20, -sign * 4]], energy, brass);
+        break;
+      case 'fusion-conduit':
+        for (const x of [-15, 15]) { line(c, x, -20, x, 20, brass, 4); for (let y = -15; y <= 15; y += 10) line(c, x - 5, y, x + 5, y, energy, 1.5); }
+        poly(c, [[-11, -12], [5, -3], [1, -17], [12, 12], [-4, 3], [0, 17]], energy, brass, 1.1);
+        break;
+      case 'fusion-citadel':
+        poly(c, [[-18, -7], [-12, -16], [-12, -23], [-5, -23], [-5, -16], [5, -16], [5, -23], [12, -23], [12, -16], [18, -7], [20, 13], [10, 21], [-10, 21], [-20, 13]], stone, brass, 1.5);
+        gem(c, 10, energy, brass); line(c, 0, -8, 0, 9, brass);
+        for (const x of [-12, 12]) { circle(c, x, 10, 4, energy, 1.5); line(c, x, -2, x * 1.8, 3, brass); }
+        break;
+      case 'fusion-cataclysm':
+        poly(c, [[-23, 7], [23, 7], [13, 15], [5, 16], [4, 21], [11, 21], [11, 25], [-11, 25], [-11, 21], [-4, 21], [-5, 16], [-13, 15]], stone, brass, 1.4);
+        c.save(); c.translate(0, -8); c.rotate(-0.5); gem(c, 10, energy, brass); c.restore();
+        line(c, -14, -23, -7, -13, energy, 2); line(c, 10, -24, 5, -16, brass, 2); line(c, 20, -16, 12, -8, energy, 2);
+        break;
+      case 'fusion-cathedral':
+        poly(c, [[-19, 22], [-19, -5], [-12, -19], [-6, -5], [0, -25], [6, -5], [12, -19], [19, -5], [19, 22]], stone, brass, 1.5);
+        poly(c, [[0, -9], [10, 2], [7, 17], [-7, 17], [-10, 2]], stone, energy, 1.6);
+        line(c, 0, -9, 0, 17, energy); line(c, -10, 2, 10, 2, brass);
+        line(c, -25, 0, -25, 17, energy); line(c, 25, 0, 25, 17, energy);
+        break;
+      case 'fusion-briar':
+        c.beginPath(); c.moveTo(0, 23); c.bezierCurveTo(-37, 0, -13, -28, 0, -10); c.bezierCurveTo(13, -28, 37, 0, 0, 23); c.fillStyle = stone; c.fill(); c.strokeStyle = brass; c.lineWidth = 1.8; c.stroke();
+        line(c, -8, 4, 8, 4, energy, 4); line(c, 0, -4, 0, 12, energy, 4);
+        for (const sign of [-1, 1]) { poly(c, [[sign * 13, -12], [sign * 21, -22], [sign * 20, -7]], energy, brass); poly(c, [[sign * 12, 15], [sign * 25, 13], [sign * 20, 22]], stone, brass); }
+        break;
+      case 'fusion-dynamo':
+        circle(c, 0, 0, 18, brass, 2); circle(c, 0, 0, 13, energy, 1);
+        for (let i = 0; i < 6; i++) { const a = i * TAU / 6; line(c, Math.cos(a) * 3, Math.sin(a) * 3, Math.cos(a) * 23, Math.sin(a) * 23, energy, 1.5); c.save(); c.rotate(a); poly(c, [[18, -4], [24, 0], [18, 4]], stone, brass); line(c, 8, -4, 11, 0, energy); line(c, 8, 4, 11, 0, energy); c.restore(); }
+        break;
+      case 'fusion-crucible':
+        poly(c, [[-22, 2], [22, 2], [14, 20], [-14, 20]], stone, brass, 1.8);
+        line(c, -12, 20, -16, 25, brass, 3); line(c, 12, 20, 16, 25, brass, 3);
+        circle(c, 0, -9, 10, energy, 1.5);
+        c.save(); c.translate(0, -9); c.rotate(-0.45); c.scale(1.8, 0.5); circle(c, 0, 0, 10, brass, 1); c.restore();
+        poly(c, [[-8, 7], [-2, 10], [0, 3], [6, 10], [3, 15], [-5, 15]], energy);
+        break;
+      case 'fusion-barbed':
+        c.save(); c.rotate(-0.4); c.scale(1, 0.48); circle(c, 0, 0, 25, brass, 1.7); c.restore();
+        poly(c, [[0, -18], [12, -11], [9, 11], [0, 20], [-9, 11], [-12, -11]], stone, energy, 1.7);
+        for (let i = 0; i < 3; i++) { c.save(); c.rotate(i * TAU / 3); poly(c, [[18, -5], [26, -9], [22, 4], [20, 0]], energy, brass); c.restore(); }
+        break;
+      case 'fusion-thunder':
+        poly(c, [[0, -23], [13, -9], [13, 13], [0, 24], [-13, 13], [-13, -9]], stone, brass, 1.6);
+        poly(c, [[3, -16], [-8, 3], [1, 3], [-2, 17], [10, -5], [2, -5]], energy, brass);
+        for (const sign of [-1, 1]) { line(c, sign * 18, -13, sign * 23, -4, energy); line(c, sign * 23, -4, sign * 23, 9, energy); line(c, sign * 23, 9, sign * 18, 17, energy); }
+        break;
+    }
+    this.fusionMarks.set(fusion.id, sprite);
+    return sprite;
+  }
+
+  private drawFusionMark(c: Ctx, fusion: FusionDefinition, x: number, y: number, radius: number, rotation = 0) {
+    c.save(); c.translate(x, y); c.rotate(rotation);
+    c.drawImage(this.fusionMark(fusion), -radius, -radius, radius * 2, radius * 2);
+    c.restore();
+  }
+
+  private fusionProjectile(c: Ctx, p: ProjectileV2) {
+    const fusion = this.resolveFusion((p as ProjectileV2 & { fusionId?: string }).fusionId) || this.fusionOwners.get(p.weaponId);
+    if (!fusion) return;
+    // Only additional engraving is budgeted; every damaging primitive above is always drawn.
+    if (this.fusionDecorations++ >= (this.detail ? (this.intensity > 1 ? 144 : 96) : 28)) return;
+    const r = Math.min(30, Math.max(5, p.radius * 1.2));
+    const angle = Math.atan2(p.vy, p.vx);
+    c.save(); c.translate(p.x, p.y); c.rotate(angle);
+    c.globalAlpha = Math.min(0.9, 0.55 + this.intensity * 0.25);
+    if (this.detail) {
+      switch (fusion.id) {
+        case 'fusion-lance':
+          for (const y of [-r * 0.75, r * 0.75]) line(c, -r * 3.8, y, -r, y, fusion.color, 1.1);
+          break;
+        case 'fusion-prism':
+          for (const sign of [-1, 1]) { line(c, -r * 2, sign * r, -r * 1.5, sign * r * 0.3, '#c9ad7c'); line(c, -r * 1.5, sign * r * 0.3, -r, sign * r, fusion.color); }
+          break;
+        case 'fusion-orrery':
+        case 'fusion-barbed':
+          c.save(); c.scale(1.5, 0.6); circle(c, 0, 0, r * 1.25, fusion.color, 1.2); c.restore();
+          break;
+        case 'fusion-conduit':
+          this.lightning(c, -r * 3, -r, 0, 0, fusion.color, p.seed, 1);
+          this.lightning(c, -r * 2, r, 0, 0, '#c9ad7c', p.seed + 1, 1);
+          break;
+        case 'fusion-citadel':
+          for (const sign of [-1, 1]) { c.save(); c.translate(-r * 1.4, sign * r * 1.15); gem(c, r * 0.3, fusion.color, '#c9ad7c'); c.restore(); }
+          break;
+        case 'fusion-cataclysm':
+          line(c, -r * 4, -r * 0.6, -r, 0, '#ffb879', 2);
+          line(c, -r * 3, r * 0.75, -r, 0, fusion.color, 1.2);
+          break;
+        case 'fusion-cathedral':
+          for (const sign of [-1, 1]) { c.save(); c.translate(-r * 1.4, sign * r * 0.9); gem(c, r * 0.45, '#193432', fusion.color); c.restore(); }
+          break;
+        case 'fusion-briar':
+          for (const sign of [-1, 1]) poly(c, [[-r, sign * r * 0.2], [-r * 2, sign * r], [-r * 0.5, sign * r * 0.8]], fusion.color, '#c9ad7c');
+          break;
+        case 'fusion-dynamo':
+          for (let i = 0; i < 4; i++) { const a = i * TAU / 4; line(c, Math.cos(a) * r, Math.sin(a) * r, Math.cos(a) * r * 1.7, Math.sin(a) * r * 1.7, fusion.color); }
+          break;
+        case 'fusion-crucible':
+          c.save(); c.scale(1.7, 0.55); circle(c, 0, 0, r * 1.15, fusion.color, 1.2); c.restore();
+          line(c, -r * 2.2, -r * 0.8, -r * 0.5, 0, '#ffb879', 1.2);
+          break;
+        case 'fusion-thunder':
+          circle(c, 0, 0, r * 1.25, fusion.color, 1.4); circle(c, 0, 0, r * 1.6, '#c9ad7c', 0.7);
+          break;
+      }
+    }
+    this.drawFusionMark(c, fusion, 0, 0, r);
+    c.restore();
+  }
+
+  private fusionField(c: Ctx, area: AreaEffect) {
+    const fusion = this.fusionOwners.get(area.weaponId);
+    if (!fusion || this.fusionFields++ >= (this.detail ? 24 : 8)) return;
+    const r = Math.min(34, Math.max(13, area.radius * 0.23));
+    c.save();
+    c.globalAlpha = (area.delay > 0 ? 0.65 : 0.35) * clamp(area.life / Math.min(1, area.maxLife)) * Math.min(1, this.intensity);
+    this.drawFusionMark(c, fusion, area.x, area.y, r);
+    if (this.detail) {
+      c.setLineDash([6, 10]);
+      circle(c, area.x, area.y, area.radius * 0.76, fusion.color, 1);
+      c.setLineDash([]);
+    }
+    c.restore();
+  }
+
+  private fusionCrests(c: Ctx, s: RunV2) {
+    let index = 0;
+    for (const core of s.weapons) {
+      const fusion = this.fusionOwners.get(core.id);
+      if (!fusion) continue;
+      const angle = -Math.PI / 2 + index++ * TAU / 6;
+      const x = CX + Math.cos(angle) * 86, y = CY - 13 + Math.sin(angle) * 70;
+      const charge = this.motion ? 0.5 + 0.5 * Math.sin(this.time * 1.5 + index) : 0.5;
+      c.save(); c.globalAlpha = 0.55 + charge * 0.2;
+      this.drawFusionMark(c, fusion, x, y, 13);
+      if (this.detail) { c.globalAlpha = (0.12 + charge * 0.08) * Math.min(1, this.intensity); circle(c, CX, CY - 13, 69 + index * 3, fusion.color, 0.8); }
+      c.restore();
+    }
+  }
+
+  private fusionTransformation(c: Ctx, visual: VisualV2, fusion: FusionDefinition) {
+    const fade = clamp(visual.life / Math.max(0.001, visual.maxLife));
+    const progress = 1 - fade;
+    const radius = this.motion ? 44 + progress * 48 : 69;
+    const colors = fusion.ingredients.map(kind => WEAPON_BY_ID[kind]?.color || fusion.color);
+    c.save(); c.globalAlpha = Math.min(0.75, fade * 1.3) * Math.min(1, this.intensity);
+    if (this.detail) this.glow(c, visual.x, visual.y, radius * 1.2, fusion.color, 0.13 * fade);
+    this.rune(c, visual.x, visual.y, radius, '#c9ad7c', this.detail ? 12 : 6, this.motion ? progress * 0.45 : 0);
+    for (let i = 0; i < 2; i++) {
+      c.beginPath(); c.arc(visual.x, visual.y, radius * 0.8, i * Math.PI + 0.2, (i + 1) * Math.PI - 0.2);
+      c.strokeStyle = colors[i]; c.lineWidth = 2; c.stroke();
+    }
+    this.drawFusionMark(c, fusion, visual.x, visual.y, 29);
+    c.restore();
   }
 
   private warning(c: Ctx, a: AreaEffect) {
@@ -737,6 +953,11 @@ export class BattleRenderer {
     );
   }
   private visual(c: Ctx, v: VisualV2) {
+    const fusion = this.resolveFusion(v.kind);
+    if (fusion) {
+      this.fusionTransformation(c, v, fusion);
+      return;
+    }
     const f = clamp(v.life / Math.max(0.001, v.maxLife)),
       p = 1 - f;
     const r = Math.max(2, v.size),

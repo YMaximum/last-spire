@@ -7,7 +7,7 @@ import {
 import type { SaveV2, SettingsV2 } from '../v2/types';
 import type { SaveData } from '../types';
 import { CARDS as LEGACY_CARDS, WEAPONS as LEGACY_WEAPONS } from '../v2/catalog';
-import { CARDS, WEAPONS, TOWERS } from './catalog';
+import { CARDS, WEAPONS, TOWERS, FUSIONS, isFusedKind } from './catalog';
 import { rewardForRun } from './engine';
 import type { RunV3 } from './types';
 import {
@@ -117,7 +117,7 @@ function finiteTree(value: unknown, depth = 0): void {
     }
   }
 }
-function runeSnapshot(value: unknown, label: string, ownership = false): Record<RuneId, number> {
+function runeSnapshot(value: unknown, label: string): Record<RuneId, number> {
   const ids = Object.keys(RUNE_CAPS) as RuneId[];
   const result = shape(value, label, ids);
   for (const id of ids)
@@ -125,13 +125,13 @@ function runeSnapshot(value: unknown, label: string, ownership = false): Record<
       result[id],
       `${label}.${id}`,
       0,
-      ownership && ['power', 'vitality', 'fortune'].includes(id) ? 1000 : RUNE_CAPS[id],
+      ['power', 'vitality', 'fortune'].includes(id) ? 1000 : RUNE_CAPS[id],
     );
   return result as Record<RuneId, number>;
 }
 function loadout(value: unknown): RuneLoadout {
   const result = shape(value, 'runes', ['owned', 'selected']);
-  const owned = runeSnapshot(result.owned, 'owned runes', true);
+  const owned = runeSnapshot(result.owned, 'owned runes');
   const selected = runeSnapshot(result.selected, 'selected runes');
   for (const id of Object.keys(RUNE_CAPS) as RuneId[])
     if (selected[id] > owned[id]) invalid(`selected ${id} exceeds ownership`);
@@ -184,6 +184,104 @@ function list(value: unknown, label: string, max: number): unknown[] {
     invalid(`${label} must contain at most ${max} entries`);
   return value;
 }
+function equipment(value: unknown, time: number, ingredient = false): Obj {
+  const w = shape(
+    value,
+    ingredient ? 'fusion ingredient' : 'equipment',
+    [
+      'id',
+      'kind',
+      'cooldown',
+      'shotCycle',
+      'lifetimeShots',
+      'mastery',
+      'rarity',
+      'infusions',
+      'angle',
+    ],
+    [
+      'masteryRank',
+      'masteryProgress',
+      'masteryRequired',
+      'fusionReady',
+      ...(ingredient ? [] : ['fusion']),
+    ],
+  );
+  identifier(w.id, 'equipment ID');
+  if (!WEAPONS.some((def) => def.id === w.kind)) invalid('equipment kind is unknown');
+  for (const field of ['cooldown', 'angle'])
+    numeric(w[field], `equipment ${field}`, -1e12, 1e12, false);
+  for (const field of ['shotCycle', 'lifetimeShots'])
+    numeric(w[field], `equipment ${field}`, 0, Number.MAX_SAFE_INTEGER);
+  numeric(w.mastery, 'equipment investment', 0, 1e12, false);
+  const rarities = ['normal', 'rare', 'epic', 'legendary', 'mythic'];
+  if (!rarities.includes(w.rarity as string)) invalid('equipment rarity is invalid');
+  const infusions = list(w.infusions, 'equipment infusions', 6);
+  if (
+    infusions.some(
+      (e) => !['fire', 'frost', 'lightning', 'poison', 'solar', 'void'].includes(e as string),
+    ) ||
+    new Set(infusions).size !== infusions.length
+  )
+    invalid('equipment infusions are invalid');
+  if (w.masteryRank !== undefined) numeric(w.masteryRank, 'mastery rank', 1, 6);
+  if (w.masteryProgress !== undefined)
+    numeric(w.masteryProgress, 'mastery progress', 0, 900, false);
+  if (w.masteryRequired !== undefined)
+    numeric(w.masteryRequired, 'mastery requirement', 0, 900, false);
+  if (w.fusionReady !== undefined && typeof w.fusionReady !== 'boolean')
+    invalid('fusion readiness must be boolean');
+  if (w.fusionReady === true && w.masteryRank !== 6)
+    invalid('fusion readiness requires mastery six');
+  if (ingredient) {
+    if (isFusedKind(w.kind as string)) invalid('fused cores cannot be fusion ingredients');
+    if (w.masteryRank !== 6 || w.masteryProgress !== 900 || w.masteryRequired !== 900)
+      invalid('fusion ingredient must have complete mastery');
+    return w;
+  }
+  if (isFusedKind(w.kind as string)) {
+    const f = shape(
+      w.fusion,
+      'fusion provenance',
+      ['recipeId', 'createdAt', 'ingredients'],
+      ['overflowPower'],
+    );
+    const recipe = FUSIONS.find((recipe) => recipe.id === f.recipeId);
+    if (!recipe || recipe.kind !== w.kind) invalid('fusion recipe does not match its core');
+    numeric(f.createdAt, 'fusion creation time', 0, time, false);
+    if (f.overflowPower !== undefined)
+      numeric(f.overflowPower, 'fusion overflow conversion', 0, 0.15, false);
+    const inputs = list(f.ingredients, 'fusion ingredients', 2);
+    if (inputs.length !== 2) invalid('fusion requires exactly two ingredients');
+    const [a, b] = inputs.map((input) => equipment(input, time, true));
+    if (a.id === b.id || a.id === w.id || b.id === w.id)
+      invalid('fusion ingredients must have distinct original IDs');
+    if (
+      ![a.kind, b.kind].every((kind) => recipe.ingredients.includes(kind as never)) ||
+      a.kind === b.kind
+    )
+      invalid('fusion ingredients do not match the recipe');
+    if (
+      w.masteryRank !== 6 ||
+      w.masteryProgress !== 900 ||
+      w.masteryRequired !== 900 ||
+      w.fusionReady !== false
+    )
+      invalid('fused core mastery metadata is invalid');
+    if (
+      [...(a.infusions as unknown[]), ...(b.infusions as unknown[])].some(
+        (e) => !infusions.includes(e),
+      )
+    )
+      invalid('fusion dropped an inherited infusion');
+    if (
+      rarities.indexOf(w.rarity as string) <
+      Math.max(rarities.indexOf(a.rarity as string), rarities.indexOf(b.rarity as string))
+    )
+      invalid('fusion rarity cannot downgrade its ingredients');
+  } else if (w.fusion !== undefined) invalid('ordinary core cannot contain fusion provenance');
+  return w;
+}
 /** Project modern additions only for the established validator, then restore the validated original. */
 function modernProjection(value: unknown): { original: RunV3; projection: Obj } {
   const original = object(value, 'run');
@@ -222,11 +320,18 @@ function modernProjection(value: unknown): { original: RunV3; projection: Obj } 
   const oldKinds = new Set(LEGACY_WEAPONS.map((w) => w.id));
   const oldCards = new Set(LEGACY_CARDS.map((c) => c.id));
   const ids = new Set<string>();
+  const consumed = new Set<string>();
   for (const item of list(projection.weapons, 'arsenal', 6)) {
-    const w = object(item, 'equipment');
+    const w = equipment(item, original.time as number);
     const id = identifier(w.id, 'equipment ID');
     if (ids.has(id)) invalid('duplicate equipment ID');
     ids.add(id);
+    if (w.fusion)
+      for (const input of (w.fusion as Obj).ingredients as Obj[]) {
+        const inputId = input.id as string;
+        if (consumed.has(inputId)) invalid('fusion provenance reuses an ingredient');
+        consumed.add(inputId);
+      }
     if (!kinds.has(w.kind as never)) invalid('equipment kind is unknown');
     if (w.masteryRank !== undefined) numeric(w.masteryRank, 'mastery rank', 1, 6);
     if (w.masteryProgress !== undefined)
@@ -237,10 +342,18 @@ function modernProjection(value: unknown): { original: RunV3; projection: Obj } 
       invalid('fusion readiness must be boolean');
     if (w.fusionReady === true && w.masteryRank !== 6)
       invalid('fusion readiness requires mastery six');
-    for (const field of ['masteryRank', 'masteryProgress', 'masteryRequired', 'fusionReady'])
+    for (const field of [
+      'masteryRank',
+      'masteryProgress',
+      'masteryRequired',
+      'fusionReady',
+      'fusion',
+    ])
       delete w[field];
     if (!oldKinds.has(w.kind as never)) w.kind = 'bolt';
   }
+  if ([...consumed].some((id) => ids.has(id)))
+    invalid('consumed fusion ingredient is still equipped');
   if (!ids.size) invalid('run requires an arsenal core');
   const card = (item: unknown, offer: boolean): void => {
     const c = object(item, offer ? 'offer' : 'card');
@@ -271,6 +384,9 @@ function modernProjection(value: unknown): { original: RunV3; projection: Obj } 
   }
   for (const item of list(projection.projectiles, 'projectiles', 20_000)) {
     const p = object(item, 'projectile');
+    if (p.fusionId !== undefined && !FUSIONS.some((f) => f.id === p.fusionId))
+      invalid('projectile fusion recipe is unknown');
+    delete p.fusionId;
     if (!kinds.has(p.kind as never)) invalid('projectile kind is unknown');
     if (!oldKinds.has(p.kind as never)) p.kind = 'bolt';
   }

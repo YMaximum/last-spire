@@ -3,6 +3,8 @@ import * as engine from '../src/v3/engine';
 import { CARDS, TOWERS, isDefensiveKind } from '../src/v3/catalog';
 import { defaultProfile } from '../src/storage';
 import type { CardOffer, RunV2 } from '../src/v2/types';
+import { emptySave, exportGame } from '../src/v3/storage';
+import { defaultAutocastConfig } from '../src/v3/controls';
 import type { RunMode } from '../src/v3/types';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
@@ -75,6 +77,23 @@ for (const tower of TOWERS.filter(
             decision = (Math.imul(decision, 1664525) + 1013904223) >>> 0;
             return decision / 4294967296;
           };
+          let checkpointWave = 0,
+            peakSaveBytes = 0;
+          const checkpoint = () => {
+            const save = emptySave();
+            save.profile = profile;
+            save.run = s;
+            save.progression.active = {
+              runId: s.id,
+              rulesVersion: 3,
+              runes: s.runeSnapshot,
+              autocast: defaultAutocastConfig(),
+            };
+            peakSaveBytes = Math.max(
+              peakSaveBytes,
+              new TextEncoder().encode(exportGame(save)).length,
+            );
+          };
           let lastSkill = -100,
             failures = 0;
           const starter = s.weapons[0].kind,
@@ -84,14 +103,34 @@ for (const tower of TOWERS.filter(
           const score = (o: CardOffer) => {
             const c = CARDS.find((c) => c.id === o.cardId)!;
             let v = weights[c.effect] || 1;
+            const desperate = s.hp < s.maxHp * 0.45;
+            if (
+              desperate &&
+              ['regen', 'lifesteal', 'kill-mend', 'shield-regen', 'healing-field'].includes(
+                c.effect,
+              )
+            )
+              v += 12;
             if (c.group === 'weapon') {
               const owned = s.weapons.find((w) => w.kind === c.weapon);
-              v = owned ? 8 : s.weapons.length < 6 ? 22 : 0;
+              const completed = s.weapons.some((w) =>
+                w.fusion?.ingredients.some((i) => i.kind === c.weapon),
+              );
+              v = owned ? 8 : s.weapons.length < 3 ? 42 : s.weapons.length < 6 ? 22 : -35;
               if (policy === 'fusion') {
-                v += targetKinds.has(c.weapon!) ? 30 : -10;
-                if (owned?.masteryRank === 6) v -= 25;
+                const partner = recipePairs.some(
+                  (pair) =>
+                    pair.includes(c.weapon!) &&
+                    pair.some(
+                      (k) => k !== c.weapon && s.weapons.some((w) => !w.fusion && w.kind === k),
+                    ),
+                );
+                if (targetKinds.has(c.weapon!)) v += completed ? -15 : 12;
+                if (partner && !owned) v += 24;
+                if (owned && s.weapons.length < 3) v -= 20;
+                if (owned?.masteryRank === 6) v -= 12;
               }
-              if (policy === 'defense' && !isDefensiveKind(c.weapon!)) v = -50;
+              if (policy === 'defense' && !isDefensiveKind(c.weapon!)) v = -100;
               if (c.weapon === 'core-mending' || c.weapon === 'core-capacitor') v += 5;
             }
             if (c.group === 'infusion') v = s.weapons.some((w) => !w.infusions.length) ? 9 : 3;
@@ -102,6 +141,10 @@ for (const tower of TOWERS.filter(
             s.time < Number(value('seconds', mode === 'endless' ? '300' : '5400'))
           ) {
             engine.step(s);
+            if (s.wave % 10 === 0 && checkpointWave !== s.wave) {
+              checkpointWave = s.wave;
+              checkpoint();
+            }
             if (s.time - lastSkill > 1) {
               lastSkill = s.time;
               engine.useSkill(s, 'signature');
@@ -111,7 +154,7 @@ for (const tower of TOWERS.filter(
               availableFusions?: (s: RunV2) => { recipeId: string; ingredientIds: string[] }[];
               fuseCores?: (s: RunV2, id: string, a: string, b: string) => boolean;
             };
-            if (policy === 'fusion' && fuse.availableFusions && fuse.fuseCores)
+            if (policy !== 'random' && fuse.availableFusions && fuse.fuseCores)
               for (const f of fuse.availableFusions(s)) {
                 fuse.fuseCores(s, f.recipeId, f.ingredientIds[0], f.ingredientIds[1]);
               }
@@ -126,7 +169,10 @@ for (const tower of TOWERS.filter(
                   !s.weapons.some((w) => w.kind === c.weapon) &&
                   s.weapons.length >= 6
                 )
-                  return s.weapons.find((w) => !targetKinds.has(w.kind))?.id || s.weapons[0].id;
+                  return (
+                    s.weapons.find((w) => !w.fusion && !targetKinds.has(w.kind))?.id ||
+                    s.weapons.find((w) => !w.fusion)?.id
+                  );
                 return (
                   s.weapons.find((w) => targetKinds.has(w.kind) && w.masteryRank! < 6)?.id ||
                   s.weapons[0].id
@@ -149,7 +195,9 @@ for (const tower of TOWERS.filter(
               }
             }
           }
+          checkpoint();
           const result = {
+            peakSaveBytes,
             tower: tower.id,
             stage,
             mode,

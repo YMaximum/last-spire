@@ -1,10 +1,18 @@
 import type { RunV2, WeaponInstance } from '../v2/types';
-import { CARDS, CARD_BY_ID, WEAPON_BY_ID, SYNERGIES, rarityLabel } from './catalog';
+import {
+  CARDS,
+  CARD_BY_ID,
+  WEAPON_BY_ID,
+  SYNERGIES,
+  FUSIONS,
+  FUSION_BY_ID,
+  rarityLabel,
+} from './catalog';
 import { activeSynergies, getWeaponStats } from './engine';
 import { cardIcon } from './icons';
 import './inspector.css';
 
-export type EntityRef = { kind: 'weapon' | 'card' | 'synergy'; id: string };
+export type EntityRef = { kind: 'weapon' | 'card' | 'synergy' | 'fusion'; id: string };
 type EquipmentMetadata = {
   masteryRank?: number;
   masteryProgress?: number;
@@ -72,6 +80,18 @@ function requirementRefs(requirements: string[]): EntityRef[] {
 }
 
 export function entitySummary(s: RunV2, ref: EntityRef): EntitySummary {
+  if (ref.kind === 'fusion') {
+    const f = FUSION_BY_ID[ref.id];
+    if (!f) return { title: 'Unknown fusion', body: 'No recipe is available.', refs: [] };
+    return {
+      title: f.name,
+      body: `${f.description} Requires ${f.ingredients.map((k) => WEAPON_BY_ID[k].name).join(' + ')} at mastery 6. Consumes two cores, creates one, and preserves compatible investments.`,
+      refs: f.ingredients.flatMap((k) => {
+        const c = CARDS.find((c) => c.weapon === k);
+        return c ? [{ kind: 'card' as const, id: c.id }] : [];
+      }),
+    };
+  }
   if (ref.kind === 'weapon') {
     const w = equipment(s, ref.id);
     if (!w)
@@ -166,10 +186,14 @@ function refTitle(s: RunV2, ref: EntityRef) {
   return entitySummary(s, ref).title;
 }
 function iconFor(s: RunV2, ref: EntityRef, size = 32): string {
+  if (ref.kind === 'fusion') return cardIcon(FUSION_BY_ID[ref.id]?.iconId ?? 'unknown', size);
   if (ref.kind === 'weapon') {
     const w = equipment(s, ref.id);
     return cardIcon(
-      w?.iconId || CARDS.find((c) => c.weapon === w?.kind)?.iconId || 'unknown',
+      w?.iconId ||
+        CARDS.find((c) => c.weapon === w?.kind)?.iconId ||
+        FUSIONS.find((f) => f.kind === w?.kind)?.iconId ||
+        'unknown',
       size,
     );
   }
@@ -324,7 +348,7 @@ export class BuildInspector {
     const kind = element?.dataset.entityKind;
     return element &&
       (this.root.contains(element) || element.closest('.build-detail')) &&
-      (kind === 'weapon' || kind === 'card' || kind === 'synergy') &&
+      (kind === 'weapon' || kind === 'card' || kind === 'synergy' || kind === 'fusion') &&
       element.dataset.entityId
       ? { element, ref: { kind, id: element.dataset.entityId } }
       : null;

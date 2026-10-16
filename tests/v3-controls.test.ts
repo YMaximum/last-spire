@@ -34,6 +34,14 @@ describe('selectable permanent runes', () => {
     loadout.selected.experience = 0;
     expect(snapshot.experience).toBe(10);
   });
+  it('allows all historically purchased levels to be selected without rebuying', () => {
+    const runes = defaultRuneLoadout({ power: 0, vitality: 10, fortune: 0 });
+    runes.selected.vitality = 3;
+    expect(snapshotRunes(runes).vitality).toBe(3);
+    runes.selected.vitality = 10;
+    expect(snapshotRunes(runes).vitality).toBe(10);
+    expect(runes.owned.vitality).toBe(10);
+  });
   it('rejects malformed levels by safe normalization and preserves prices/caps', () => {
     const loadout = normalizeRuneLoadout({
       owned: { power: NaN, choices: 2, autoSignature: 3 },

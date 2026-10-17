@@ -212,6 +212,13 @@ class ArtifactTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "QA pages"):
             release.release_files(tar_bytes(files), SHA, RUN, 1)
 
+    def test_account_database_files_rejected(self):
+        for name in ("dist/accounts.sqlite", "dist/accounts.sqlite-wal", "dist/backup.sqlite.sha256", "dist/account-data/profile.json"):
+            files = fixture_files()
+            files[name] = b"not-real-player-data"
+            with self.subTest(name=name), self.assertRaisesRegex(ValueError, "Account databases"):
+                release.release_files(tar_bytes(files), SHA, RUN, 1)
+
     def test_expansion_bound(self):
         with patch.object(release, "MAX_EXPANDED", 10), self.assertRaisesRegex(ValueError, "too large"):
             release.release_files(tar_bytes(), SHA, RUN, 1)
@@ -360,6 +367,15 @@ class PackagingTests(unittest.TestCase):
         (self.root / "dist/.private/probe.txt").write_text("not-a-real-secret")
         self.assertNotEqual(self.package().returncode, 0)
         self.assertFalse((self.root / ".release").exists())
+
+    def test_packager_refuses_account_database_files(self):
+        for name in ("accounts.sqlite", "accounts.sqlite-wal", "backup.sqlite.sha256"):
+            path = self.root / "dist" / name
+            path.write_text("not-real-player-data")
+            with self.subTest(name=name):
+                self.assertNotEqual(self.package().returncode, 0)
+                self.assertFalse((self.root / ".release").exists())
+            path.unlink()
 
 
 if __name__ == "__main__":

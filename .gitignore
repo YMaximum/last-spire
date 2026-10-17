@@ -1,4 +1,8 @@
 node_modules/
+account-data/
+*.sqlite
+*.sqlite-*
+*.sqlite.sha256
 dist/
 .release/
 __pycache__/

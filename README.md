@@ -8,7 +8,7 @@ An original single-player browser roguelite about building one ancient arcane ma
 
 ## Play locally
 
-Use Node.js 22.12+ or 24:
+Use Node.js 22.16+ or 24:
 
 ```sh
 npm ci
@@ -23,6 +23,8 @@ npm run preview
 ```
 
 The production output is `dist/`. Serve it over HTTP. All visual assets, icons, fonts, and effects work offline after the files have loaded; there are no external font or asset requests.
+
+The optional Google account/save service is being introduced separately. Its API, security model and VPS-only backup limits are documented in [Accounts and cloud saves](docs/ACCOUNTS.md). The current game remains browser-only: this service foundation does not add a sign-in button, upload guest saves, or deploy a backend.
 
 ## Playing
 

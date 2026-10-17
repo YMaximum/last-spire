@@ -117,6 +117,8 @@ def release_files(archive, sha, run_id, attempt):
     require(isinstance(manifest.get("files"), dict) and set(manifest["files"]) == set(files), "Manifest file list differs.")
     require("dist/index.html" in files and "dist/release.json" in files, "Missing game entrypoint or release identity.")
     require(not any(re.search(r"(?:^|/)qa[^/]*\.html$", name) for name in files), "QA pages must not be published.")
+    require(not any(re.search(r"(?:^|/)account-data/|\.sqlite(?:[-.][^/]*)?$", name, re.I) for name in files),
+            "Account databases must not be published.")
     for name, data in files.items():
         metadata = manifest["files"][name]
         require(isinstance(metadata, dict) and type(metadata.get("size")) is int

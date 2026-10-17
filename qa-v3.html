@@ -42,7 +42,7 @@
     if (location.port !== '5175')
       document.querySelector('#status').textContent = 'Open this development viewer on port 5175.';
     else
-      for (const name of ['quick', 'normal', 'endless', 'fusion']) {
+      for (const name of ['quick', 'normal', 'endless', 'fusion', 'victory', 'spectacle']) {
         const button = document.createElement('button');
         button.textContent = `Load ${name} checkpoint`;
         button.onclick = async () => {

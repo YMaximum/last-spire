@@ -81,7 +81,7 @@ Purchased rune levels can be freely dialed down before each run. Autocast runes 
 
 The pinned arsenal shows six sockets, mastery, and fusion readiness. Hover or focus a mark for a summary; click or tap it for details. Collected support cards and activated synergies have matching pinned collections. Linked entities in detail windows also have summaries.
 
-The Ledger exposes effective damage, recent measured DPS, health and shield regeneration, mitigation, and equipment statistics. Recent DPS measures combat time and starts a new measurement after resuming a browser session.
+The Ledger exposes effective damage, recent measured DPS, health and shield regeneration, mitigation, equipment statistics, and a recent wall-clock rendering sample. Background-browser throttling affects that sample; it is not a device benchmark. Recent DPS measures combat time and starts a new measurement after resuming a browser session.
 
 Permanent runes separate purchased ownership from selected levels. Lower or restore selected levels freely before starting; purchases buy only the next level. Experience runes improve XP gain, Choice runes add level-up options, and Autocast runes unlock per-skill automation. Presets include every useful cast, boss only, and emergency; advanced rules combine health, shield, nearby-enemy, and boss conditions with All/Any matching. Manual casts remain available.
 

@@ -21,6 +21,13 @@ import type {
   PendingReward,
 } from './types';
 export const TICK = 1 / 30;
+// Shared launch tuning: identical in browser combat and seeded policy audits.
+const ENCOUNTER_BALANCE = {
+  normalHealth: 0.82,
+  quickHealth: 0.18,
+  normalDamage: 1.18,
+  quickDamage: 1.9,
+};
 export const RARITIES: Rarity[] = ['normal', 'rare', 'epic', 'legendary', 'mythic'];
 export const isModern = (s: RunV2): s is RunV3 => s.rulesVersion === 3;
 export const finalWave = (s: RunV2) => (s.mode === 'quick' ? 50 : 100);
@@ -315,7 +322,7 @@ export function getWeaponStats(s: RunV2, w: WeaponInstance): WeaponStats {
 
   const view = fusionViewMeta.get(w);
   if (view) {
-    b.damage *= 1.22 * (1 + (view.parent.fusion?.overflowPower || 0));
+    b.damage *= 1.45 * (1 + (view.parent.fusion?.overflowPower || 0));
     if (view.recipeId === 'fusion-prism') b.bounces = Math.min(8, b.bounces + 1);
     if (view.recipeId === 'fusion-orrery') {
       b.returning = true;
@@ -1137,7 +1144,7 @@ export function spawnEnemy(
   const encounterWave = s.mode === 'quick' ? s.wave * 2 : s.wave;
   const scale =
       (1 + encounterWave * 0.075 + Math.pow(encounterWave / 13, 2)) *
-      (s.mode === 'quick' ? 0.22 : 1) *
+      (s.mode === 'quick' ? ENCOUNTER_BALANCE.quickHealth : ENCOUNTER_BALANCE.normalHealth) *
       (1 + s.stage * 0.03) *
       (1 + s.difficulty * 0.2) *
       (1 + Math.max(0, s.wave - finalWave(s)) * 0.055),
@@ -1149,7 +1156,7 @@ export function spawnEnemy(
       support: 1.7,
       splitter: 1.5,
       elite: 7,
-      boss: 28,
+      boss: 24,
     }[kind],
     hp = (s.stage === 0 ? 19 : 18) * scale * mult;
   const e: EnemyV2 = {
@@ -1170,17 +1177,17 @@ export function spawnEnemy(
     damage:
       (s.stage === 0
         ? kind === 'boss'
-          ? 17
+          ? 12.5
           : kind === 'ranged'
             ? 5
             : 3.8
         : kind === 'boss'
-          ? 18
+          ? 13
           : kind === 'ranged'
             ? 5.2
             : 4) *
-      (1 + s.wave * 0.03) *
-      (s.mode === 'quick' ? 1.35 : 1),
+      (1 + encounterWave * 0.03) *
+      (s.mode === 'quick' ? ENCOUNTER_BALANCE.quickDamage : ENCOUNTER_BALANCE.normalDamage),
     radius: kind === 'boss' ? 29 : kind === 'elite' ? 19 : kind === 'armored' ? 13 : 9,
     armor: kind === 'armored' ? 0.3 : kind === 'boss' ? 0.15 : 0,
     attackCd: 1.5,
@@ -1889,7 +1896,11 @@ function stepEnemies(s: RunV2, dt: number) {
     if (e.stun > 0) continue;
     const d = Math.max(1, dist(e, origin)),
       resist = e.kind === 'boss' ? 0.35 : e.kind === 'elite' ? 0.65 : 1,
-      speed = e.speed * (1 - e.chill * resist) * (s.stage === 0 && s.time % 18 < 3 ? 1.06 : 1);
+      speed =
+        e.speed *
+        (s.mode === 'quick' ? 1.3 : 1.1) *
+        (1 - e.chill * resist) *
+        (s.stage === 0 && s.time % 18 < 3 ? 1.06 : 1);
     const stop =
       e.kind === 'ranged'
         ? Math.max(100, 235 - Math.max(0, s.waveTime - 35) * 3)
@@ -1906,15 +1917,20 @@ function stepEnemies(s: RunV2, dt: number) {
     }
     e.attackCd -= dt;
     if (e.kind === 'support' && e.attackCd <= 0) {
-      const key=`support-pulse-${e.id}`;
-      if(s.counters[key] && s.time>=s.counters[key]) {
-        takeDamage(s,e.damage*.75,e.damageType,e);
-        delete s.counters[key];e.attackCd=3;
-      } else if(!s.counters[key]) {
-        for (const other of s.enemies) if(dist(other,e)<100)other.hp=Math.min(other.maxHp,other.hp+other.maxHp*.025);
-        visual(s,'ring',e.x,e.y,'#91d3a6',100);
-        if(s.waveTime>=12&&d<=360){s.counters[key]=s.time+.8;visual(s,'hazard',e.x,e.y,'#c8b6dd',14,origin.x,origin.y);}
-        else e.attackCd=3;
+      const key = `support-pulse-${e.id}`;
+      if (s.counters[key] && s.time >= s.counters[key]) {
+        takeDamage(s, e.damage * 0.75, e.damageType, e);
+        delete s.counters[key];
+        e.attackCd = 3;
+      } else if (!s.counters[key]) {
+        for (const other of s.enemies)
+          if (dist(other, e) < 100)
+            other.hp = Math.min(other.maxHp, other.hp + other.maxHp * 0.025);
+        visual(s, 'ring', e.x, e.y, '#91d3a6', 100);
+        if (s.waveTime >= 12 && d <= 360) {
+          s.counters[key] = s.time + 0.8;
+          visual(s, 'hazard', e.x, e.y, '#c8b6dd', 14, origin.x, origin.y);
+        } else e.attackCd = 3;
       }
     }
     if (e.kind === 'boss') {
@@ -1939,7 +1955,10 @@ function stepEnemies(s: RunV2, dt: number) {
           s.visuals[s.visuals.length - 1].life = 1.1;
           s.visuals[s.visuals.length - 1].maxLife = 1.1;
         } else if (s.time >= s.counters[telegraphKey]) {
-          const variant = s.mode==='quick'&&e.spawnWave<=50?[12,25,37,50].indexOf(e.spawnWave):Math.floor((e.spawnWave - 1) / 25) % 4;
+          const variant =
+            s.mode === 'quick' && e.spawnWave <= 50
+              ? [12, 25, 37, 50].indexOf(e.spawnWave)
+              : Math.floor((e.spawnWave - 1) / 25) % 4;
           takeDamage(
             s,
             e.damage *
@@ -1957,7 +1976,7 @@ function stepEnemies(s: RunV2, dt: number) {
           if (variant === 3)
             for (const other of s.enemies) other.speed = Math.min(65, other.speed * 1.04);
           delete s.counters[telegraphKey];
-          e.attackCd = 6 - e.bossPhase * 0.45;
+          e.attackCd = 3.5 - e.bossPhase * 0.25;
         }
       }
     } else if (e.kind !== 'support' && d <= stop + 2 && e.attackCd <= 0) {
@@ -2015,7 +2034,10 @@ export function step(s: RunV2, dt = TICK): void {
     else if (s.spawned === 0 && s.wave % 10 === 0) kind = 'elite';
     spawnEnemy(s, kind);
     s.spawned++;
-    s.spawnTimer = Math.max(0.32, 1.2 - s.wave * 0.007);
+    s.spawnTimer =
+      s.mode === 'quick'
+        ? Math.max(0.32, 0.95 - s.wave * 0.008)
+        : Math.max(0.32, 1.2 - s.wave * 0.007);
   }
   for (const w of s.weapons) {
     w.cooldown = Math.max(0, w.cooldown - dt);
@@ -2041,7 +2063,10 @@ export function step(s: RunV2, dt = TICK): void {
     const cleared = s.wave;
     if (cleared === finalWave(s)) {
       s.cleared = true;
-      if(!s.endless) {s.phase='victory';return;}
+      if (!s.endless) {
+        s.phase = 'victory';
+        return;
+      }
     }
     // Level-up drafts are awarded by XP, independently of waves.
     if (cleared % 10 === 0) queueReward(s, 'shop', cleared);

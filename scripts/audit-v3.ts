@@ -8,6 +8,12 @@ import { defaultAutocastConfig } from '../src/v3/controls';
 import type { RunMode } from '../src/v3/types';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
+if (process.argv.includes('--help')) {
+  console.log(
+    'Usage: node --import tsx scripts/audit-v3.ts --tower=all --stage=0,1,2 --mode=normal,quick --policy=competent,random --seeds=1 --seed-start=1 --seconds=5400 --output=.private/reports/audit-v3.json',
+  );
+  process.exit(0);
+}
 const value = (key: string, fallback: string) =>
   process.argv
     .find((a) => a.startsWith(`--${key}=`))
@@ -18,7 +24,8 @@ const selectedTowers = value('tower', 'all').split(','),
   stages = value('stage', '0,1,2').split(',').map(Number),
   modes = value('mode', 'normal,quick').split(',') as RunMode[],
   policies = value('policy', 'competent,random').split(','),
-  seeds = Number(value('seeds', '1'));
+  seeds = Number(value('seeds', '1')),
+  seedStart = Number(value('seed-start', '1'));
 const output = value('output', '.private/reports/audit-v3.json');
 const profile = defaultProfile();
 profile.unlocked = TOWERS.map((t) => t.id);
@@ -26,9 +33,21 @@ profile.stageUnlocked = 3;
 profile.tutorialDone = true;
 const results: Record<string, unknown>[] = [];
 const weights: Record<string, number> = {
-  regen: 20,
+  regen: 22,
   lifesteal: 18,
-  'shield-regen': 15,
+  'shield-regen': 18,
+  crit: 11,
+  'crit-damage': 8,
+  slow: 11,
+  heavy: 9,
+  pulse: 11,
+  trail: 9,
+  blast: 10,
+  homing: 8,
+  pierce: 7,
+  size: 6,
+  range: 6,
+  lifetime: 4,
   armor: 13,
   vitality: 12,
   damage: 14,
@@ -62,7 +81,7 @@ for (const tower of TOWERS.filter(
 ))
   for (const stage of stages)
     for (const mode of modes)
-      for (let seed = 1; seed <= seeds; seed++)
+      for (let seed = seedStart; seed < seedStart + seeds; seed++)
         for (const policy of policies) {
           const s = engine.createRun(
             profile,
@@ -72,7 +91,12 @@ for (const tower of TOWERS.filter(
             seed * 1299709,
             { mode },
           );
-          let decision = (seed * 3157) >>> 0;
+          let decision =
+            (Math.imul(seed, 3157) ^
+              Math.imul(TOWERS.indexOf(tower) + 1, 73856093) ^
+              Math.imul(stage + 1, 19349663) ^
+              (mode === 'quick' ? 83492791 : 1299709)) >>>
+            0;
           const random = () => {
             decision = (Math.imul(decision, 1664525) + 1013904223) >>> 0;
             return decision / 4294967296;
@@ -102,7 +126,10 @@ for (const tower of TOWERS.filter(
           const targetKinds = new Set([...firstPair, ...secondPair]);
           const score = (o: CardOffer) => {
             const c = CARDS.find((c) => c.id === o.cardId)!;
-            let v = weights[c.effect] || 1;
+            const invested = s.cards
+              .filter((x) => x.cardId === c.id)
+              .reduce((sum, x) => sum + x.stacks, 0);
+            let v = (weights[c.effect] || 2) / (1 + invested * 0.8);
             const desperate = s.hp < s.maxHp * 0.45;
             if (
               desperate &&
@@ -116,8 +143,16 @@ for (const tower of TOWERS.filter(
               const completed = s.weapons.some((w) =>
                 w.fusion?.ingredients.some((i) => i.kind === c.weapon),
               );
-              v = owned ? 8 : s.weapons.length < 3 ? 42 : s.weapons.length < 6 ? 22 : -35;
-              if (policy === 'fusion') {
+              v = owned
+                ? owned.masteryRank! < 6
+                  ? 9
+                  : 2
+                : s.weapons.length < 3
+                  ? 30
+                  : s.weapons.length < 6
+                    ? 11
+                    : -35;
+              if (policy === 'fusion' || policy === 'competent') {
                 const partner = recipePairs.some(
                   (pair) =>
                     pair.includes(c.weapon!) &&
@@ -125,7 +160,7 @@ for (const tower of TOWERS.filter(
                       (k) => k !== c.weapon && s.weapons.some((w) => !w.fusion && w.kind === k),
                     ),
                 );
-                if (targetKinds.has(c.weapon!)) v += completed ? -15 : 12;
+                if (targetKinds.has(c.weapon!)) v += completed ? -15 : 14;
                 if (partner && !owned) v += 24;
                 if (owned && s.weapons.length < 3) v -= 20;
                 if (owned?.masteryRank === 6) v -= 12;
@@ -160,8 +195,13 @@ for (const tower of TOWERS.filter(
               }
             for (const reward of [...s.pendingRewards]) {
               const offers = [...reward.offers];
-              if (policy === 'random') offers.sort(() => random() - 0.5);
-              else offers.sort((a, b) => score(b) - score(a));
+              if (policy === 'random') {
+                // Fisher–Yates avoids engine-dependent bias from a random sort comparator.
+                for (let i = offers.length - 1; i > 0; i--) {
+                  const j = Math.floor(random() * (i + 1));
+                  [offers[i], offers[j]] = [offers[j], offers[i]];
+                }
+              } else offers.sort((a, b) => score(b) - score(a));
               const targetFor = (o: CardOffer) => {
                 const c = CARDS.find((c) => c.id === o.cardId)!;
                 if (
@@ -173,6 +213,8 @@ for (const tower of TOWERS.filter(
                     s.weapons.find((w) => !w.fusion && !targetKinds.has(w.kind))?.id ||
                     s.weapons.find((w) => !w.fusion)?.id
                   );
+                if (policy === 'random')
+                  return s.weapons[Math.floor(random() * s.weapons.length)]?.id;
                 return (
                   s.weapons.find((w) => targetKinds.has(w.kind) && w.masteryRank! < 6)?.id ||
                   s.weapons[0].id
@@ -203,13 +245,18 @@ for (const tower of TOWERS.filter(
             mode,
             seed,
             policy,
-            outcome: s.cleared
-              ? 'clear'
-              : s.phase === 'ended'
-                ? 'defeat'
-                : mode === 'endless'
-                  ? 'survival'
-                  : 'timeout',
+            cleared: s.cleared,
+            terminalPhase: s.phase,
+            outcome:
+              mode === 'endless'
+                ? s.phase === 'ended'
+                  ? 'defeat'
+                  : 'survival'
+                : s.cleared
+                  ? 'clear'
+                  : s.phase === 'ended'
+                    ? 'defeat'
+                    : 'timeout',
             wave: s.wave,
             seconds: Math.round(s.time),
             level: s.level,
@@ -218,6 +265,8 @@ for (const tower of TOWERS.filter(
             earned: s.earned,
             scrap: s.scrap,
             damage: Object.values(s.damageByWeapon).reduce((a, b) => a + b, 0),
+            cards: s.cards.map((c) => ({ cardId: c.cardId, stacks: c.stacks, rarity: c.rarity })),
+            damageByWeapon: s.damageByWeapon,
             equipment: s.weapons.map((w) => ({
               kind: w.kind,
               rank: w.masteryRank,

@@ -1,7 +1,14 @@
 /** Explicit synthetic checkpoints, never normal player data. */
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { emptySave, exportGame } from '../src/v3/storage.ts';
-import { createRun, grantXp, acquireCard, advanceMastery } from '../src/v3/engine.ts';
+import {
+  createRun,
+  grantXp,
+  acquireCard,
+  advanceMastery,
+  fuseCores,
+  spawnEnemy,
+} from '../src/v3/engine.ts';
 import { CARDS } from '../src/v3/catalog.ts';
 const make = (mode = 'normal', tower = 'monolith') => {
   const save = emptySave();
@@ -57,4 +64,65 @@ for (const w of s.weapons) advanceMastery(w, 900);
 s.scrap = 90;
 s.wave = 20;
 writeFileSync('qa-data/v3-fusion.json', exportGame(ready));
-console.log('Prepared four synthetic v3 checkpoints for the isolated QA page.');
+const victory = make('normal', 'bastion');
+victory.run.wave = 100;
+victory.run.phase = 'victory';
+victory.run.cleared = true;
+victory.run.earned = 180;
+victory.run.weapons[0].lifetimeShots = 15001;
+writeFileSync('qa-data/v3-victory.json', exportGame(victory));
+const spectacle = make('endless');
+const scene = spectacle.run;
+for (const [recipe, kinds] of [
+  ['cathedral', ['core-echo']],
+  ['orrery', ['spiral', 'chakram']],
+  ['conduit', ['beam', 'tesla']],
+  ['cataclysm', ['mine', 'meteor']],
+  ['citadel', ['swarm', 'drone']],
+]) {
+  for (const kind of kinds) {
+    const c = CARDS.find((c) => c.weapon === kind);
+    acquireCard(scene, { id: `scene-${kind}`, cardId: c.id, rarity: 'mythic', price: 0 });
+  }
+  for (const w of scene.weapons) advanceMastery(w, 900);
+  const pair = recipe === 'cathedral' ? ['core-mirror', 'core-echo'] : kinds;
+  if (
+    !fuseCores(
+      scene,
+      `fusion-${recipe}`,
+      ...pair.map((kind) => scene.weapons.find((w) => w.kind === kind).id),
+    )
+  )
+    throw Error('Invalid spectacle fusion');
+}
+for (const effect of [
+  'size',
+  'count',
+  'pulse',
+  'trail',
+  'lifetime',
+  'regen',
+  'shield-regen',
+  'armor',
+  'lifesteal',
+]) {
+  const c = CARDS.find((c) => c.effect === effect && c.scope !== 'weapon');
+  if (c)
+    for (let i = 0; i < Math.min(4, c.maxStacks); i++)
+      acquireCard(scene, { id: `scene-${effect}-${i}`, cardId: c.id, rarity: 'mythic', price: 0 });
+}
+scene.wave = 120;
+scene.cleared = true;
+scene.spawnTotal = 70;
+for (let i = 0; i < 36; i++) {
+  const a = (i / 36) * Math.PI * 2;
+  spawnEnemy(
+    scene,
+    i % 3 === 0 ? 'ranged' : 'armored',
+    500 + Math.cos(a) * 275,
+    400 + Math.sin(a) * 275,
+    0,
+  );
+}
+writeFileSync('qa-data/v3-spectacle.json', exportGame(spectacle));
+console.log('Prepared six synthetic v3 checkpoints for the isolated QA page.');

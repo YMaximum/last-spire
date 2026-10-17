@@ -213,13 +213,19 @@ function scheduleSave() {
   clearTimeout(persistTimer);
   persistTimer = window.setTimeout(() => void persist(), 300);
 }
+let saveCompletion: Promise<void> = Promise.resolve();
 async function persist() {
   if (loading || blocked) return;
   if (saveBusy || settlePromise) {
     saveQueued = true;
-    return;
+    await (settlePromise || saveCompletion);
+    return persist();
   }
   saveBusy = true;
+  let completeSave!: () => void;
+  saveCompletion = new Promise<void>((resolve) => {
+    completeSave = resolve;
+  });
   try {
     await saveGame(data);
     storageFailed = false;
@@ -232,6 +238,7 @@ async function persist() {
     );
   } finally {
     saveBusy = false;
+    completeSave();
     if (saveQueued) {
       saveQueued = false;
       scheduleSave();
@@ -550,10 +557,10 @@ function offerMarkup(offer: CardOffer, shop: boolean) {
     const ownedCards = s.cards.filter((x) => x.cardId === c.id);
     if (ownedWeapon) {
       ownership = (modern(s) ? (ownedWeapon.masteryRank ?? 1) >= 6 : ownedWeapon.mastery >= 24)
-        ? 'MAX MASTERY—RARITY UPGRADE'
+        ? 'MAX MASTERY · INVESTMENT UPGRADE'
         : 'UPGRADE';
       ownedText = modern(s)
-        ? `Owned · mastery ${ownedWeapon.masteryRank ?? 1}/6 · training +150s · investment ${ownedWeapon.mastery} → ${Math.min(24, ownedWeapon.mastery + 1)} · ${rarityLabel(ownedWeapon.rarity)} · drop ${rarityLabel(offer.rarity)}`
+        ? `Owned · mastery ${ownedWeapon.masteryRank ?? 1}/6 · ${(ownedWeapon.masteryRank ?? 1) < 6 ? 'training +150s' : 'mastery complete'} · investment ${ownedWeapon.mastery} → ${Math.min(24, ownedWeapon.mastery + 1)} · ${rarityLabel(ownedWeapon.rarity)} · drop ${rarityLabel(offer.rarity)}`
         : `Owned · ${getWeaponStats(s, ownedWeapon).damage.toFixed(1)} current damage · investment ${ownedWeapon.mastery} → ${Math.min(24, ownedWeapon.mastery + 1)}`;
     } else if (ownedCards.length) {
       ownership = 'UPGRADE';
@@ -641,15 +648,17 @@ function showRewards(id?: string) {
           applyOffer(reward.id, offer.id, shop);
         }),
     );
-  $('reward-reroll').onclick = () => {
+  $('reward-reroll').onclick = async () => {
     if (rerollReward(s, reward.id)) {
-      scheduleSave();
+      clearTimeout(persistTimer);
+      await persist();
       showRewards(reward.id);
     } else notify('Not enough scrap or rerolls available.');
   };
-  $('repair-shop')?.addEventListener('click', () => {
+  $('repair-shop')?.addEventListener('click', async () => {
     if (repair(s, reward.id)) {
-      scheduleSave();
+      clearTimeout(persistTimer);
+      await persist();
       showRewards(reward.id);
       updateHud();
     } else notify('Repair unavailable. Check scrap and remaining stock.');
@@ -661,7 +670,7 @@ function showRewards(id?: string) {
     updateHud();
   });
 }
-function applyOffer(rewardId: string, offerId: string, purchase: boolean, targetId?: string) {
+async function applyOffer(rewardId: string, offerId: string, purchase: boolean, targetId?: string) {
   const s = current();
   if (!isV2(s)) return;
   const offer = s.pendingRewards
@@ -695,7 +704,8 @@ function applyOffer(rewardId: string, offerId: string, purchase: boolean, target
     })),
   });
   sound(620);
-  scheduleSave();
+  clearTimeout(persistTimer);
+  await persist();
   showRewards(rewardId);
   if (manager.has('arsenal')) openArsenal();
   updateHud();
@@ -854,7 +864,7 @@ function openFusionPreview(recipeId: string, a: string, b: string) {
     `${cardIcon(recipe.iconId, 88)}<p class="lead">${esc(info.description)}</p><p>${esc(info.summary)}</p><h3>Consumed equipment</h3><p>${info.ingredients.map(esc).join(' + ')}</p><h3>Inherited investments</h3><ul>${info.inherited.map((x) => `<li>${esc(x)}</li>`).join('')}</ul>${info.conversions.length ? `<h3>Conversions and limits</h3><ul>${info.conversions.map((x) => `<li>${esc(x)}</li>`).join('')}</ul>` : ''}<p>${info.awaken.length ? `Awakens: ${info.awaken.map(esc).join(', ')}. ` : ''}${info.lost.length ? `Releases: ${info.lost.map(esc).join(', ')}.` : 'Compatible passive synergies are preserved.'}</p><button id="confirm-fusion" class="gold-button full">Forge ${esc(info.name)} · free</button><button id="cancel-fusion" class="outline-button full">Keep ingredients</button>`,
   );
   $('cancel-fusion').onclick = () => manager.close('fusion-preview');
-  $('confirm-fusion').onclick = () => {
+  $('confirm-fusion').onclick = async () => {
     if (!fuseCores(s as RunV2, recipeId, a, b)) {
       notify('Fusion requirements changed; inspect the arsenal again.');
       return;
@@ -864,9 +874,11 @@ function openFusionPreview(recipeId: string, a: string, b: string) {
       ingredients: [a, b],
       equipment: s.weapons.map((w) => ({ id: w.id, kind: w.kind, rank: w.masteryRank ?? 0 })),
     });
+    $<HTMLButtonElement>('confirm-fusion').disabled = true;
+    clearTimeout(persistTimer);
+    await persist();
     manager.close('fusion-preview');
     manager.close('arsenal');
-    scheduleSave();
     inspector.update();
     updateHud();
     notify(`${info.name} awakened. A socket is free.`);
@@ -1052,6 +1064,10 @@ function statsBody() {
     line('Recent DPS · last 10 combat seconds', dps.toFixed(1)) +
     line('Run-average DPS', (total / Math.max(1, s.time)).toFixed(1)) +
     line('Total damage', Math.round(total).toLocaleString()) +
+    line(
+      'Rendering · recent wall-clock sample',
+      `${$('arena').dataset.fps || '—'} FPS · ${$('arena').dataset.renderMs || '—'} ms draw`,
+    ) +
     line('Defeated', s.kills.toLocaleString()) +
     line(
       'Combat time',
@@ -1140,7 +1156,7 @@ function runeMarkup() {
     visibleRunes
       .map(
         (id) =>
-          `<article class="rune-row"><b>${RUNE_NAMES[id]}</b><span>${runeBenefit(id, r.selected[id])}</span><span>Purchased ${r.owned[id]}/${Math.max(r.owned[id], RUNE_CAPS[id])} · selected <strong id="rune-value-${id}">${r.selected[id]}</strong></span><label>Selected level<input data-rune-select="${id}" type="range" min="0" max="${r.owned[id]}" value="${r.selected[id]}" ${playing ? 'disabled' : ''}></label><button data-rune-buy="${id}" class="outline-button" ${playing || r.owned[id] >= RUNE_CAPS[id] || data.profile.credits < runePrice(id, r.owned[id] + 1) ? 'disabled' : ''}>${r.owned[id] >= RUNE_CAPS[id] ? 'Fully purchased' : `Buy level ${r.owned[id] + 1} · ${runePrice(id, r.owned[id] + 1)} credits`}</button></article>`,
+          `<article class="rune-row"><b>${RUNE_NAMES[id]}</b><span id="rune-benefit-${id}">${runeBenefit(id, r.selected[id])}</span><span>Purchased ${r.owned[id]}/${Math.max(r.owned[id], RUNE_CAPS[id])} · selected <strong id="rune-value-${id}">${r.selected[id]}</strong></span><label>Selected level<input data-rune-select="${id}" type="range" min="0" max="${r.owned[id]}" value="${r.selected[id]}" ${playing ? 'disabled' : ''}></label><button data-rune-buy="${id}" class="outline-button" ${playing || r.owned[id] >= RUNE_CAPS[id] || data.profile.credits < runePrice(id, r.owned[id] + 1) ? 'disabled' : ''}>${r.owned[id] >= RUNE_CAPS[id] ? 'Fully purchased' : `Buy level ${r.owned[id] + 1} · ${runePrice(id, r.owned[id] + 1)} credits`}</button></article>`,
       )
       .join('') +
     '<button id="configure-autocast" class="outline-button full">Configure conditional autocast</button>'
@@ -1153,6 +1169,10 @@ function bindRunes() {
     .forEach((el) => {
       el.oninput = () => {
         $(`rune-value-${el.dataset.runeSelect}`).textContent = el.value;
+        $(`rune-benefit-${el.dataset.runeSelect}`).textContent = runeBenefit(
+          el.dataset.runeSelect as RuneId,
+          Number(el.value),
+        );
       };
       el.onchange = () => {
         if (playing) return;
@@ -1231,7 +1251,7 @@ function openAutocast() {
       })
       .join('')}<button id="save-autocast" class="gold-button full">Save autocast rules</button>`,
   );
-  $('save-autocast').onclick = () => {
+  $('save-autocast').onclick = async () => {
     const next = structuredClone(rules);
     for (const slot of ['signature', 'secondary'] as const) {
       next[slot] = {
@@ -1255,12 +1275,14 @@ function openAutocast() {
     const normalized = normalizeAutocastConfig(next);
     if (active && active.runId === data.run?.id) active!.autocast = normalized;
     else data.progression.autocast = normalized;
-    scheduleSave();
+    $<HTMLButtonElement>('save-autocast').disabled = true;
+    clearTimeout(persistTimer);
+    await persist();
     updateHud();
     manager.close('autocast');
     if (data.run)
       telemetry.event(data.run.id, data.run.time, 'autocast-strategy', { rules: normalized });
-    notify('Autocast strategy saved.');
+    if (!storageFailed) notify('Autocast strategy saved.');
   };
 }
 function openHangar() {
@@ -1364,7 +1386,7 @@ function openSettings() {
       width: 610,
       height: 760,
     },
-    `<div class="settings-list"><label>Sound effects<input id="setting-sound" type="checkbox" ${data.settings.sound ? 'checked' : ''}></label><label>Reduced motion<input id="setting-motion" type="checkbox" ${data.settings.reducedMotion ? 'checked' : ''}></label><label>Camera shake<input id="setting-shake" type="checkbox" ${data.settings.shake ? 'checked' : ''}></label><label>Pause draft & shop windows<input id="setting-pause" type="checkbox" ${data.settings.autoPauseChoices ? 'checked' : ''}></label><label>Text & interface scale<select id="setting-scale">${[100, 115, 130, 150].map((v) => `<option value="${v}" ${data.settings.uiScale === v ? 'selected' : ''}>${v}%</option>`).join('')}</select></label><label>Weapon spectacle<select id="setting-intensity">${['subtle', 'balanced', 'spectacular'].map((v) => `<option value="${v}" ${v === data.settings.intensity ? 'selected' : ''}>${v[0].toUpperCase() + v.slice(1)}</option>`).join('')}</select></label><label>Effects quality<select id="setting-quality"><option value="high" ${data.settings.effects === 'high' ? 'selected' : ''}>High detail</option><option value="low" ${data.settings.effects === 'low' ? 'selected' : ''}>Battery friendly</option></select></label></div><div class="save-status ${storageFailed || blocked ? 'warning' : ''}">${blocked ? 'A saved checkpoint needs recovery. Automatic writes are stopped to protect it.' : storageFailed ? 'Storage is unavailable. Progress is kept in this tab: export before closing.' : 'Local saves are active. Combat checkpoints and queued choices are autosaved.'}</div><div class="save-actions"><button id="local-analytics" class="outline-button">Local gameplay data</button><button id="export-save" class="outline-button">Export current save</button><label class="file-button outline-button">Import save<input id="import-save" type="file" accept="application/json,.json"></label><button id="paste-import" class="outline-button">Paste a save</button><button id="export-backup" class="outline-button">Download pre-v2 backup</button></div><p class="quiet">Save files stay on your device. Import shows a review before replacing progress. A recovered original expedition keeps its old rules until it ends.</p><div class="controls-reference"><h3>At your command</h3><p><kbd>Space</kbd> pause · <kbd>Q</kbd> signature · <kbd>E</kbd> secondary<br><kbd>A</kbd> arsenal · <kbd>C</kbd> codex · <kbd>1 / 2 / 3</kbd> speed<br><kbd>Esc</kbd> close the top window, then pause<br>Drag window headers, or focus a header and use <kbd>Alt + arrows</kbd>.</p></div><a class="outline-button full" href="/icon-contact-sheet.html" target="_blank" rel="noopener">Inspect the original card icon collection ↗</a>`,
+    `<div class="settings-list"><label>Sound effects<input id="setting-sound" type="checkbox" ${data.settings.sound ? 'checked' : ''}></label><label>Reduced motion<input id="setting-motion" type="checkbox" ${data.settings.reducedMotion ? 'checked' : ''}></label><label>Camera shake<input id="setting-shake" type="checkbox" ${data.settings.shake ? 'checked' : ''}></label><label>Pause draft & shop windows<input id="setting-pause" type="checkbox" ${data.settings.autoPauseChoices ? 'checked' : ''}></label><label>Text & interface scale<select id="setting-scale">${[100, 115, 130, 150].map((v) => `<option value="${v}" ${data.settings.uiScale === v ? 'selected' : ''}>${v}%</option>`).join('')}</select></label><label>Weapon spectacle<select id="setting-intensity">${['subtle', 'balanced', 'spectacular'].map((v) => `<option value="${v}" ${v === data.settings.intensity ? 'selected' : ''}>${v[0].toUpperCase() + v.slice(1)}</option>`).join('')}</select></label><label>Effects quality<select id="setting-quality"><option value="high" ${data.settings.effects === 'high' ? 'selected' : ''}>High detail</option><option value="low" ${data.settings.effects === 'low' ? 'selected' : ''}>Battery friendly</option></select></label></div><div class="save-status ${storageFailed || blocked ? 'warning' : ''}">${blocked ? 'A saved checkpoint needs recovery. Automatic writes are stopped to protect it.' : storageFailed ? 'Storage is unavailable. Progress is kept in this tab: export before closing.' : 'Local saves are active. Combat checkpoints and queued choices are autosaved.'}</div><div class="save-actions"><button id="local-analytics" class="outline-button">Local gameplay data</button><button id="export-save" class="outline-button">Export current save</button><label class="file-button outline-button">Import save<input id="import-save" type="file" accept="application/json,.json"></label><button id="paste-import" class="outline-button">Paste a save</button><button id="export-backup" class="outline-button">Download migration backup</button></div><p class="quiet">Save files stay on your device. Import shows a review before replacing progress. A recovered original expedition keeps its old rules until it ends.</p><div class="controls-reference"><h3>At your command</h3><p><kbd>Space</kbd> pause · <kbd>Q</kbd> signature · <kbd>E</kbd> secondary<br><kbd>A</kbd> arsenal · <kbd>C</kbd> codex · <kbd>1 / 2 / 3</kbd> speed<br><kbd>Esc</kbd> close the top window, then pause<br>Drag window headers, or focus a header and use <kbd>Alt + arrows</kbd>.</p></div><a class="outline-button full" href="/icon-contact-sheet.html" target="_blank" rel="noopener">Inspect the original card icon collection ↗</a>`,
   );
   const bindCheck = (id: string, key: 'sound' | 'reducedMotion' | 'shake' | 'autoPauseChoices') => {
     $(id).onchange = () => {
@@ -1399,7 +1421,7 @@ function openSettings() {
     try {
       const raw = await readLegacyBackup();
       if (!raw) {
-        notify('No pre-v2 save was found. Your current save can still be exported.');
+        notify('No migration backup was found. Your current save can still be exported.');
         return;
       }
       download(JSON.stringify(raw, null, 2), 'last-spire-before-v2.json');
@@ -1582,19 +1604,26 @@ function openResults(startSettlement = true) {
   const nextTower = TOWERS.find((t) => !data.profile.unlocked.includes(t.id));
   const availableCredits =
     data.profile.credits + (s.settled ? 0 : isV2(s) ? rewardForRun(s) : s.earned);
-  const synergies = isV2(s)
+  const modernRun = modern(s);
+  const forged = modernRun
+    ? modernRun.weapons.flatMap((w) =>
+        w.fusion ? [FUSION_BY_ID[w.fusion.recipeId]?.name || w.fusion.recipeId] : [],
+      )
+    : [];
+  const passiveSynergies = isV2(s)
     ? SYNERGIES.filter((y) => s.synergies.includes(y.id)).map((y) => y.name)
     : s.synergies;
+  const synergies = [...passiveSynergies, ...forged];
   manager.open(
     'results',
     {
       title: s.cleared ? 'A legend, forged.' : 'Every ending leaves a spark.',
-      subtitle: `EXPEDITION COMPLETE · WAVE ${s.wave}${s.endless ? ' · ENDLESS' : ''}`,
+      subtitle: `EXPEDITION COMPLETE · WAVE ${s.wave}${s.endless ? ' · ENDLESS' : modern(s)?.mode === 'quick' ? ' · QUICK' : ''}`,
       width: 660,
       height: 650,
       choice: true,
     },
-    `<div class="result-stats"><div><b>${s.wave}</b><span>Wave reached</span></div><div><b>${s.kills.toLocaleString()}</b><span>Defeated</span></div><div><b>+${isV2(s) ? rewardForRun(s) : s.earned}</b><span>${s.settled ? (storageFailed ? 'Credits kept in memory' : 'Credits secured') : 'Securing credits…'}</span></div></div><p class="lead">${synergies.length ? `Your awakened machinery: ${esc(synergies.join(' · '))}.` : 'A focused build, a defensive reaction, or a different weapon may change the next expedition.'}</p>${isV2(s) ? `<div class="ledger-grid"><div><small>Shop purchases</small><b>${s.stats.shopPurchases}</b></div><div><small>Scrap spent</small><b>${s.stats.spent}</b></div><div><small>Combat time</small><b>${Math.floor(s.time / 60)}m ${Math.floor(s.time % 60)}s</b></div><div><small>Synergies</small><b>${s.synergies.length}</b></div></div>` : ''}<p class="notice">${s.cleared ? 'Your stage and Ascension progress are unlocked.' : 'Credits can awaken another tower or improve your permanent runes.'}${storageFailed ? ' Export a backup before closing this tab.' : ''}</p>${nextTower ? `<p class="notice">Next awakening: ${nextTower.name} · ${nextTower.cost} credits. ${availableCredits >= nextTower.cost ? 'You can awaken it in the hangar.' : `${nextTower.cost - availableCredits} credits to go.`}</p>` : ''}<div class="result-actions"><button id="result-ledger" class="outline-button">Damage ledger</button><button id="result-export" class="outline-button">Export save</button><button id="return-spire" class="gold-button">Return to the spire ${glyph('arrow')}</button></div>`,
+    `<div class="result-stats"><div><b>${s.wave}</b><span>Wave reached</span></div><div><b>${s.kills.toLocaleString()}</b><span>Defeated</span></div><div><b>+${isV2(s) ? rewardForRun(s) : s.earned}</b><span>${s.settled ? (storageFailed ? 'Credits kept in memory' : 'Credits secured') : 'Securing credits…'}</span></div></div><p class="lead">${synergies.length ? `Your awakened machinery: ${esc(synergies.join(' · '))}.` : 'A focused build, a defensive reaction, or a different weapon may change the next expedition.'}</p>${isV2(s) ? `<div class="ledger-grid"><div><small>Shop purchases</small><b>${s.stats.shopPurchases}</b></div><div><small>Scrap spent</small><b>${s.stats.spent}</b></div><div><small>Combat time</small><b>${Math.floor(s.time / 60)}m ${Math.floor(s.time % 60)}s</b></div><div><small>Passive synergies</small><b>${s.synergies.length}</b></div>${modern(s) ? `<div><small>Mastered fusions</small><b>${forged.length}</b></div><div><small>Tower level</small><b>${s.level}</b></div>` : ''}</div>` : ''}<p class="notice">${s.cleared ? 'Your stage and Ascension progress are unlocked.' : 'Credits can awaken another tower or improve your permanent runes.'}${storageFailed ? ' Export a backup before closing this tab.' : ''}</p>${nextTower ? `<p class="notice">Next awakening: ${nextTower.name} · ${nextTower.cost} credits. ${availableCredits >= nextTower.cost ? 'You can awaken it in the hangar.' : `${nextTower.cost - availableCredits} credits to go.`}</p>` : ''}<div class="result-actions"><button id="result-ledger" class="outline-button">Damage ledger</button><button id="result-export" class="outline-button">Export save</button><button id="return-spire" class="gold-button">Return to the spire ${glyph('arrow')}</button></div>`,
   );
   $('result-export').onclick = downloadCurrent;
   $('result-ledger').onclick = openStats;
@@ -1745,7 +1774,8 @@ let last = 0,
   drawCost = 0,
   statsTimer = 0;
 function frame(now: number) {
-  const delta = Math.min(0.12, Math.max(0, (now - last) / 1000 || 0));
+  const frameElapsed = last ? Math.max(0, (now - last) / 1000) : 0;
+  const delta = Math.min(0.12, frameElapsed);
   last = now;
   const s = current();
   if (playing && !paused && !manager.choicesPause() && s.phase === 'combat') {
@@ -1766,10 +1796,10 @@ function frame(now: number) {
     }
   } else accumulator = 0;
   const before = performance.now();
-  renderer.draw(s, data.settings);
+  if (!document.hidden) renderer.draw(s, data.settings);
   drawCost += performance.now() - before;
   frames++;
-  perfTime += delta;
+  perfTime += frameElapsed;
   if (perfTime >= 1) {
     $('arena').dataset.fps = String(Math.round(frames / perfTime));
     $('arena').dataset.renderMs = (drawCost / frames).toFixed(2);

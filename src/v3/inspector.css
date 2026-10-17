@@ -281,9 +281,9 @@
 .build-reference svg {
   flex-shrink: 0;
 }
-@media (max-width: 700px) {
+@media (max-width: 650px) {
   .build-rack {
-    top: 120px;
+    top: 145px;
     bottom: auto;
     left: 12px;
     padding: 6px;
@@ -300,7 +300,7 @@
     height: 46px;
   }
   .build-collections {
-    top: 183px;
+    top: 208px;
     bottom: auto;
     left: 12px;
     right: auto;

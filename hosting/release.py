@@ -8,14 +8,13 @@ import os
 from pathlib import Path, PurePosixPath
 import re
 import shutil
+import stat
 import subprocess
 import sys
 import tarfile
 import tempfile
 import time
-import urllib.error
 import urllib.request
-import zipfile
 
 REPOSITORY = "YMaximum/last-spire"
 WORKFLOW = ".github/workflows/checks.yml"
@@ -67,43 +66,25 @@ class GitHub:
         with self.request(suffix) as response:
             return json.loads(bounded_read(response, 4 * 1024 * 1024))
 
-    def download(self, artifact_id):
-        try:
-            with self.request(f"/actions/artifacts/{artifact_id}/zip") as response:
-                return bounded_read(response)
-        except urllib.error.HTTPError as error:
-            require(error.code == 302, "Artifact download was rejected.")
-            location = error.headers.get("Location", "")
-            require(location.startswith("https://"), "Artifact redirect must use HTTPS.")
-            # A fresh request intentionally omits Authorization on the storage host.
-            with urllib.request.urlopen(location, timeout=60) as response:
-                return bounded_read(response)
 
-
-def checked_artifact(api, sha):
+def checked_run(api, sha, run_id, attempt):
     sha = commit_sha(sha)
     comparison = api.get(f"/compare/{sha}...main")
     require(comparison.get("status") in ("ahead", "identical"), "Commit is not on merged main.")
     workflow = api.get("/actions/workflows/checks.yml")
     require(workflow.get("path") == WORKFLOW and workflow.get("state") == "active", "Unexpected checks workflow.")
-    runs = api.get(f"/actions/workflows/{workflow['id']}/runs?head_sha={sha}&status=success&per_page=100")
-    for run in runs.get("workflow_runs", []):
-        if not (run.get("head_sha") == sha and run.get("head_branch") == "main"
-                and run.get("event") in ("push", "workflow_dispatch")
-                and run.get("status") == "completed" and run.get("conclusion") == "success"
-                and run.get("head_repository", {}).get("full_name") == REPOSITORY
-                and run.get("workflow_id") == workflow["id"]):
-            continue
-        artifacts = api.get(f"/actions/runs/{run['id']}/artifacts?per_page=100")
-        for artifact in artifacts.get("artifacts", []):
-            if artifact.get("name") == "last-spire-" + sha and not artifact.get("expired"):
-                require(re.fullmatch(r"sha256:[a-f0-9]{64}", artifact.get("digest", "")), "Missing GitHub artifact digest.")
-                require(0 < artifact.get("size_in_bytes", 0) <= MAX_DOWNLOAD, "Artifact size is invalid.")
-                return run, artifact
-    raise ValueError("No successful main build with an unexpired release artifact exists for this commit.")
+    run = api.get(f"/actions/runs/{run_id}/attempts/{attempt}")
+    require(run.get("id") == run_id and run.get("run_attempt") == attempt
+            and run.get("head_sha") == sha and run.get("head_branch") == "main"
+            and run.get("event") in ("push", "workflow_dispatch")
+            and run.get("status") == "completed" and run.get("conclusion") == "success"
+            and run.get("head_repository", {}).get("full_name") == REPOSITORY
+            and run.get("workflow_id") == workflow["id"] and run.get("path") == WORKFLOW,
+            "Stored artifact does not belong to a successful checked main run attempt.")
+    return run
 
 
-def release_files(archive, sha, run_id):
+def release_files(archive, sha, run_id, attempt):
     files = {}
     total = 0
     entries = set()
@@ -122,12 +103,13 @@ def release_files(archive, sha, run_id):
                 require(name != "manifest.json", "Manifest must be a file.")
                 continue
             require(member.isfile() and name != "dist", "Links and special files are forbidden.")
+            require(name != "manifest.json" or member.size <= 2 * 1024 * 1024, "Manifest is too large.")
             total += member.size
             require(0 <= member.size <= MAX_EXPANDED and total <= MAX_EXPANDED, "Expanded archive is too large.")
             files[name] = bundle.extractfile(member).read()
     require("manifest.json" in files, "Missing release manifest.")
     manifest = json.loads(files.pop("manifest.json"))
-    expected = {"schema": 1, "repository": REPOSITORY, "commit": sha, "runId": run_id}
+    expected = {"schema": 1, "repository": REPOSITORY, "commit": sha, "runId": run_id, "runAttempt": attempt}
     require(all(manifest.get(key) == value for key, value in expected.items()), "Release identity does not match checked build.")
     require(isinstance(manifest.get("files"), dict) and set(manifest["files"]) == set(files), "Manifest file list differs.")
     require("dist/index.html" in files and "dist/release.json" in files, "Missing game entrypoint or release identity.")
@@ -140,18 +122,50 @@ def release_files(archive, sha, run_id):
     return files
 
 
-def unpack_artifact(data, artifact, sha, run_id):
-    require("sha256:" + digest(data) == artifact["digest"], "GitHub artifact checksum mismatch.")
+def trusted_directory(path, owner_uid=0):
+    try:
+        info = path.lstat()
+    except FileNotFoundError:
+        raise ValueError("Checked artifact has not been collected on this host.") from None
+    require(stat.S_ISDIR(info.st_mode) and info.st_uid == owner_uid and not info.st_mode & 0o022,
+            "Artifact directory must be host-owned and not writable by others.")
+
+
+def trusted_regular(path, limit, owner_uid=0):
+    try:
+        descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    except FileNotFoundError:
+        raise ValueError("Host artifact or receipt is missing; verify collection.") from None
+    with os.fdopen(descriptor, "rb") as source:
+        info = os.fstat(source.fileno())
+        require(stat.S_ISREG(info.st_mode) and info.st_uid == owner_uid and not info.st_mode & 0o022
+                and info.st_nlink == 1 and 0 < info.st_size <= limit, "Unsafe host artifact file.")
+        return bounded_read(source, limit)
+
+
+def stored_artifact(api, sha, root=Path("/var/lib/last-spire/artifacts"), owner_uid=0):
+    sha = commit_sha(sha)
+    trusted_directory(root, owner_uid)
+    directory = root / sha
+    trusted_directory(directory, owner_uid)
+    receipt = json.loads(trusted_regular(directory / "receipt.json", 65536, owner_uid))
     archive_name = "last-spire-" + sha + ".tar.gz"
-    with zipfile.ZipFile(io.BytesIO(data)) as bundle:
-        require(set(bundle.namelist()) == {archive_name, archive_name + ".sha256"}
-                and len(bundle.infolist()) == 2, "Unexpected artifact contents.")
-        require(all(0 < info.file_size <= MAX_DOWNLOAD for info in bundle.infolist())
-                and sum(info.file_size for info in bundle.infolist()) <= MAX_DOWNLOAD, "Artifact expansion is too large.")
-        archive = bundle.read(archive_name)
-        checksum = bundle.read(archive_name + ".sha256").decode("ascii").strip()
+    require(receipt.get("schema") == 1 and receipt.get("repository") == REPOSITORY
+            and receipt.get("commit") == sha and receipt.get("workflowPath") == WORKFLOW
+            and receipt.get("headBranch") == "main" and receipt.get("event") in ("push", "workflow_dispatch")
+            and receipt.get("archive") == archive_name, "Host receipt identity differs.")
+    require(type(receipt.get("runId")) is int and receipt["runId"] > 0
+            and type(receipt.get("runAttempt")) is int and receipt["runAttempt"] > 0
+            and type(receipt.get("size")) is int and 0 < receipt["size"] <= MAX_DOWNLOAD
+            and isinstance(receipt.get("sha256"), str)
+            and re.fullmatch(r"[a-f0-9]{64}", receipt["sha256"]), "Invalid host receipt metadata.")
+    run = checked_run(api, sha, receipt["runId"], receipt["runAttempt"])
+    require(receipt["event"] == run["event"], "Host receipt event differs from GitHub.")
+    archive = trusted_regular(directory / archive_name, MAX_DOWNLOAD, owner_uid)
+    require(len(archive) == receipt["size"] and digest(archive) == receipt["sha256"], "Stored archive checksum mismatch.")
+    checksum = trusted_regular(directory / (archive_name + ".sha256"), 256, owner_uid).decode("ascii").strip()
     require(checksum == digest(archive) + "  " + archive_name, "Release archive checksum mismatch.")
-    return release_files(archive, sha, run_id)
+    return release_files(archive, sha, receipt["runId"], receipt["runAttempt"])
 
 
 def trusted_file(path, secret=False):
@@ -350,8 +364,7 @@ def main():
             token = trusted_file(Path("/etc/last-spire/github-token"), secret=True).strip()
             require(token and not any(char.isspace() for char in token), "Missing deployment API credential.")
             api = GitHub(token)
-            run, artifact = checked_artifact(api, sha)
-            files = unpack_artifact(api.download(artifact["id"]), artifact, sha, run["id"])
+            files = stored_artifact(api, sha)
             install_release(root, sha, files)
         activate(config, root, sha)
 

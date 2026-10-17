@@ -27,6 +27,7 @@
 ## Releases
 
 - Merging and publishing are separate. Production accepts a checked artifact from merged `main`, identified by its full commit SHA and verified checksum.
+- The trusted host collects artifacts only after the exact GitHub run attempt succeeds. CI workers never receive a writable host artifact directory. A green workflow alone does not prove collection succeeded; require the immutable host receipt before deployment.
 - Use the restricted SSH deployment/rollback commands documented in `docs/RELEASING.md`. Preserve unrelated services and retain a known-good release.
 - Never put tokens, SSH credentials, private inventories, or user saves in Git, PRs, logs, artifacts, or chat. Enter credentials only through hidden administrative onboarding.
 - Browser saves belong to their origin. Explain export/import when moving between localhost and the public domain; do not imply cloud synchronization.

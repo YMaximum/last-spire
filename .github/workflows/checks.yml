@@ -29,14 +29,6 @@ jobs:
       - name: Package merged main release
         if: github.ref == 'refs/heads/main'
         run: node scripts/package-release.mjs
-      - name: Upload checked release
+      - name: Report release handoff
         if: github.ref == 'refs/heads/main'
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        with:
-          name: last-spire-${{ github.sha }}
-          path: |
-            .release/last-spire-${{ github.sha }}.tar.gz
-            .release/last-spire-${{ github.sha }}.tar.gz.sha256
-          include-hidden-files: true
-          if-no-files-found: error
-          retention-days: 30
+        run: echo 'The trusted VPS controller collects this checked release only after the workflow succeeds. Publishing remains a separate SSH command.'

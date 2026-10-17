@@ -12,13 +12,16 @@ CI runs trusted pushes to `main` on the `last-spire` runner label. The maintaine
 
 The trusted host scheduler must serialize all repository workers, hold the host-wide lock for registration/job/cleanup, and avoid registering an idle runner indefinitely. Workers need Node 22, Python 3, GNU tar, Git and the Actions runner runtime. Use one Vitest worker, bounded CPU/memory, disposable rootless containers, no host mounts, no Docker socket, and no deployment credentials. Repository-specific credentials remain in the host controller. If resource headroom is insufficient, queue the build; do not stop unrelated services or remove resource limits.
 
-The **Source checks** job runs the checks above and uploads `last-spire-<full-sha>` only for the exact main commit. It contains a deterministic tar archive, its SHA-256 checksum, file hashes, and a served `release.json`. Artifacts expire after 30 days; rerun the checked main workflow if the artifact expires. No hosted-runner fallback or billing change is automatic.
+The **Source checks** job runs the checks above and packages a release only for the exact main commit. It contains a deterministic tar archive, its SHA-256 checksum, file hashes, and a served `release.json` identifying the SHA, run ID and attempt. It does not upload to GitHub artifact storage. No hosted-runner fallback or billing change is automatic.
+
+After the runner exits, the trusted host controller exports only that lease's exact archive/checksum from the stopped rootless container. No host directory is mounted into the worker. The controller independently checks the completed successful GitHub run attempt, main ancestry, manifest and file hashes before writing a root-owned receipt and immutable artifact directory. Feature-branch, failed and mismatched attempts are never promoted. A green workflow means build checks passed; publication also requires the subsequent host collection to succeed.
 
 ## One-time trusted host setup
 
 Perform these steps as an administrator from a reviewed checkout. Keep actual host inventories and credentials outside Git.
 
 1. Configure the repository-scoped ephemeral runner and shared scheduler. Create an expiring fine-grained PAT restricted to this repository, with Administration write for JIT registration and Actions read for queue inspection. Enter it through hidden SSH onboarding, never command arguments or chat. Confirm that fork jobs are not dispatched.
+   Enable host collection only after this workflow's removal of GitHub uploads is reviewed and merged: `sudo last-spire-artifacts enable <merged-main-sha>`. The gate rejects upload-era workflows and requires eligible run commits to descend from the armed commit. Use `sudo last-spire-artifacts status` to inspect collection status.
 2. Pull the official `nginxinc/nginx-unprivileged:stable-alpine` image, review its resolved repository digest, and use that immutable digest below. Ensure loopback port 8091 is free and the container fits shared VPS resources.
 3. Install the trusted release commands:
 
@@ -27,7 +30,7 @@ Perform these steps as an administrator from a reviewed checkout. Keep actual ho
    sudo last-spire-onboard-release
    ```
 
-   Onboarding prompts invisibly for a separate expiring fine-grained PAT restricted to Last Spire, with **Contents read** and **Actions read**. It validates access and saves it root-only. This credential never reaches a worker. The installer starts no game. Do not rerun initial installation over an existing runtime without reviewing configuration/image changes.
+   Onboarding prompts invisibly for a separate expiring fine-grained PAT restricted to Last Spire, with **Contents read** and **Actions read**. It validates access and saves it root-only. This credential never reaches a worker. The installer starts no game. Do not rerun initial installation over an existing runtime without reviewing configuration/image changes. Read-only Actions access is used to verify successful run identity, not to download an artifact.
 
 4. Add the Netlify DNS A record for `last-spire` pointing to the verified VPS public IPv4. Remove conflicting records for this hostname only. The registrar can remain Rumahweb. Verify public DNS resolution.
 5. Add `hosting/Caddyfile.example` to the existing Caddy configuration, validate the full configuration, then reload it. Preserve existing routes. Caddy must reach `127.0.0.1:8091`; the game itself must not expose a public port. Verify certificate issuance after the first release is serving.
@@ -36,13 +39,17 @@ Do not reuse a broad administrative SSH key as an Actions deployment credential.
 
 ## Publish a reviewed release
 
-After the merged main workflow succeeds, obtain the full commit SHA from GitHub and run on the host:
+After the merged main workflow and host artifact collection succeed, obtain the full commit SHA from GitHub and run on the host:
 
 ```sh
 sudo last-spire-deploy <full-40-character-sha>
 ```
 
-The host independently verifies main ancestry, repository/workflow identity, successful run status, artifact expiry, GitHub's artifact digest, the archive checksum, the manifest, and every file hash. It rejects traversal paths, links, special files, unexpected files, oversized archives and QA entrypoints. No repository-provided deployment code executes from the artifact.
+The host independently verifies main ancestry, repository/workflow identity, the exact successful run attempt, the root-owned collection receipt, archive size/checksum, the manifest, and every file hash. It rejects writable, linked or incorrectly owned host artifacts, traversal paths, special files, unexpected files, oversized archives and QA entrypoints. Limits are 64 MiB compressed, 128 MiB expanded, 4,096 archive entries, a 2 MiB manifest and a 256-byte checksum file. No repository-provided deployment code executes from the artifact.
+
+Artifacts are stored under `/var/lib/last-spire/artifacts/<sha>/` as the exact archive, checksum, and `receipt.json`. Storage is write-once per SHA: an identical receipt/archive is idempotent; a different run or attempt is not allowed to overwrite it. Do not delete the GitHub run that attests to an artifact you still intend to deploy. Missing GitHub verification or a missing host receipt causes refusal, never a fallback to an unchecked local archive. Rollback of an already installed release still uses its local verified receipt.
+
+The controller bounds the artifact store to 2 GiB and preserves at least 1 GiB of free disk. If collection is refused, inspect status and deliberately manage retained releases/artifacts; never automatically delete other projects' data. Current and previous production releases must remain available.
 
 The release is installed under a commit-named directory. An isolated candidate nginx container checks health, identity, entrypoint, assets and security headers before the `current` symlink changes atomically. The serving container uses a read-only bind, user 101, no capabilities, no new privileges, 128 MiB RAM, 0.25 CPU, 64 PIDs, and a 16 MiB temporary filesystem. Its only published port is loopback 8091. Failed candidate validation leaves the existing release serving; a failed post-switch health check restores the previous pointer. The previous release is retained. Do not manually alter installed release files.
 
@@ -67,6 +74,6 @@ In the local game, open Settings and export your save. On the public hostname, o
 
 ## Bootstrap and recovery
 
-The first infrastructure PR can be checked locally before the self-hosted workflow exists on `main`. After the user merges it, finish hidden credential onboarding, run the main checks, and publish that checked SHA. A workflow that has not started because of missing registration or credentials has not passed validation.
+The first infrastructure PR can be checked locally before the self-hosted workflow exists on `main`. After the user merges it, finish hidden credential onboarding, arm host collection for the reviewed SHA, run the main checks, verify collection, and publish that checked SHA. A workflow that has not started because of missing registration or credentials has not passed validation. Collection happens after the job exits; if its gate was armed too late, rerun the main workflow and approve the new attempt through the scheduler when required.
 
 If DNS, credentials, resources, certificate issuance, artifact validation or health checks fail, report the exact blocked step without printing tokens, signed download URLs, or private inventories. Keep the current release and unrelated services running. Save a private checkpoint; never substitute an unchecked local build for the required release artifact.

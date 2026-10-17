@@ -15,8 +15,9 @@ if (execFileSync('git', ['status', '--porcelain', '--untracked-files=no'], { enc
 const work = mkdtempSync(join(tmpdir(), 'last-spire-release-'));
 try {
   cpSync('dist', join(work, 'dist'), { recursive: true, dereference: false });
-  const release = { schema: 1, repository: 'YMaximum/last-spire', commit: sha, runId: Number(process.env.GITHUB_RUN_ID) };
+  const release = { schema: 1, repository: 'YMaximum/last-spire', commit: sha, runId: Number(process.env.GITHUB_RUN_ID), runAttempt: Number(process.env.GITHUB_RUN_ATTEMPT) };
   if (!Number.isSafeInteger(release.runId) || release.runId <= 0) throw new Error('Missing workflow run ID.');
+  if (!Number.isSafeInteger(release.runAttempt) || release.runAttempt <= 0) throw new Error('Missing workflow run attempt.');
   writeFileSync(join(work, 'dist/release.json'), `${JSON.stringify(release)}\n`);
   const files = {};
   const scan = (relative) => {

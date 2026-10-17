@@ -8,7 +8,6 @@ import tarfile
 import tempfile
 import unittest
 from unittest.mock import patch
-import zipfile
 
 spec = importlib.util.spec_from_file_location("release", Path(__file__).parents[1] / "release.py")
 release = importlib.util.module_from_spec(spec)
@@ -20,7 +19,7 @@ RUN = 42
 
 
 def fixture_files(sha=SHA):
-    identity = {"schema": 1, "repository": release.REPOSITORY, "commit": sha, "runId": RUN}
+    identity = {"schema": 1, "repository": release.REPOSITORY, "commit": sha, "runId": RUN, "runAttempt": 1}
     return {"dist/index.html": b'<script src="/assets/game.js"></script>',
             "dist/assets/game.js": b"console.log('Last Spire');",
             "dist/release.json": json.dumps(identity).encode()}
@@ -28,7 +27,7 @@ def fixture_files(sha=SHA):
 
 def tar_bytes(files=None, manifest_update=None, extra=None):
     files = fixture_files() if files is None else files
-    manifest = {"schema": 1, "repository": release.REPOSITORY, "commit": SHA, "runId": RUN,
+    manifest = {"schema": 1, "repository": release.REPOSITORY, "commit": SHA, "runId": RUN, "runAttempt": 1,
                 "files": {name: {"size": len(data), "sha256": release.digest(data)} for name, data in files.items()}}
     if manifest_update:
         manifest_update(manifest)
@@ -43,110 +42,153 @@ def tar_bytes(files=None, manifest_update=None, extra=None):
     return data.getvalue()
 
 
-def zipped(archive, checksum=None, extra=False):
-    name = "last-spire-" + SHA + ".tar.gz"
-    data = io.BytesIO()
-    with zipfile.ZipFile(data, "w") as bundle:
-        bundle.writestr(name, archive)
-        bundle.writestr(name + ".sha256", checksum or release.digest(archive) + "  " + name + "\n")
-        if extra:
-            bundle.writestr("unexpected", "no")
-    return data.getvalue()
-
-
 class FakeAPI:
     def __init__(self):
         self.comparison = {"status": "ahead"}
         self.workflow = {"id": 7, "path": release.WORKFLOW, "state": "active"}
-        self.run = {"id": RUN, "head_sha": SHA, "head_branch": "main", "event": "push", "status": "completed",
+        self.run = {"id": RUN, "run_attempt": 1, "path": release.WORKFLOW, "head_sha": SHA, "head_branch": "main", "event": "push", "status": "completed",
                     "conclusion": "success", "head_repository": {"full_name": release.REPOSITORY}, "workflow_id": 7}
-        self.artifact = {"id": 8, "name": "last-spire-" + SHA, "expired": False, "digest": "sha256:" + "d" * 64,
-                         "size_in_bytes": 1000}
 
     def get(self, path):
         if path.startswith("/compare/"):
             return self.comparison
         if path == "/actions/workflows/checks.yml":
             return self.workflow
-        if path.startswith("/actions/workflows/"):
-            return {"workflow_runs": [self.run]}
-        return {"artifacts": [self.artifact]}
+        return self.run
 
 
 class ArtifactTests(unittest.TestCase):
+    def setUp(self):
+        self.temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temporary.cleanup)
+        self.root = Path(self.temporary.name)
+        self.directory = self.root / SHA
+        self.directory.mkdir(mode=0o700)
+        self.name = "last-spire-" + SHA + ".tar.gz"
+        self.archive_path = self.directory / self.name
+        self.store()
+
+    def store(self, receipt_update=None, checksum=None):
+        archive = tar_bytes()
+        receipt = {"schema": 1, "repository": release.REPOSITORY, "commit": SHA, "runId": RUN,
+                   "runAttempt": 1, "workflowPath": release.WORKFLOW, "event": "push", "headBranch": "main",
+                   "archive": self.name, "sha256": release.digest(archive), "size": len(archive)}
+        if receipt_update:
+            receipt.update(receipt_update)
+        self.archive_path.write_bytes(archive)
+        (self.directory / (self.name + ".sha256")).write_text(checksum or release.digest(archive) + "  " + self.name + "\n")
+        (self.directory / "receipt.json").write_text(json.dumps(receipt))
+        for path in self.directory.iterdir():
+            path.chmod(0o600)
+
+    def load(self):
+        return release.stored_artifact(FakeAPI(), SHA, self.root, os.getuid())
+
     def test_valid_checked_artifact(self):
-        data = zipped(tar_bytes())
-        files = release.unpack_artifact(data, {"digest": "sha256:" + release.digest(data)}, SHA, RUN)
-        self.assertEqual(files, fixture_files())
+        self.assertEqual(self.load(), fixture_files())
+
+    def test_missing_collection_receipt_is_explicit(self):
+        (self.directory / "receipt.json").unlink()
+        with self.assertRaisesRegex(ValueError, "receipt is missing"):
+            self.load()
 
     def test_full_commit_only(self):
         for value in ("main", "abc", "A" * 40, SHA + ";id", "../" + SHA, None):
             with self.subTest(value=value), self.assertRaises(ValueError):
                 release.commit_sha(value)
 
-    def test_tampered_zip_digest(self):
-        with self.assertRaisesRegex(ValueError, "GitHub artifact checksum"):
-            release.unpack_artifact(zipped(tar_bytes()), {"digest": "sha256:" + "0" * 64}, SHA, RUN)
+    def test_tampered_stored_archive(self):
+        self.archive_path.write_bytes(b"tampered")
+        with self.assertRaisesRegex(ValueError, "Stored archive checksum"):
+            self.load()
 
     def test_tampered_archive_checksum(self):
-        data = zipped(tar_bytes(), checksum="wrong")
+        self.store(checksum="wrong")
         with self.assertRaisesRegex(ValueError, "archive checksum"):
-            release.unpack_artifact(data, {"digest": "sha256:" + release.digest(data)}, SHA, RUN)
+            self.load()
 
-    def test_unexpected_zip_member(self):
-        data = zipped(tar_bytes(), extra=True)
-        with self.assertRaisesRegex(ValueError, "artifact contents"):
-            release.unpack_artifact(data, {"digest": "sha256:" + release.digest(data)}, SHA, RUN)
+    def test_invalid_receipt_identity_and_metadata(self):
+        cases = {"commit": OLD, "repository": "fork/repo", "runAttempt": True, "runId": 0,
+                 "workflowPath": "other.yml", "headBranch": "feature", "event": "pull_request",
+                 "archive": "../other", "sha256": "bad", "size": release.MAX_DOWNLOAD + 1}
+        for key, value in cases.items():
+            self.store({key: value})
+            with self.subTest(key=key), self.assertRaises(ValueError):
+                self.load()
+
+    def test_linked_or_writable_host_files_are_rejected(self):
+        outside = self.root / "archive"
+        outside.write_bytes(self.archive_path.read_bytes())
+        self.archive_path.unlink()
+        self.archive_path.symlink_to(outside)
+        with self.assertRaises((OSError, ValueError)):
+            self.load()
+        self.archive_path.unlink()
+        os.link(outside, self.archive_path)
+        with self.assertRaisesRegex(ValueError, "Unsafe host artifact"):
+            self.load()
+        self.archive_path.unlink()
+        self.store()
+        self.archive_path.chmod(0o666)
+        with self.assertRaisesRegex(ValueError, "Unsafe host artifact"):
+            self.load()
+
+    def test_wrong_owner_and_directory_links_are_rejected(self):
+        with self.assertRaisesRegex(ValueError, "Unsafe host artifact"):
+            release.trusted_regular(self.archive_path, release.MAX_DOWNLOAD, os.getuid() + 1)
+        self.directory.rename(self.root / "actual")
+        self.directory.symlink_to(self.root / "actual", target_is_directory=True)
+        with self.assertRaisesRegex(ValueError, "Artifact directory"):
+            self.load()
 
     def test_path_traversal_and_special_files(self):
         for name in ("../escape", "/dist/escape", "dist/../escape", "dist//escape", "dist/./escape", "outside"):
             info = tarfile.TarInfo(name)
             with self.subTest(name=name), self.assertRaises(ValueError):
-                release.release_files(tar_bytes(extra=info), SHA, RUN)
+                release.release_files(tar_bytes(extra=info), SHA, RUN, 1)
         for kind in (tarfile.SYMTYPE, tarfile.LNKTYPE, tarfile.FIFOTYPE):
             info = tarfile.TarInfo("dist/link")
             info.type = kind
             info.linkname = "/etc/passwd"
             with self.subTest(kind=kind), self.assertRaises(ValueError):
-                release.release_files(tar_bytes(extra=info), SHA, RUN)
+                release.release_files(tar_bytes(extra=info), SHA, RUN, 1)
 
     def test_duplicate_tar_member(self):
         with self.assertRaisesRegex(ValueError, "Duplicate"):
-            release.release_files(tar_bytes(extra=tarfile.TarInfo("dist/index.html")), SHA, RUN)
+            release.release_files(tar_bytes(extra=tarfile.TarInfo("dist/index.html")), SHA, RUN, 1)
 
     def test_wrong_identity_and_manifest(self):
-        mutations = [lambda m: m.update(commit=OLD), lambda m: m.update(runId=RUN + 1),
+        mutations = [lambda m: m.update(commit=OLD), lambda m: m.update(runId=RUN + 1), lambda m: m.update(runAttempt=2),
                      lambda m: m.update(repository="other/repo"), lambda m: m["files"].pop("dist/index.html"),
                      lambda m: m["files"]["dist/index.html"].update(sha256="bad"),
                      lambda m: m["files"]["dist/index.html"].update(size=True)]
         for mutate in mutations:
             with self.subTest(mutate=mutate), self.assertRaises(ValueError):
-                release.release_files(tar_bytes(manifest_update=mutate), SHA, RUN)
+                release.release_files(tar_bytes(manifest_update=mutate), SHA, RUN, 1)
 
     def test_qa_pages_rejected(self):
         files = fixture_files()
         files["dist/qa-v3.html"] = b"private QA"
         with self.assertRaisesRegex(ValueError, "QA pages"):
-            release.release_files(tar_bytes(files), SHA, RUN)
+            release.release_files(tar_bytes(files), SHA, RUN, 1)
 
     def test_expansion_bound(self):
         with patch.object(release, "MAX_EXPANDED", 10), self.assertRaisesRegex(ValueError, "too large"):
-            release.release_files(tar_bytes(), SHA, RUN)
+            release.release_files(tar_bytes(), SHA, RUN, 1)
 
-    def test_main_success_and_artifact_required(self):
+    def test_exact_main_successful_attempt_is_required(self):
         api = FakeAPI()
-        self.assertEqual(release.checked_artifact(api, SHA), (api.run, api.artifact))
+        self.assertEqual(release.checked_run(api, SHA, RUN, 1), api.run)
         cases = [("comparison", "status", "diverged"), ("comparison", "status", "behind"),
                  ("run", "head_branch", "feature"), ("run", "head_sha", OLD),
                  ("run", "event", "pull_request"), ("run", "conclusion", "failure"),
                  ("run", "head_repository", {"full_name": "fork/repo"}), ("run", "workflow_id", 99),
-                 ("artifact", "expired", True), ("artifact", "digest", ""),
-                 ("artifact", "size_in_bytes", release.MAX_DOWNLOAD + 1)]
+                 ("run", "run_attempt", 2), ("run", "id", RUN + 1), ("run", "path", "other.yml")]
         for target, key, value in cases:
             broken = FakeAPI()
             getattr(broken, target)[key] = value
             with self.subTest(target=target, key=key), self.assertRaises(ValueError):
-                release.checked_artifact(broken, SHA)
+                release.checked_run(broken, SHA, RUN, 1)
 
 
 class ActivationTests(unittest.TestCase):
@@ -250,7 +292,7 @@ class PackagingTests(unittest.TestCase):
         (self.root / "dist/assets").mkdir(parents=True)
         (self.root / "dist/index.html").write_text('<script src="/assets/game.js"></script>')
         (self.root / "dist/assets/game.js").write_text("console.log('game');")
-        self.env = {**os.environ, "GITHUB_SHA": self.sha, "GITHUB_REF": "refs/heads/main", "GITHUB_RUN_ID": str(RUN)}
+        self.env = {**os.environ, "GITHUB_SHA": self.sha, "GITHUB_REF": "refs/heads/main", "GITHUB_RUN_ID": str(RUN), "GITHUB_RUN_ATTEMPT": "1"}
 
     def package(self):
         return subprocess.run(["node", str(self.script.resolve())], cwd=self.root, env=self.env, capture_output=True)
@@ -260,7 +302,7 @@ class PackagingTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         path = self.root / ".release" / ("last-spire-" + self.sha + ".tar.gz")
         first = path.read_bytes()
-        files = release.release_files(first, self.sha, RUN)
+        files = release.release_files(first, self.sha, RUN, 1)
         self.assertIn("dist/assets/game.js", files)
         self.assertEqual(self.package().returncode, 0)
         self.assertEqual(path.read_bytes(), first)

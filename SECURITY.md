@@ -1,6 +1,12 @@
 # Security and publication policy
 
-Last Spire is a single-player browser game. Progress and gameplay observations stay in the browser; the static game has no account service or progress-upload endpoint. Treat imported saves as untrusted input. Client-side code and configuration delivered to a browser are readable by players, even if a source repository is private.
+Last Spire is a single-player browser game. The current static game stores progress and gameplay observations in the browser. The repository also contains an optional account/save service foundation, described in [docs/ACCOUNTS.md](docs/ACCOUNTS.md); browser sign-in integration and production service deployment are separate work. Adding this service to the repository does not upload existing browser saves. Treat imported saves as untrusted input. Client-side code and configuration delivered to a browser are readable by players, even if a source repository is private.
+
+For the optional service, Google identity tokens must be verified server-side for signature, audience, issuer, expiry and a session-bound nonce. Store only a stable Google subject, internal account ID and minimal display name. Never log credentials, session cookies, CSRF tokens, complete checkpoints, email addresses or provider errors. Authorize every save request using its session rather than a caller-supplied account ID. Protect writes using exact-origin and CSRF checks. Signed-in accounts and guests must have separate browser storage before the service is connected to the game.
+
+Cloud checkpoints are still client-authored single-player data. Schema validation, ownership and conditional writes protect storage and prevent accidental concurrent replacement; they do not make progress suitable for competitive leaderboards or a trusted economy. No such online features are included here.
+
+Database files and backups must remain outside static output, Git and CI workspaces, in a private service-owned directory. Same-VPS backups are recovery copies, not off-site disaster protection. Restore into a new directory while retaining the current one, revoke sessions/device leases, rotate the database generation, and verify migration/recovery before changing the live service. Keep API deployment separate from static releases until the release contract and host controls explicitly support it.
 
 ## What belongs in public source
 

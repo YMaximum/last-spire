@@ -2,7 +2,7 @@ import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 
 const files = execFileSync('git', ['ls-files', '-z'], { encoding: 'utf8' }).split('\0').filter(Boolean);
-const privatePaths = /(?:^|\/)(?:\.private|\.release|\.aws|\.codex|\.agents|\.serena|reports|playlogs|qa-data|checkpoints)\/|(?:^|\/)docs\/(?:plans\/|RESUME-v2\.md$|VALIDATION\.md$)|(?:^|\/)\.env(?:\.|$)|(?:^|\/)(?:id_rsa|id_ed25519)$|\.(?:pem|key|p12|pfx)$/i;
+const privatePaths = /(?:^|\/)(?:\.private|\.release|\.aws|\.codex|\.agents|\.serena|account-data|reports|playlogs|qa-data|checkpoints)\/|(?:^|\/)docs\/(?:plans\/|RESUME-v2\.md$|VALIDATION\.md$)|(?:^|\/)\.env(?:\.|$)|(?:^|\/)(?:id_rsa|id_ed25519)$|\.sqlite(?:[-.][^/]*)?$|\.(?:pem|key|p12|pfx)$/i;
 const secrets = [
   /-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----/,
   /gh[pousr]_[A-Za-z0-9]{30,}/,

@@ -13,7 +13,7 @@ if (execFileSync('git', ['status', '--porcelain', '--untracked-files=no'], { enc
   throw new Error('Tracked source changed during checks.');
 }
 const work = mkdtempSync(join(tmpdir(), 'last-spire-release-'));
-const privatePath = /(?:^|\/)(?:\.private|\.release|\.aws|\.codex|\.agents|\.serena|reports|playlogs|qa-data|checkpoints)\/|(?:^|\/)\.env(?:\.|$)|(?:^|\/)(?:id_rsa|id_ed25519)$|\.(?:pem|key|p12|pfx)$/i;
+const privatePath = /(?:^|\/)(?:\.private|\.release|\.aws|\.codex|\.agents|\.serena|account-data|reports|playlogs|qa-data|checkpoints)\/|(?:^|\/)\.env(?:\.|$)|(?:^|\/)(?:id_rsa|id_ed25519)$|\.sqlite(?:[-.][^/]*)?$|\.(?:pem|key|p12|pfx)$/i;
 try {
   cpSync('dist', join(work, 'dist'), { recursive: true, dereference: false });
   const release = { schema: 1, repository: 'YMaximum/last-spire', commit: sha, runId: Number(process.env.GITHUB_RUN_ID), runAttempt: Number(process.env.GITHUB_RUN_ATTEMPT) };

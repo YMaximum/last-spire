@@ -10,7 +10,8 @@ describe('development file boundaries', () => {
   let server: ViteDevServer;
   let base: string;
   const privateFiles = ['.private/probe.txt', '.env', '.aws/credentials', 'id_ed25519',
-    'reports/probe.txt', 'qa-data/probe.json', 'checkpoints/run.json', 'playlogs/probe.json'];
+    'reports/probe.txt', 'qa-data/probe.json', 'checkpoints/run.json', 'playlogs/probe.json',
+    'account-data/probe.json', 'accounts.sqlite', 'accounts.sqlite-wal', 'server/probe.ts'];
 
   beforeAll(async () => {
     root = await mkdtemp(join(tmpdir(), 'last-spire-boundary-'));

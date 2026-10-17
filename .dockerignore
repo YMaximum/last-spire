@@ -1,6 +1,8 @@
 .git
 node_modules
 dist
+.release
+__pycache__
 .private
 .aws
 .codex

@@ -1,5 +1,7 @@
 # Last Spire — The Runeforged Age
 
+Repository agreements are in [AGENTS.md](AGENTS.md). For reviewed PRs, isolated CI, manual publishing, rollback, and moving a localhost save, see [the release runbook](docs/RELEASING.md).
+
 An original single-player browser roguelite about building one ancient arcane machine. TypeScript, Canvas 2D, Vite, and local IndexedDB saves. No account or network service is required.
 
 ## Play locally

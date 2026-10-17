@@ -1,5 +1,12 @@
 # Last Spire working agreements
 
+## Security ownership
+
+- Apply `SECURITY.md` during development and before publication. Review source, dependencies, workflows, generated assets, logs and PR text for exposure; do not treat a passing test suite as security approval.
+- Keep actual infrastructure inventories, administrator identities, secrets and player data private. Public documentation should explain capabilities and generic operation without unnecessary host-specific details.
+- Run the secret/public-content and dependency checks before release. Fix known vulnerabilities through reviewed PRs; document actual exploit prerequisites and limitations without assuming a severity label proves compromise.
+- Never suppress scanner findings broadly or weaken isolation to get a build through. If credentials are suspected to have leaked, pause publication and follow the incident steps privately.
+
 ## Workflow
 
 - Start focused work from current `main` on a short-lived branch. Do not push directly to `main`.

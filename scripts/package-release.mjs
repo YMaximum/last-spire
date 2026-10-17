@@ -13,6 +13,7 @@ if (execFileSync('git', ['status', '--porcelain', '--untracked-files=no'], { enc
   throw new Error('Tracked source changed during checks.');
 }
 const work = mkdtempSync(join(tmpdir(), 'last-spire-release-'));
+const privatePath = /(?:^|\/)(?:\.private|\.release|\.aws|\.codex|\.agents|\.serena|reports|playlogs|qa-data|checkpoints)\/|(?:^|\/)\.env(?:\.|$)|(?:^|\/)(?:id_rsa|id_ed25519)$|\.(?:pem|key|p12|pfx)$/i;
 try {
   cpSync('dist', join(work, 'dist'), { recursive: true, dereference: false });
   const release = { schema: 1, repository: 'YMaximum/last-spire', commit: sha, runId: Number(process.env.GITHUB_RUN_ID) };
@@ -26,6 +27,7 @@ try {
       if (stat.isDirectory()) scan(path);
       else if (stat.isFile()) {
         if (!/^[a-zA-Z0-9_./-]+$/.test(path)) throw new Error(`Unsupported release path: ${path}`);
+        if (privatePath.test(path)) throw new Error(`Private file is forbidden in release: ${path}`);
         const bytes = readFileSync(join(work, path));
         files[path] = { sha256: createHash('sha256').update(bytes).digest('hex'), size: bytes.length };
       } else throw new Error(`Release contains a link or special file: ${path}`);

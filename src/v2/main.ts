@@ -18,6 +18,7 @@ import { STAGES, ELEMENT_COLORS, PATTERNS } from '../content';
 import { TOWERS, isDefensiveKind, FUSIONS, FUSION_BY_ID } from '../v3/catalog';
 import type { RunV3, RunMode } from '../v3/types';
 import { LocalTelemetry } from '../v3/telemetry';
+import { FrameMeter } from '../v3/performance';
 import {
   step as legacyStep,
   selectDraft,
@@ -1066,8 +1067,14 @@ function statsBody() {
     line('Total damage', Math.round(total).toLocaleString()) +
     line(
       'Rendering · recent wall-clock sample',
-      `${$('arena').dataset.fps || '—'} FPS · ${$('arena').dataset.renderMs || '—'} ms draw`,
+      $('arena').dataset.frameContext === 'foreground'
+        ? `${$('arena').dataset.fps || '—'} FPS · ${$('arena').dataset.renderMs || '—'} ms draw`
+        : $('arena').dataset.frameContext === 'warming-up'
+          ? 'Warming up · keep this tab focused for 3 seconds'
+          : 'Background or unfocused · frame rate is not benchmarked',
     ) +
+    line('Simulation · average per frame', `${$('arena').dataset.simulationMs || '—'} ms`) +
+    line('Frame interval · 95th percentile', `${$('arena').dataset.frameP95Ms || '—'} ms`) +
     line('Defeated', s.kills.toLocaleString()) +
     line(
       'Combat time',
@@ -1770,14 +1777,14 @@ let last = 0,
   hudTimer = 0,
   saveTimer = 0,
   perfTime = 0,
-  frames = 0,
-  drawCost = 0,
   statsTimer = 0;
+const frameMeter = new FrameMeter();
 function frame(now: number) {
   const frameElapsed = last ? Math.max(0, (now - last) / 1000) : 0;
   const delta = Math.min(0.12, frameElapsed);
   last = now;
   const s = current();
+  const simulationStarted = performance.now();
   if (playing && !paused && !manager.choicesPause() && s.phase === 'combat') {
     accumulator += delta * data.settings.speed;
     while (accumulator >= TICK) {
@@ -1797,22 +1804,33 @@ function frame(now: number) {
   } else accumulator = 0;
   const before = performance.now();
   if (!document.hidden) renderer.draw(s, data.settings);
-  drawCost += performance.now() - before;
-  frames++;
+  frameMeter.record({
+    seconds: frameElapsed,
+    simulationMs: before - simulationStarted,
+    renderMs: performance.now() - before,
+    foreground: !document.hidden && document.hasFocus(),
+  });
   perfTime += frameElapsed;
   if (perfTime >= 1) {
-    $('arena').dataset.fps = String(Math.round(frames / perfTime));
-    $('arena').dataset.renderMs = (drawCost / frames).toFixed(2);
+    const reading = frameMeter.read();
+    $('arena').dataset.fps = String(Math.round(reading.fps));
+    $('arena').dataset.renderMs = reading.renderMs.toFixed(2);
+    $('arena').dataset.frameContext = reading.status;
+    $('arena').dataset.simulationMs = reading.simulationMs.toFixed(2);
+    $('arena').dataset.frameP95Ms = reading.frameP95Ms.toFixed(2);
     $('arena').dataset.enemies = String(s.enemies.length);
     $('arena').dataset.projectiles = String(s.projectiles.length);
     perfTime = 0;
     if (playing && isV2(s))
-      telemetry.sample(s, {
-        fps: Number($('arena').dataset.fps),
-        renderMs: Number($('arena').dataset.renderMs),
-      });
-    frames = 0;
-    drawCost = 0;
+      telemetry.sample(
+        s,
+        reading.status === 'foreground'
+          ? {
+              fps: reading.fps,
+              renderMs: reading.renderMs,
+            }
+          : undefined,
+      );
   }
   hudTimer += delta;
   saveTimer += delta;

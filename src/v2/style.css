@@ -670,12 +670,11 @@ kbd {
   max-height: calc(100dvh - 168px);
   border: 1px solid #ab9463;
   border-radius: 9px;
-  background: linear-gradient(150deg, #223027f7, #141e19fa 42%);
+  background: linear-gradient(150deg, #223027, #141e19 42%);
   box-shadow:
     0 24px 75px #0009,
     0 0 0 4px #101911b3,
     inset 0 0 0 1px #e4d6a01a;
-  backdrop-filter: blur(18px);
   container-type: inline-size;
 }
 .spire-window::before {

@@ -76,7 +76,6 @@ Visit `http://localhost:5175/qa.html`. Its explicit checkpoint controls work onl
 
 Purchased rune levels can be freely dialed down before each run. Autocast runes unlock per-skill presets and advanced conditions. New runs use XP and normalized six-rank equipment mastery; recovered older runs retain their original combat rules.
 
-
 ## Strategy controls
 
 The pinned arsenal shows six sockets, mastery, and fusion readiness. Hover or focus a mark for a summary; click or tap it for details. Collected support cards and activated synergies have matching pinned collections. Linked entities in detail windows also have summaries.
@@ -98,6 +97,8 @@ node --import tsx scripts/audit-v3.ts --tower=bastion --stage=0 --mode=normal,qu
 ```
 
 Raw output defaults to ignored `.private/reports/`. Scripted policies are regression and tuning tools, not measured player win rates. For synthetic v3 checkpoints, run `node --import tsx scripts/qa-v3.mjs`, then open `http://localhost:5175/qa-v3.html` on the isolated development server. Import only into a disposable test origin.
+
+Ledger → Combat results shows the focused tab's callback frame rate, simulation and drawing time, and the 95th-percentile frame interval. Sampling resets after focus loss and warms up for three seconds; background samples are excluded from gameplay observations. Browser scheduling, other applications, and automated-preview throttling still affect these readings. They do not establish physical-device performance. Floating stone panels use opaque surfaces to avoid repeatedly blurring live combat.
 
 ## Container packaging
 

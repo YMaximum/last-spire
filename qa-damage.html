@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Last Spire — damage number gallery</title>
+  <style>
+    * {
+      box-sizing: border-box;
+    }
+    body {
+      margin: 0;
+      background: #0c1916;
+      color: #e6e2ce;
+      font: 18px system-ui;
+    }
+    header {
+      padding: 16px 24px;
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 18px;
+      border-bottom: 1px solid #9d8956;
+    }
+    h1 {
+      margin: 0;
+      font:
+        26px Georgia,
+        serif;
+      color: #e8d6a4;
+    }
+    button {
+      font: inherit;
+      padding: 10px;
+      color: #ebdfbc;
+      border: 1px solid #a18d5c;
+      background: #22352a;
+    }
+    label {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    input {
+      width: 20px;
+      height: 20px;
+    }
+    canvas {
+      display: block;
+      width: 100%;
+      height: calc(100dvh - 160px);
+      min-height: 500px;
+    }
+    footer {
+      padding: 8px 24px;
+      font-size: 16px;
+    }
+    #legend {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 18px;
+    }
+    p {
+      margin: 8px 0;
+    }
+  </style>
+  <header>
+    <h1>Last Spire · damage inscriptions</h1>
+    <button id="replay">Replay impact</button>
+    <button id="freeze">Freeze</button>
+    <label><input id="numbers" type="checkbox" checked />Damage numbers</label>
+    <label><input id="motion" type="checkbox" />Reduced motion</label>
+  </header>
+  <canvas id="arena" aria-label="Damage type and critical-hit visual gallery"></canvas>
+  <footer>
+    <div id="legend"></div>
+    <p id="number-status" role="status"></p>
+    <p>Development gallery · in-memory combat only · no player saves are read or written.</p>
+  </footer>
+  <script type="module" src="/scripts/qa-damage.ts"></script>
+</html>

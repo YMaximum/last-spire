@@ -1,3 +1,4 @@
+import { recordDamageNumber } from './v3/damage-feedback';
 import type {
   Projectile,
   Attack,
@@ -206,6 +207,14 @@ class SpatialGrid {
 function damage(s: RunState, e: Enemy, amount: number, element: Element, ignoreArmor = false) {
   if (e.hp <= 0) return;
   const dealt = Math.max(0, amount) * (ignoreArmor ? 1 : 1 - e.armor) * (e.mark > 0 ? 1.22 : 1);
+  recordDamageNumber(s, e, Math.min(dealt, e.hp), {
+    rootId: e.id,
+    source: 'primary',
+    depth: 0,
+    weaponId: 'legacy',
+    damage: dealt,
+    element,
+  });
   e.hp -= dealt;
   s.damageByElement[element] += Math.min(dealt, Math.max(0, e.hp + dealt));
 }

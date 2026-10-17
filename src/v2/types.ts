@@ -25,11 +25,26 @@ export type WeaponKind =
   | 'drone'
   | 'meteor'
   | 'singularity'
-  | 'core-mirror' | 'core-thorn' | 'core-capacitor' | 'core-cinder'
-  | 'core-frost' | 'core-mending' | 'core-gravitic' | 'core-echo'
-  | 'fused-lance' | 'fused-prism' | 'fused-orrery' | 'fused-conduit'
-  | 'fused-citadel' | 'fused-cataclysm' | 'fused-cathedral' | 'fused-briar'
-  | 'fused-dynamo' | 'fused-crucible' | 'fused-barbed' | 'fused-thunder';
+  | 'core-mirror'
+  | 'core-thorn'
+  | 'core-capacitor'
+  | 'core-cinder'
+  | 'core-frost'
+  | 'core-mending'
+  | 'core-gravitic'
+  | 'core-echo'
+  | 'fused-lance'
+  | 'fused-prism'
+  | 'fused-orrery'
+  | 'fused-conduit'
+  | 'fused-citadel'
+  | 'fused-cataclysm'
+  | 'fused-cathedral'
+  | 'fused-briar'
+  | 'fused-dynamo'
+  | 'fused-crucible'
+  | 'fused-barbed'
+  | 'fused-thunder';
 export type Rarity = 'normal' | 'rare' | 'epic' | 'legendary' | 'mythic';
 export type CardGroup =
   'weapon' | 'infusion' | 'modifier' | 'defense' | 'trigger' | 'skill' | 'utility';
@@ -178,6 +193,7 @@ export interface TimedBuff {
   stacks: number;
 }
 export interface DamageEvent {
+  critical?: boolean;
   rootId: number;
   source: 'primary' | 'proc' | 'retaliation' | 'dot';
   depth: number;
@@ -285,6 +301,7 @@ export interface WindowLayout {
   docked: boolean;
 }
 export interface SettingsV2 extends LegacySettings {
+  damageNumbers: boolean;
   uiScale: number;
   intensity: 'subtle' | 'balanced' | 'spectacular';
   shake: boolean;

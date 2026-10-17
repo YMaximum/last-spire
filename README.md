@@ -2,6 +2,8 @@
 
 Repository agreements are in [AGENTS.md](AGENTS.md). For reviewed PRs, isolated CI, manual publishing, rollback, and moving a localhost save, see [the release runbook](docs/RELEASING.md).
 
+See [SECURITY.md](SECURITY.md) for safe publication, development boundaries, release checks, and private vulnerability reporting.
+
 An original single-player browser roguelite about building one ancient arcane machine. TypeScript, Canvas 2D, Vite, and local IndexedDB saves. No account or network service is required.
 
 ## Play locally
@@ -13,7 +15,7 @@ npm ci
 npm run dev
 ```
 
-Open [the local game](http://localhost:5173/). The Network URL printed by Vite also works on devices on the same LAN when the host firewall permits it.
+Open [the local game](http://localhost:5173/). Development and preview listen only on this computer by default. For deliberate testing on a trusted LAN, use `npm run dev -- --host 0.0.0.0`; private-file access remains denied. Do not expose the development server to the internet.
 
 ```sh
 npm run build
@@ -59,7 +61,10 @@ Settings can export/import JSON, review pasted JSON, and download the migration 
 
 ```sh
 npm test
+npm run check:public
+npm run check:dependencies
 npm run build
+npm run check:secrets
 npm run balance -- --seeds=5
 npm run balance -- --seeds=3 --stage=1
 npm run balance -- --seeds=3 --stage=2

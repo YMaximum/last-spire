@@ -17,15 +17,18 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           ref: ${{ github.sha }}
+          fetch-depth: 0
           persist-credentials: false
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
       - run: npm ci
+      - run: npm run check:dependencies
       - run: npm run check:public
       - run: npm test -- --maxWorkers=1 --reporter=dot
       - run: python3 -m unittest discover -s hosting/tests -v
       - run: npm run build
+      - run: npm run check:secrets
       - name: Package merged main release
         if: github.ref == 'refs/heads/main'
         run: node scripts/package-release.mjs

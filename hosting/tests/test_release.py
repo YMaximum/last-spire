@@ -315,6 +315,12 @@ class PackagingTests(unittest.TestCase):
         self.assertNotEqual(self.package().returncode, 0)
         self.assertFalse((self.root / ".release").exists())
 
+    def test_packager_refuses_private_files_in_build_output(self):
+        (self.root / "dist/.private").mkdir()
+        (self.root / "dist/.private/probe.txt").write_text("not-a-real-secret")
+        self.assertNotEqual(self.package().returncode, 0)
+        self.assertFalse((self.root / ".release").exists())
+
 
 if __name__ == "__main__":
     unittest.main()

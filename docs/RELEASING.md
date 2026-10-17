@@ -5,7 +5,7 @@ Merging is not publishing. The maintainer reviews and merges PRs, then deliberat
 ## Development and review
 
 1. Branch from updated `main`; keep each PR focused. Prefer squash merges. Include player-visible changes, meaningful checks, screenshots for UI work, and save compatibility.
-2. Run `npm ci`, `npm run check:public`, `npm test -- --maxWorkers=1 --reporter=dot`, `python3 -m unittest discover -s hosting/tests -v`, and `npm run build`.
+2. Run `npm ci`, `npm run check:public`, `npm run check:dependencies`, `npm test -- --maxWorkers=1 --reporter=dot`, `python3 -m unittest discover -s hosting/tests -v`, `npm run build`, then `npm run check:secrets`. Follow `SECURITY.md`; inspect publication text and artifacts too.
 3. Have the user review and merge. Neither agents nor CI automatically merge or deploy.
 
 CI runs trusted pushes to `main` on the `last-spire` runner label. The maintainer can manually dispatch **Source checks** against a reviewed branch in this repository, then approve that exact run and context SHA through the host scheduler's SSH approval command. Do not dispatch main and substitute a different checkout SHA. Manual branch checks do not create a deployable release. Fork PRs have no automatic VPS workflow. Do not approve an untrusted workflow that targets the self-hosted runner. Runner labels are routing, not a security boundary; shared-kernel isolation reduces risk but is not a VM boundary. See [GitHub's secure-use guidance](https://docs.github.com/en/actions/reference/security/secure-use).
@@ -32,7 +32,7 @@ Perform these steps as an administrator from a reviewed checkout. Keep actual ho
 
    Onboarding prompts invisibly for a separate expiring fine-grained PAT restricted to Last Spire, with **Contents read** and **Actions read**. It validates access and saves it root-only. This credential never reaches a worker. The installer starts no game. Do not rerun initial installation over an existing runtime without reviewing configuration/image changes. Read-only Actions access is used to verify successful run identity, not to download an artifact.
 
-4. Add the Netlify DNS A record for `last-spire` pointing to the verified VPS public IPv4. Remove conflicting records for this hostname only. The registrar can remain Rumahweb. Verify public DNS resolution.
+4. Add the game hostname's A record through its DNS provider, pointing to the verified server address. Change only that hostname's records and verify public resolution. Keep actual provider/account inventories and administrative instructions in the private operations runbook.
 5. Add `hosting/Caddyfile.example` to the existing Caddy configuration, validate the full configuration, then reload it. Preserve existing routes. Caddy must reach `127.0.0.1:8091`; the game itself must not expose a public port. Verify certificate issuance after the first release is serving.
 
 Do not reuse a broad administrative SSH key as an Actions deployment credential. These commands are deliberately administrative SSH operations. Any future restricted non-admin account must have sudo access only to the two wrappers, not arbitrary Docker or Python commands.

@@ -2,6 +2,8 @@ import { ArenaRenderer } from '../render';
 import type { Enemy, RunState as LegacyRun, Settings, TowerId } from '../types';
 import type { AreaEffect, Element, ProjectileV2, RunV2, SettingsV2, VisualV2 } from './types';
 import { FUSIONS, FUSION_BY_ID, WEAPON_BY_ID, type FusionDefinition } from './catalog';
+import { enableDamageNumbers, readDamageNumbers } from './damage-feedback';
+import { drawDamageNumbers } from './damage-numbers';
 
 const W = 1000,
   H = 800,
@@ -138,6 +140,7 @@ export class BattleRenderer {
   }
 
   draw(s: RunV2 | LegacyRun, settings: SettingsV2): void {
+    enableDamageNumbers(s, settings.damageNumbers);
     const c = this.ctx;
     this.detail = settings.effects === 'high';
     this.motion = !settings.reducedMotion;
@@ -156,6 +159,7 @@ export class BattleRenderer {
       this.begin(c);
       this.drawTerrain(c);
       c.drawImage(this.scratch, 0, 0, W, H);
+      this.damageLabels(c, s);
       c.setTransform(1, 0, 0, 1, 0, 0);
       return;
     }
@@ -215,6 +219,7 @@ export class BattleRenderer {
     for (const enemy of enemies) this.pixel.enemy(c, enemy, this.time, settings);
     if (s.shield > 0) this.shield(c, CX, CY - 15, 61, TOWERS[s.tower], clamp(s.shield / s.maxHp));
     for (const v of feedback) if (this.isForeground(v)) this.visual(c, v);
+    this.damageLabels(c, s);
     // Enemy warnings stay visible even when a meteor or a large orb crosses them.
     for (const e of enemies) {
       if (e.kind === 'boss') {
@@ -236,6 +241,25 @@ export class BattleRenderer {
     c.globalCompositeOperation = 'source-over';
     c.shadowBlur = 0;
     c.setTransform(1, 0, 0, 1, 0, 0);
+  }
+
+  private damageLabels(c: Ctx, s: RunV2 | LegacyRun) {
+    const entries = readDamageNumbers(s);
+    if (!entries.length) return;
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    c.save();
+    c.setTransform(dpr, 0, 0, dpr, 0, 0);
+    drawDamageNumbers(c, entries, {
+      time: s.time,
+      motion: this.motion,
+      detail: this.detail,
+      width: this.canvas.width / dpr,
+      height: this.canvas.height / dpr,
+      scale: this.scale / dpr,
+      offsetX: this.offsetX / dpr,
+      offsetY: this.offsetY / dpr,
+    });
+    c.restore();
   }
 
   private monolith(c: Ctx, s: RunV2) {

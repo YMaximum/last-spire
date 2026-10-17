@@ -3,6 +3,7 @@ import * as legacy from '../v2/engine';
 import { TOWERS, isDefensiveKind, isFusedKind, FUSIONS, FUSION_BY_ID } from './catalog';
 import type { RunV3, RunOptions } from './types';
 import { MASTERY_THRESHOLDS } from './types';
+import { recordDamageNumber } from './damage-feedback';
 export type { RunV3, RunOptions, RunMode } from './types';
 import { CARDS, WEAPONS, SYNERGIES } from './catalog';
 import type {
@@ -911,6 +912,7 @@ export function dealDamage(s: RunV2, e: EnemyV2, event: DamageEvent): number {
   amount *= e.mark > 0 ? 1.22 : 1;
   amount *= 1 - clamp(e.armor, 0, 0.65);
   const dealt = Math.min(e.hp, amount);
+  recordDamageNumber(s, e, dealt, event);
   e.hp -= amount;
   s.damageByWeapon[event.weaponId] = (s.damageByWeapon[event.weaponId] || 0) + dealt;
   s.damageByElement[el] += dealt;
@@ -991,6 +993,7 @@ function hit(s: RunV2, e: EnemyV2, p: ProjectileV2, damage = p.damage) {
       depth: p.depth,
       weaponId: p.weaponId,
       damage: amount / parts.length,
+      critical: p.critical,
       element: el,
     });
   if (p.depth === 0) {

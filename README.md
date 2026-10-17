@@ -32,6 +32,8 @@ Normal, Rare, Epic, Legendary, and Mythic cards stack with diminishing returns. 
 
 Information windows leave combat live. Drag their headers, resize their corners, dock, maximize, or minimize them. Focus a header and use **Alt + arrow keys** to move it by keyboard. Choice windows pause by default; their checkbox can keep combat running. Settings provide 100–150% interface scaling, reduced motion, sound, and cosmetic quality controls.
 
+Settings → **Floating damage numbers** shows or hides damage inscriptions and remembers your preference. Each element has its own color and sigil; critical hits produce larger rune bursts, status damage uses `TICK`, and defensive retaliation uses `RETURN`. Rapid matching hits combine into a total with a hit count. Reduced motion keeps labels stationary while preserving their distinctions.
+
 ## Content
 
 - Seven towers: Bastion, Pyre, Tempest, Glacier, Verdant, Null, and Monolith.

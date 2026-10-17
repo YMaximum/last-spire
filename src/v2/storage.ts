@@ -46,6 +46,7 @@ export function defaultSettings(): SettingsV2 {
     intensity: 'balanced',
     shake: false,
     autoPauseChoices: true,
+    damageNumbers: true,
     windows: {},
   };
 }
@@ -168,7 +169,7 @@ function settings(value: unknown): SettingsV2 {
     value,
     'settings',
     ['sound', 'effects', 'reducedMotion', 'speed'],
-    ['uiScale', 'intensity', 'shake', 'autoPauseChoices', 'windows'],
+    ['uiScale', 'intensity', 'shake', 'autoPauseChoices', 'damageNumbers', 'windows'],
   );
   const legacy = parseLegacy(
     JSON.stringify({
@@ -190,12 +191,14 @@ function settings(value: unknown): SettingsV2 {
     intensity: v.intensity ?? 'balanced',
     shake: v.shake ?? false,
     autoPauseChoices: v.autoPauseChoices ?? true,
+    damageNumbers: v.damageNumbers === undefined ? true : v.damageNumbers,
     windows: v.windows ?? {},
   } as SettingsV2;
   number(result.uiScale, 'UI scale', 85, 160);
   one(result.intensity, 'intensity', ['subtle', 'balanced', 'spectacular']);
   bool(result.shake, 'shake');
   bool(result.autoPauseChoices, 'autoPauseChoices');
+  bool(result.damageNumbers, 'damageNumbers');
   const positions = object(result.windows, 'window layouts');
   if (Object.keys(positions).length > 30) fail('too many window layouts');
   for (const [key, raw] of Object.entries(positions)) {

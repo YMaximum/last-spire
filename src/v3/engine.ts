@@ -23,8 +23,8 @@ import type {
 export const TICK = 1 / 30;
 // Shared launch tuning: identical in browser combat and seeded policy audits.
 const ENCOUNTER_BALANCE = {
-  normalHealth: 0.82,
-  quickHealth: 0.18,
+  normalHealth: 0.9,
+  quickHealth: 0.2,
   normalDamage: 1.18,
   quickDamage: 1.9,
 };

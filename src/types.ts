@@ -1,7 +1,7 @@
 export type Pattern = 'bolt' | 'volley' | 'spiral' | 'beam' | 'orbit' | 'pulse' | 'swarm' | 'mine';
 export type Element = 'fire' | 'frost' | 'lightning' | 'poison' | 'solar' | 'void';
 export type Modifier = 'echo' | 'rupture' | 'mark' | 'surge';
-export type TowerId = 'bastion' | 'pyre' | 'tempest' | 'glacier' | 'verdant' | 'null';
+export type TowerId = 'bastion' | 'pyre' | 'tempest' | 'glacier' | 'verdant' | 'null' | 'monolith';
 export type EnemyKind =
   'swarmer' | 'runner' | 'armored' | 'ranged' | 'support' | 'splitter' | 'elite' | 'boss';
 export type Targeting = 'nearest' | 'strongest' | 'weakest';

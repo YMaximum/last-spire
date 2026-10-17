@@ -61,6 +61,13 @@ export class WindowManager {
       existing.el.querySelector('.window-bar h2')!.textContent = spec.title;
       existing.el.querySelector('.window-bar small')!.textContent = spec.subtitle ?? 'LAST SPIRE';
       existing.el.setAttribute('aria-label', spec.title);
+      existing.el.querySelectorAll<HTMLButtonElement>('[data-action]').forEach((button) => {
+        const action = button.dataset.action!;
+        button.setAttribute(
+          'aria-label',
+          `${action[0].toUpperCase()}${action.slice(1)} ${spec.title}`,
+        );
+      });
       existing.layout.minimized = false;
       this.body(id, body);
       this.apply(id);

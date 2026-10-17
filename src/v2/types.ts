@@ -24,7 +24,9 @@ export type WeaponKind =
   | 'tesla'
   | 'drone'
   | 'meteor'
-  | 'singularity';
+  | 'singularity'
+  | 'core-mirror' | 'core-thorn' | 'core-capacitor' | 'core-cinder'
+  | 'core-frost' | 'core-mending' | 'core-gravitic' | 'core-echo';
 export type Rarity = 'normal' | 'rare' | 'epic' | 'legendary' | 'mythic';
 export type CardGroup =
   'weapon' | 'infusion' | 'modifier' | 'defense' | 'trigger' | 'skill' | 'utility';
@@ -87,8 +89,13 @@ export interface WeaponInstance {
   rarity: Rarity;
   infusions: Element[];
   angle: number;
+  masteryRank?: number;
+  masteryProgress?: number;
+  masteryRequired?: number;
+  fusionReady?: boolean;
 }
 export interface EnemyV2 extends Enemy {
+  xpBudget?: number;
   damageType: Element | 'physical';
   bounty: number;
   bossPhase: number;
@@ -169,6 +176,7 @@ export interface DamageEvent {
   element: Element | 'physical';
 }
 export interface PendingReward {
+  level?: number;
   id: string;
   kind: 'draft' | 'shop';
   wave: number;
@@ -197,6 +205,13 @@ export interface WeaponStats {
   elements: Element[];
 }
 export interface RunV2 {
+  rulesVersion?: 3;
+  mode?: 'quick' | 'normal' | 'endless';
+  level?: number;
+  xp?: number;
+  xpRequired?: number;
+  offerRng?: number;
+  runeSnapshot?: Record<string, number>;
   version: 2;
   id: string;
   tower: TowerId;

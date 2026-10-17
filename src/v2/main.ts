@@ -14,7 +14,9 @@ import {
   type AutocastRules,
 } from '../v3/controls';
 import type { SaveV3 } from '../v3/storage';
-import { TOWERS, STAGES, ELEMENT_COLORS, PATTERNS } from '../content';
+import { STAGES, ELEMENT_COLORS, PATTERNS } from '../content';
+import { TOWERS, isDefensiveKind } from '../v3/catalog';
+import type { RunV3, RunMode } from '../v3/types';
 import {
   step as legacyStep,
   selectDraft,
@@ -34,8 +36,8 @@ import {
   RARITIES,
   RARITY_COLORS,
   rarityLabel,
-} from './catalog';
-import { cardIcon } from './icons';
+} from '../v3/catalog';
+import { cardIcon } from '../v3/icons';
 import {
   createRun,
   step,
@@ -54,8 +56,8 @@ import {
   describeNextThreat,
   REPAIR_COST,
   rewardRerollCost,
-} from './engine';
-import { BattleRenderer } from './render';
+} from '../v3/engine';
+import { BattleRenderer } from '../v3/render';
 import { WindowManager } from './windows';
 import {
   emptySave,
@@ -113,6 +115,7 @@ let data: SaveV3 = emptySave(),
   saveBusy = false,
   saveQueued = false,
   settlePromise: Promise<void> | null = null;
+let chosenMode: RunMode = 'normal';
 let chosenTower: TowerId = 'bastion',
   chosenStage = 0,
   chosenDifficulty = 0,
@@ -125,7 +128,7 @@ let chosenTower: TowerId = 'bastion',
   persistTimer = 0;
 let selectedOffer: { rewardId: string; offerId: string; purchase: boolean } | null = null;
 const app = $('app');
-app.innerHTML = `<main id="battlefield"><canvas id="arena" aria-label="Last Spire battlefield"></canvas><div class="arena-shade"></div><header class="battle-hud"><button class="brand-button" id="menu-btn" aria-label="Expedition menu">${glyph('tower')}<span>LAST SPIRE<small>THE RUNEFORGED AGE</small></span>${glyph('menu')}</button><div class="wave-hud"><span id="stage-label">VERDANT WILDS</span><strong id="wave-label">Wave 01 <em>/ 100</em></strong><div id="wave-progress"><i></i></div></div><div class="resource-hud"><span title="Scrap is spent during this expedition">${glyph('diamond')}<b id="scrap-value">0</b><small>SCRAP</small></span><span title="Credits unlock towers between expeditions">${glyph('diamond')}<b id="credit-value">0</b><small>CREDITS</small></span><button id="settings-btn" class="square-button" aria-label="Settings">${glyph('gear')}</button></div></header><div class="threat-strip"><span id="threat-text">One spire. A thousand ways to fight.</span><button id="pause-indicator" class="hidden">PAUSED · RESUME</button></div><nav class="field-tools" aria-label="Battlefield panels"><button id="arsenal-btn" title="Arsenal (A)">${glyph('tower')}<span>Arsenal</span></button><button id="codex-btn" title="Codex (C)">${glyph('book')}<span>Codex</span></button><button id="stats-btn" title="Combat statistics">${glyph('stats')}<span>Ledger</span></button><button id="autocast-btn" title="Conditional skill autocast">${glyph('bolt')}<span>Autocast</span></button><button id="rewards-btn" class="reward-tool hidden">${glyph('diamond')}<span id="reward-count">Choose upgrade</span></button></nav><div id="buff-strip" aria-label="Active buffs"></div><div id="event-toast" role="status" aria-live="polite"></div><div id="boss-warning" class="hidden"></div><footer class="combat-controls"><div class="integrity"><div><span>${glyph('heart')} SPIRE INTEGRITY</span><strong id="hp-value">—</strong></div><div class="hp-track"><i id="hp-fill"></i><i id="shield-fill"></i></div><span id="barrier-value">Barrier dormant</span></div><div class="ability-tray"><button class="ability" id="signature-btn"><span>${glyph('shield')}</span><div><small>SIGNATURE <kbd>Q</kbd></small><b id="signature-name">Bulwark</b></div><em id="signature-cd"></em></button><button class="ability" id="secondary-btn"><span>${glyph('bolt')}</span><div><small>SECONDARY <kbd>E</kbd></small><b id="secondary-name">Mend</b></div><em id="secondary-cd"></em></button></div><div class="playback"><button class="square-button" id="pause-btn" aria-label="Pause combat">${glyph('pause')}</button><button id="speed-btn" title="Speed (1, 2, 3)">1×</button><button id="target-btn" title="Target priority">${glyph('target')}<span id="target-label">Nearest</span></button></div></footer><div id="window-host"></div><div id="window-dock"></div><div id="loading-screen"><div class="loading-rune">${glyph('tower')}</div><h1>LAST SPIRE</h1><p>Waking the ancient machines…</p></div></main>`;
+app.innerHTML = `<main id="battlefield"><canvas id="arena" aria-label="Last Spire battlefield"></canvas><div class="arena-shade"></div><header class="battle-hud"><button class="brand-button" id="menu-btn" aria-label="Expedition menu">${glyph('tower')}<span>LAST SPIRE<small>THE RUNEFORGED AGE</small></span>${glyph('menu')}</button><div class="wave-hud"><span id="stage-label">VERDANT WILDS</span><strong id="wave-label">Wave 01 <em>/ 100</em></strong><div id="wave-progress"><i></i></div></div><div class="resource-hud"><span title="Scrap is spent during this expedition">${glyph('diamond')}<b id="scrap-value">0</b><small>SCRAP</small></span><span title="Credits unlock towers between expeditions">${glyph('diamond')}<b id="credit-value">0</b><small>CREDITS</small></span><button id="settings-btn" class="square-button" aria-label="Settings">${glyph('gear')}</button></div></header><div class="threat-strip"><span id="threat-text">One spire. A thousand ways to fight.</span><button id="pause-indicator" class="hidden">PAUSED · RESUME</button></div><nav class="field-tools" aria-label="Battlefield panels"><button id="arsenal-btn" title="Arsenal (A)">${glyph('tower')}<span>Arsenal</span></button><button id="codex-btn" title="Codex (C)">${glyph('book')}<span>Codex</span></button><button id="stats-btn" title="Combat statistics">${glyph('stats')}<span>Ledger</span></button><button id="autocast-btn" title="Conditional skill autocast">${glyph('bolt')}<span>Autocast</span></button><button id="rewards-btn" class="reward-tool hidden">${glyph('diamond')}<span id="reward-count">Choose upgrade</span></button></nav><div id="buff-strip" aria-label="Active buffs"></div><div id="event-toast" role="status" aria-live="polite"></div><div id="boss-warning" class="hidden"></div><footer class="combat-controls"><div class="integrity"><div><span>${glyph('heart')} SPIRE INTEGRITY</span><strong id="hp-value">—</strong></div><div class="hp-track"><i id="hp-fill"></i><i id="shield-fill"></i></div><span id="barrier-value">Barrier dormant</span></div><div class="ability-tray"><button class="ability" id="signature-btn"><span>${glyph('shield')}</span><div><small>SIGNATURE <kbd>Q</kbd></small><b id="signature-name">Bulwark</b></div><em id="signature-cd"></em><span id="signature-auto" class="auto-indicator" hidden>AUTO</span></button><button class="ability" id="secondary-btn"><span>${glyph('bolt')}</span><div><small>SECONDARY <kbd>E</kbd></small><b id="secondary-name">Mend</b></div><em id="secondary-cd"></em><span id="secondary-auto" class="auto-indicator" hidden>AUTO</span></button></div><div class="playback"><button class="square-button" id="pause-btn" aria-label="Pause combat">${glyph('pause')}</button><button id="speed-btn" title="Speed (1, 2, 3)">1×</button><button id="target-btn" title="Target priority">${glyph('target')}<span id="target-label">Nearest</span></button></div></footer><div id="xp-hud" hidden><span id="xp-label"></span><div class="xp-track"><i id="xp-fill"></i></div></div><div id="window-host"></div><div id="window-dock"></div><div id="loading-screen"><div class="loading-rune">${glyph('tower')}</div><h1>LAST SPIRE</h1><p>Waking the ancient machines…</p></div></main>`;
 const manager = new WindowManager(
   $('window-host'),
   $('window-dock'),
@@ -161,6 +164,9 @@ $('battlefield').addEventListener('click', (event) => {
   if (link)
     openEntity({ kind: link.dataset.entityKind as EntityRef['kind'], id: link.dataset.entityId! });
 });
+function modern(s: RunV2 | RunState): RunV3 | null {
+  return isV2(s) && (s as RunV3).rulesVersion === 3 ? (s as RunV3) : null;
+}
 function tower() {
   return TOWERS.find((t) => t.id === current().tower)!;
 }
@@ -178,7 +184,10 @@ function effectiveProfile() {
   };
 }
 function makePreview() {
-  preview = createRun(effectiveProfile(), chosenTower, chosenStage, chosenDifficulty, 831251);
+  preview = createRun(effectiveProfile(), chosenTower, chosenStage, chosenDifficulty, 831251, {
+    mode: chosenMode,
+    runes: snapshotRunes(data.progression.runes),
+  });
   preview.time = 12;
 }
 function scheduleSave() {
@@ -271,9 +280,16 @@ function updateHud() {
     STAGES[s.stage].name.toUpperCase() +
     (legacy ? ' · RECOVERED RUN' : s.difficulty ? ` · ASCENSION ${s.difficulty}` : '');
   $('wave-label').innerHTML =
-    `Wave ${String(s.wave).padStart(2, '0')} <em>/ ${s.endless ? '∞' : '100'}</em>`;
+    `Wave ${String(s.wave).padStart(2, '0')} <em>/ ${s.endless ? '∞' : modern(s)?.mode === 'quick' ? '50' : '100'}</em>`;
   $('wave-progress').querySelector<HTMLElement>('i')!.style.width =
-    `${s.endless ? 100 : Math.min(100, s.wave)}%`;
+    `${s.endless ? 100 : Math.min(100, (s.wave / (modern(s)?.mode === 'quick' ? 50 : 100)) * 100)}%`;
+  const progress = modern(s);
+  $('xp-hud').hidden = !playing || !progress;
+  if (progress) {
+    $('xp-label').textContent =
+      `LEVEL ${progress.level} · ${progress.xp.toFixed(1)} / ${progress.xpRequired} XP · ${progress.pendingRewards.filter((r) => r.kind === 'draft').length} choices`;
+    $('xp-fill').style.width = `${Math.min(100, (progress.xp / progress.xpRequired) * 100)}%`;
+  }
   $('scrap-value').textContent = Math.floor(s.scrap).toLocaleString();
   $('credit-value').textContent = data.profile.credits.toLocaleString();
   $('hp-value').textContent = `${Math.max(0, Math.ceil(s.hp))} / ${Math.ceil(s.maxHp)}`;
@@ -304,6 +320,7 @@ function updateHud() {
       : defaultAutocastConfig();
   for (const slot of ['signature', 'secondary'] as const) {
     $(`${slot}-btn`).classList.toggle('auto-enabled', auto[slot].enabled);
+    $(`${slot}-auto`).hidden = !auto[slot].enabled;
     $(`${slot}-btn`).setAttribute(
       'aria-description',
       auto[slot].enabled ? `Autocast enabled: ${auto[slot].preset}` : 'Manual skill',
@@ -380,9 +397,15 @@ function openLaunch() {
       width: 490,
       height: 610,
     },
-    `<p class="lead">One ancient machine. Six weapons. A build that belongs to you.</p><div class="launch-tower" style="--accent:${TOWERS.find((t) => t.id === chosenTower)!.color}">${glyph('tower')}<div><small>YOUR SPIRE</small><h3>${TOWERS.find((t) => t.id === chosenTower)!.name}</h3><p>${esc(chosenTower === 'tempest' ? 'Lightning chains jump to three nearby enemies.' : TOWERS.find((t) => t.id === chosenTower)!.passive)}</p></div></div><button id="launch-hangar" class="outline-button full">Choose tower & permanent runes ${glyph('arrow')}</button><label class="control-label">Expedition<select id="stage-select">${STAGES.map((st) => `<option value="${st.id}" ${chosenStage === st.id ? 'selected' : ''} ${st.id >= data.profile.stageUnlocked ? 'disabled' : ''}>${st.name}${st.id >= data.profile.stageUnlocked ? ' · Locked' : ''}</option>`).join('')}</select></label><label class="control-label">Difficulty<select id="difficulty-select">${Array.from({ length: 6 }, (_, i) => `<option value="${i}" ${i === chosenDifficulty ? 'selected' : ''} ${i > data.profile.difficultyUnlocked ? 'disabled' : ''}>${i === 0 ? 'Normal' : `Ascension ${i}`}${i > data.profile.difficultyUnlocked ? ' · Locked' : ''}</option>`).join('')}</select></label><div class="expedition-facts"><span>100 waves</span><span>Draft every 2 waves</span><span>Autosaved</span></div><div class="launch-start"><button id="begin-btn" class="gold-button full">Start expedition ${glyph('play')}</button></div><p class="quiet">Your choices build the power. The waves won’t wait.</p>`,
+    `<p class="lead">One ancient machine. Six arsenal sockets. A build that belongs to you.</p><div class="launch-tower" style="--accent:${TOWERS.find((t) => t.id === chosenTower)!.color}">${glyph('tower')}<div><small>YOUR SPIRE</small><h3>${TOWERS.find((t) => t.id === chosenTower)!.name}</h3><p>${esc(chosenTower === 'tempest' ? 'Lightning chains jump to three nearby enemies.' : TOWERS.find((t) => t.id === chosenTower)!.passive)}</p></div></div><button id="launch-hangar" class="outline-button full">Choose tower & permanent runes ${glyph('arrow')}</button><label class="control-label">Run mode<select id="mode-select"><option value="quick" ${chosenMode === 'quick' ? 'selected' : ''}>Quick · 50 waves · 15–20 min</option><option value="normal" ${chosenMode === 'normal' ? 'selected' : ''}>Normal · 100 waves · 30–45 min</option><option value="endless" ${chosenMode === 'endless' ? 'selected' : ''}>Endless · until defeat or retirement</option></select></label><label class="control-label">Expedition<select id="stage-select">${STAGES.map((st) => `<option value="${st.id}" ${chosenStage === st.id ? 'selected' : ''} ${st.id >= data.profile.stageUnlocked ? 'disabled' : ''}>${st.name}${st.id >= data.profile.stageUnlocked ? ' · Locked' : ''}</option>`).join('')}</select></label><label class="control-label">Difficulty<select id="difficulty-select">${Array.from({ length: 6 }, (_, i) => `<option value="${i}" ${i === chosenDifficulty ? 'selected' : ''} ${i > data.profile.difficultyUnlocked ? 'disabled' : ''}>${i === 0 ? 'Normal' : `Ascension ${i}`}${i > data.profile.difficultyUnlocked ? ' · Locked' : ''}</option>`).join('')}</select></label><div class="expedition-facts"><span>${chosenMode === 'endless' ? 'No endpoint' : chosenMode === 'quick' ? '50 waves' : '100 waves'}</span><span>XP level-ups</span><span>Autosaved</span></div><div class="launch-start"><button id="begin-btn" class="gold-button full">Start expedition ${glyph('play')}</button></div><p class="quiet">Your choices build the power. The waves won’t wait.</p>`,
   );
   $('launch-hangar').onclick = openHangar;
+  $('mode-select').onchange = () => {
+    chosenMode = $<HTMLSelectElement>('mode-select').value as RunMode;
+    makePreview();
+    openLaunch();
+    updateHud();
+  };
   $('stage-select').onchange = () => {
     chosenStage = Number($<HTMLSelectElement>('stage-select').value);
     makePreview();
@@ -395,10 +418,17 @@ function openLaunch() {
   };
   $('begin-btn').onclick = () => {
     if (playing) return;
-    data.run = createRun(effectiveProfile(), chosenTower, chosenStage, chosenDifficulty);
+    data.run = createRun(
+      effectiveProfile(),
+      chosenTower,
+      chosenStage,
+      chosenDifficulty,
+      undefined,
+      { mode: chosenMode, runes: snapshotRunes(data.progression.runes) },
+    );
     data.progression.active = {
       runId: data.run.id,
-      rulesVersion: 2,
+      rulesVersion: 3,
       runes: snapshotRunes(data.progression.runes),
       autocast: structuredClone(data.progression.autocast),
     };
@@ -442,13 +472,14 @@ function openMenu() {
   $('menu-retire')?.addEventListener('click', openRetire);
 }
 function scopeLabel(c: CardDefinition) {
-  if (c.group === 'weapon') return 'New weapon · duplicates strengthen';
+  if (c.group === 'weapon')
+    return isDefensiveKind(c.weapon!) ? 'Arsenal core · defensive engine' : 'Arsenal core · weapon';
   return c.scope === 'projectiles'
     ? 'All eligible projectiles'
     : c.scope === 'defense'
       ? 'Tower defense'
       : c.scope === 'weapon'
-        ? 'Choose a weapon'
+        ? 'Choose a core'
         : c.scope === 'skill'
           ? 'Skill system'
           : 'Entire tower';
@@ -491,8 +522,12 @@ function offerMarkup(offer: CardOffer, shop: boolean) {
     const ownedWeapon = c.weapon && s.weapons.find((w) => w.kind === c.weapon);
     const ownedCards = s.cards.filter((x) => x.cardId === c.id);
     if (ownedWeapon) {
-      ownership = ownedWeapon.mastery >= 24 ? 'MAX MASTERY—RARITY UPGRADE' : 'UPGRADE';
-      ownedText = `Owned · ${getWeaponStats(s, ownedWeapon).damage.toFixed(1)} current damage · mastery ${ownedWeapon.mastery} → ${Math.min(24, ownedWeapon.mastery + 1)} · ${rarityLabel(ownedWeapon.rarity)} → at least ${rarityLabel(offer.rarity)}`;
+      ownership = (modern(s) ? (ownedWeapon.masteryRank ?? 1) >= 6 : ownedWeapon.mastery >= 24)
+        ? 'MAX MASTERY—RARITY UPGRADE'
+        : 'UPGRADE';
+      ownedText = modern(s)
+        ? `Owned · mastery ${ownedWeapon.masteryRank ?? 1}/6 · training +150s · investment ${ownedWeapon.mastery} → ${Math.min(24, ownedWeapon.mastery + 1)} · ${rarityLabel(ownedWeapon.rarity)} · drop ${rarityLabel(offer.rarity)}`
+        : `Owned · ${getWeaponStats(s, ownedWeapon).damage.toFixed(1)} current damage · investment ${ownedWeapon.mastery} → ${Math.min(24, ownedWeapon.mastery + 1)}`;
     } else if (ownedCards.length) {
       ownership = 'UPGRADE';
       ownedText = ownedCards
@@ -505,7 +540,7 @@ function offerMarkup(offer: CardOffer, shop: boolean) {
     if (c.scope === 'weapon' && s.weapons.length > 1)
       info.summary = 'Choose a target to compare exact changes. ' + info.summary;
   }
-  return `<button class="card rarity-${offer.rarity}" data-offer="${esc(offer.id)}" style="--rarity:${RARITY_COLORS[offer.rarity]}" ${shop && s.scrap < offer.price ? 'disabled' : ''}><span class="card-top"><span>${rarityLabel(offer.rarity)}</span><span>${c.group.toUpperCase()}</span></span><span class="ownership-badge">${ownership}</span>${ownedText ? `<span class="owned-comparison">${esc(ownedText)}</span>` : ''}<span class="card-art">${cardIcon(c.iconId, 72)}</span><h3>${esc(c.name)}</h3><span class="card-scope">${esc(scopeLabel(c))}</span><p>${esc(c.description)}</p>${cardRules(c) ? `<small class="card-rules">${esc(cardRules(c))}</small>` : ''}${info.summary ? `<span class="card-change">${esc(info.summary)}</span>` : ''}${info.awaken.length ? `<span class="card-synergy">✦ ${esc(info.awaken.join(' · '))}</span>` : ''}${info.lost.length ? `<span class="card-loss">Releases ${esc(info.lost.join(', '))}</span>` : ''}<span class="card-action">${shop ? `${offer.price} scrap` : 'Choose upgrade'} ${glyph('arrow')}</span></button>`;
+  return `<button class="card rarity-${offer.rarity}" data-offer="${esc(offer.id)}" style="--rarity:${RARITY_COLORS[offer.rarity]}" ${shop && s.scrap < offer.price ? 'disabled' : ''}><span class="card-top"><span>${rarityLabel(offer.rarity)}</span><span>${c.weapon && isDefensiveKind(c.weapon) ? 'DEFENSIVE CORE' : c.group.toUpperCase()}</span></span><span class="ownership-badge">${ownership}</span>${ownedText ? `<span class="owned-comparison">${esc(ownedText)}</span>` : ''}<span class="card-art">${cardIcon(c.iconId, 72)}</span><h3>${esc(c.name)}</h3><span class="card-scope">${esc(scopeLabel(c))}</span><p>${esc(c.description)}</p>${cardRules(c) ? `<small class="card-rules">${esc(cardRules(c))}</small>` : ''}${info.summary ? `<span class="card-change">${esc(info.summary)}</span>` : ''}${info.awaken.length ? `<span class="card-synergy">✦ ${esc(info.awaken.join(' · '))}</span>` : ''}${info.lost.length ? `<span class="card-loss">Releases ${esc(info.lost.join(', '))}</span>` : ''}<span class="card-action">${shop ? `${offer.price} scrap` : 'Choose upgrade'} ${glyph('arrow')}</span></button>`;
 }
 function showRewards(id?: string) {
   const s = current();
@@ -526,12 +561,12 @@ function showRewards(id?: string) {
     'rewards',
     {
       title: shop ? 'The wandering artificer.' : 'Shape what comes next.',
-      subtitle: `WAVE ${reward.wave} · ${shop ? `${Math.floor(s.scrap)} SCRAP` : 'SELECT ONE CARD'}`,
+      subtitle: `${shop ? `WAVE ${reward.wave}` : reward.level ? `LEVEL ${reward.level}` : `WAVE ${reward.wave}`} · ${shop ? `${Math.floor(s.scrap)} SCRAP` : 'SELECT ONE CARD'}`,
       width: shop ? 1120 : 1060,
       height: 690,
       choice: true,
     },
-    `<div class="reward-toolbar"><label><input type="checkbox" id="choice-pause" ${data.settings.autoPauseChoices ? 'checked' : ''}> Pause while choosing</label>${s.pendingRewards.length > 1 ? `<select id="reward-queue" aria-label="Pending rewards">${s.pendingRewards.map((p) => `<option value="${esc(p.id)}" ${p.id === reward.id ? 'selected' : ''}>Wave ${p.wave} · ${p.kind === 'shop' ? 'Artificer' : 'Upgrade'}</option>`).join('')}</select>` : '<span>Upgrades accumulate. Your existing effects stay.</span>'}</div><div class="card-grid ${shop ? 'shop-cards' : ''}">${reward.offers.map((o) => offerMarkup(o, shop)).join('')}</div><div class="reward-footer"><button id="reward-reroll" class="outline-button">Reroll · ${rewardRerollCost(s, reward.id)} scrap · ${reward.rerolls} used</button>${shop ? `<button id="repair-shop" class="outline-button" ${reward.repairStock <= 0 || s.hp >= s.maxHp ? 'disabled' : ''}>Repair integrity · ${REPAIR_COST} scrap</button><button id="leave-shop" class="gold-button">Continue ${glyph('arrow')}</button>` : '<span class="quiet">Six weapons · stackable effects · earned evolution</span>'}</div>`,
+    `<div class="reward-toolbar"><label><input type="checkbox" id="choice-pause" ${data.settings.autoPauseChoices ? 'checked' : ''}> Pause while choosing</label>${s.pendingRewards.length > 1 ? `<select id="reward-queue" aria-label="Pending rewards">${s.pendingRewards.map((p) => `<option value="${esc(p.id)}" ${p.id === reward.id ? 'selected' : ''}>${p.kind === 'shop' ? `Wave ${p.wave} · Artificer` : p.level ? `Level ${p.level} · Upgrade` : `Wave ${p.wave} · Upgrade`}</option>`).join('')}</select>` : '<span>Upgrades accumulate. Your existing effects stay.</span>'}</div><div class="card-grid ${shop ? 'shop-cards' : ''}">${reward.offers.map((o) => offerMarkup(o, shop)).join('')}</div><div class="reward-footer"><button id="reward-reroll" class="outline-button">Reroll · ${rewardRerollCost(s, reward.id)} scrap · ${reward.rerolls} used</button>${shop ? `<button id="repair-shop" class="outline-button" ${reward.repairStock <= 0 || s.hp >= s.maxHp ? 'disabled' : ''}>Repair integrity · ${REPAIR_COST} scrap</button><button id="leave-shop" class="gold-button">Continue ${glyph('arrow')}</button>` : '<span class="quiet">Six shared sockets · support cards accumulate</span>'}</div>`,
   );
   $('choice-pause').onchange = () => {
     data.settings.autoPauseChoices = $<HTMLInputElement>('choice-pause').checked;
@@ -719,7 +754,7 @@ function openArsenal() {
     modern = isV2(s);
   const weapons = modern ? s.weapons : [];
   const active = modern ? s.synergies : [];
-  let body = `<div class="panel-tabs"><button data-arsenal-tab="weapons" class="${arsenalTab === 'weapons' ? 'active' : ''}">Weapons ${modern ? weapons.length : s.attacks.length}/6</button><button data-arsenal-tab="cards" class="${arsenalTab === 'cards' ? 'active' : ''}">Collected cards</button><button data-arsenal-tab="synergies" class="${arsenalTab === 'synergies' ? 'active' : ''}">Synergies ${active.length}</button></div>`;
+  let body = `<div class="panel-tabs"><button data-arsenal-tab="weapons" class="${arsenalTab === 'weapons' ? 'active' : ''}">Arsenal ${modern ? weapons.length : s.attacks.length}/6</button><button data-arsenal-tab="cards" class="${arsenalTab === 'cards' ? 'active' : ''}">Collected cards</button><button data-arsenal-tab="synergies" class="${arsenalTab === 'synergies' ? 'active' : ''}">Synergies ${active.length}</button></div>`;
   if (!modern) {
     body += `<p class="notice">Recovered expedition: original weapons and upgrades are preserved until this run ends.</p>${s.attacks.map((a) => `<article class="weapon-inspector"><h3>${PATTERNS.find((p) => p.id === a.pattern)?.name}</h3><p>${a.element} + ${a.modifier} · rank ${a.rank}</p><p>Lifetime attacks: ${a.shots.toLocaleString()}</p></article>`).join('')}`;
   } else if (arsenalTab === 'weapons') {
@@ -727,21 +762,21 @@ function openArsenal() {
       .map((w) => {
         const d = WEAPON_BY_ID[w.kind],
           stats = getWeaponStats(s, w);
-        return `<article class="weapon-inspector" style="--rarity:${RARITY_COLORS[w.rarity]}"><div class="weapon-heading">${cardIcon(CARDS.find((c) => c.weapon === w.kind)!.iconId, 52)}<div><small>${rarityLabel(w.rarity)}</small><h3>${d.name}</h3></div><span class="weapon-mastery">${w.mastery}/12</span></div><p>${esc(d.description)}</p><div class="infusions">${stats.elements.length ? stats.elements.map((e) => `<span style="--element:${ELEMENT_COLORS[e]}">${e}</span>`).join('') : '<span>Uninfused</span>'}</div><dl class="weapon-stats"><div><dt>Damage</dt><dd>${stats.damage.toFixed(1)}</dd></div><div><dt>Interval</dt><dd>${stats.cooldown.toFixed(2)}s</dd></div><div><dt>Projectiles</dt><dd>${stats.count}</dd></div><div><dt>Size</dt><dd>${stats.size.toFixed(1)}</dd></div><div><dt>Speed</dt><dd>${Math.round(stats.speed)}</dd></div><div><dt>Range</dt><dd>${Math.round(stats.range)}</dd></div><div><dt>Pulse</dt><dd>${stats.pulse > 0 ? `0.80s` : '—'}</dd></div><div><dt>Pierce / bounce</dt><dd>${stats.pierce} / ${stats.bounces}</dd></div></dl><p class="quiet">${stats.trail > 0 ? 'Damaging trail · ' : ''}${stats.homing > 0 ? 'Homing · ' : ''}${stats.returning ? 'Returns to spire · ' : ''}${stats.split > 0 ? `Splits ×${stats.split} · ` : ''}${w.lifetimeShots.toLocaleString()} lifetime attacks</p></article>`;
+        return `<article class="weapon-inspector" style="--rarity:${RARITY_COLORS[w.rarity]}"><div class="weapon-heading">${cardIcon(CARDS.find((c) => c.weapon === w.kind)!.iconId, 52)}<div><small>${rarityLabel(w.rarity)}</small><h3>${d.name}</h3></div><span class="weapon-mastery">${w.masteryRank ? `Mastery ${w.masteryRank}/6` : `Investment ${w.mastery}`}</span></div><p>${esc(d.description)}</p><div class="infusions">${stats.elements.length ? stats.elements.map((e) => `<span style="--element:${ELEMENT_COLORS[e]}">${e}</span>`).join('') : '<span>Uninfused</span>'}</div><dl class="weapon-stats"><div><dt>Damage</dt><dd>${stats.damage.toFixed(1)}</dd></div><div><dt>Interval</dt><dd>${stats.cooldown.toFixed(2)}s</dd></div><div><dt>Projectiles</dt><dd>${stats.count}</dd></div><div><dt>Size</dt><dd>${stats.size.toFixed(1)}</dd></div><div><dt>Speed</dt><dd>${Math.round(stats.speed)}</dd></div><div><dt>Range</dt><dd>${Math.round(stats.range)}</dd></div><div><dt>Pulse</dt><dd>${stats.pulse > 0 ? `0.80s` : '—'}</dd></div><div><dt>Pierce / bounce</dt><dd>${stats.pierce} / ${stats.bounces}</dd></div></dl><p class="quiet">${stats.trail > 0 ? 'Damaging trail · ' : ''}${stats.homing > 0 ? 'Homing · ' : ''}${stats.returning ? 'Returns to spire · ' : ''}${stats.split > 0 ? `Splits ×${stats.split} · ` : ''}${w.lifetimeShots.toLocaleString()} lifetime attacks</p></article>`;
       })
       .join(
         '',
-      )}${Array.from({ length: 6 - weapons.length }, () => '<article class="empty-weapon">＋<span>Open weapon socket</span><small>Acquire a weapon card to fill it.</small></article>').join('')}</div>`;
+      )}${Array.from({ length: 6 - weapons.length }, () => '<article class="empty-weapon">＋<span>Open arsenal socket</span><small>Acquire a weapon or defensive core.</small></article>').join('')}</div>`;
   } else if (arsenalTab === 'cards') {
-    body += `<p class="panel-note">Duplicates strengthen a family. Promotions arrive at 3, 6, 9, and 12 mastery.</p><div class="owned-list">${
+    body += `<p class="panel-note">Duplicates strengthen a family. Rarity promotions arrive at 3, 6, 9, and 12 investment picks. Equipment mastery is a separate combat progression.</p><div class="owned-list">${
       s.cards.length
         ? s.cards
             .map((stack) => {
               const c = CARD_BY_ID[stack.cardId];
-              return `<article class="owned-card" style="--rarity:${RARITY_COLORS[stack.rarity]}">${cardIcon(c.iconId, 44)}<div><small>${rarityLabel(stack.rarity)} · ${scopeLabel(c)}</small><h3>${esc(c.name)} <span>×${stack.stacks}</span></h3><p>${esc(c.description)}</p>${cardRules(c) ? `<small class="card-rules">${esc(cardRules(c))}</small>` : ''}<div class="mastery-track"><i style="width:${Math.min(100, (stack.mastery / 12) * 100)}%"></i></div><small>Mastery ${stack.mastery}/12${stack.targetId ? ` · ${WEAPON_BY_ID[s.weapons.find((w) => w.id === stack.targetId)!.kind].name}` : ''}</small>${c.group === 'skill' ? `<button class="outline-button compact" data-equip="${esc(c.id)}">${s.secondary === c.id ? 'Equipped' : 'Equip secondary skill'}</button>` : ''}</div></article>`;
+              return `<article class="owned-card" style="--rarity:${RARITY_COLORS[stack.rarity]}">${cardIcon(c.iconId, 44)}<div><small>${rarityLabel(stack.rarity)} · ${scopeLabel(c)}</small><h3>${esc(c.name)} <span>×${stack.stacks}</span></h3><p>${esc(c.description)}</p>${cardRules(c) ? `<small class="card-rules">${esc(cardRules(c))}</small>` : ''}<div class="mastery-track"><i style="width:${Math.min(100, (stack.mastery / 12) * 100)}%"></i></div><small>Investment ${stack.mastery} · next promotion ${Math.min(12, (Math.floor(stack.mastery / 3) + 1) * 3)}${stack.targetId ? ` · ${WEAPON_BY_ID[s.weapons.find((w) => w.id === stack.targetId)!.kind].name}` : ''}</small>${c.group === 'skill' ? `<button class="outline-button compact" data-equip="${esc(c.id)}">${s.secondary === c.id ? 'Equipped' : 'Equip secondary skill'}</button>` : ''}</div></article>`;
             })
             .join('')
-        : '<p>Your first cards arrive after wave 2. Every family has its own icon and effect.</p>'
+        : '<p>Your first cards arrive when the tower levels up. Every family has its own icon and effect.</p>'
     }</div>`;
   } else
     body += `<p class="panel-note">Recipes require specific cards and interactions. Adding elements alone does not awaken every recipe.</p><div class="synergy-list">${SYNERGIES.map((y) => `<article class="synergy ${s.synergies.includes(y.id) ? 'awakened' : ''}" style="--element:${y.color}"><span class="synergy-sigil">${s.synergies.includes(y.id) ? '✦' : '◇'}</span><div><small>${s.synergies.includes(y.id) ? 'AWAKENED' : 'DORMANT'}</small><h3>${esc(y.name)}</h3><p>${esc(y.description)}</p><div class="requirements">${y.requires.map((id) => `<span class="${s.cards.some((c) => c.cardId === id) || (id.startsWith('infusion-') && s.weapons.some((w) => w.infusions.some((e) => e === id.slice(9)))) || (id.startsWith('weapon-') && s.weapons.some((w) => w.kind === id.slice(7))) ? 'met' : ''}">${esc(CARD_BY_ID[id]?.name ?? id)}</span>`).join('')}</div></div></article>`).join('')}</div>`;
@@ -802,7 +837,7 @@ function openCodex() {
     'codex',
     {
       title: 'The field codex.',
-      subtitle: '100 CARD FAMILIES · 40 SYNERGIES',
+      subtitle: '124 CARD FAMILIES · 40 PASSIVE SYNERGIES',
       width: 650,
       height: 760,
     },
@@ -822,7 +857,7 @@ function renderCodexResults() {
   const q = codexQuery.toLowerCase();
   if (codexGroup === 'rules') {
     $('codex-results').innerHTML =
-      `<article class="rules"><h3>Build something that works together.</h3><p>You have six weapon sockets from the beginning. Weapon cards add a weapon; duplicate weapon cards strengthen it. Global projectile cards modify every eligible weapon. Infusions add effects to the weapon you choose.</p><h3>Rarity is earned as well as found.</h3><p>Normal → Rare → Epic → Legendary → Mythic. Repeated picks add mastery; 3, 6, 9, and 12 mastery promote the family. A higher-tier drop never downgrades what you own. Legendary weapon cores gain one pierce; Mythic cores emit traveling damage pulses. Higher card tiers increase family strength by 20% per tier.</p><h3>Power has shape.</h3><p>Damage, speed, size, count, range, and lifetime interact. Additional infusions split direct damage across their elements. Diminishing returns, trigger cooldowns, and bounded proc chains prevent infinite loops. Effective values are shown in your arsenal. Infusion damage is divided equally; status and movement caps remain visible there. Enemy formations cap at 96. At 4,096 active shots, primary attacks wait; bounded split children and existing damaging shots finish. Cosmetic quality never changes combat.</p><h3>Defense can become offense.</h3><p>Thorns and reflected hits are retaliation damage. Shield breaks, incoming damage, and kills can trigger other effects, within each card’s cooldown and chain limit. Some cards leave persistent damage zones.</p><h3>Time is yours to manage.</h3><p>Information windows never pause combat. Drafts and shops pause by default, with a switch to keep combat live. Closing or minimizing the choice window banks it for later; rewards remain queued.</p><h3>The economy asks you to choose.</h3><p>Scrap is temporary. Credits unlock towers and permanent runes after the run. Repairs have limited stock, rerolls grow more expensive, and split enemies cannot generate extra bounty.</p></article>`;
+      `<article class="rules"><h3>Build something that works together.</h3><p>Six shared sockets accept weapons or defensive cores. Duplicates strengthen investment and accelerate six-rank combat mastery. Global projectile cards modify every eligible weapon. Infusions add effects to the weapon you choose.</p><h3>Rarity is earned as well as found.</h3><p>Normal → Rare → Epic → Legendary → Mythic. Repeated investment at 3, 6, 9, and 12 picks promotes a family. Equipment combat mastery is a separate rank from 1–6, earned through use. A higher-tier drop never downgrades what you own. Legendary weapon cores gain one pierce; Mythic cores emit traveling damage pulses. Higher card tiers increase family strength by 20% per tier.</p><h3>Power has shape.</h3><p>Damage, speed, size, count, range, and lifetime interact. Additional infusions split direct damage across their elements. Diminishing returns, trigger cooldowns, and bounded proc chains prevent infinite loops. Effective values are shown in your arsenal. Infusion damage is divided equally; status and movement caps remain visible there. Enemy formations cap at 96. At 4,096 active shots, primary attacks wait; bounded split children and existing damaging shots finish. Cosmetic quality never changes combat.</p><h3>Defense can become offense.</h3><p>Thorns and reflected hits are retaliation damage. Shield breaks, incoming damage, and kills can trigger other effects, within each card’s cooldown and chain limit. Some cards leave persistent damage zones.</p><h3>Time is yours to manage.</h3><p>Information windows never pause combat. Drafts and shops pause by default, with a switch to keep combat live. Closing or minimizing the choice window banks it for later; rewards remain queued.</p><h3>The economy asks you to choose.</h3><p>Scrap is temporary. Credits unlock towers and permanent runes after the run. Repairs have limited stock, rerolls grow more expensive, and split enemies cannot generate extra bounty.</p></article>`;
     return;
   }
   if (codexGroup === 'synergy') {
@@ -926,14 +961,35 @@ const RUNE_NAMES: Record<RuneId, string> = {
   autoSignature: 'Signature autocast',
   autoSecondary: 'Secondary autocast',
 };
-const visibleRunes: RuneId[] = ['power', 'vitality', 'fortune', 'autoSignature', 'autoSecondary'];
+const visibleRunes: RuneId[] = [
+  'power',
+  'vitality',
+  'fortune',
+  'experience',
+  'choices',
+  'autoSignature',
+  'autoSecondary',
+];
+function runeBenefit(id: RuneId, level: number) {
+  return id === 'power'
+    ? `+${(level * 2.5).toFixed(1)}% damage`
+    : id === 'vitality'
+      ? `+${(level * 3.5).toFixed(1)}% maximum health`
+      : id === 'fortune'
+        ? `+${(level * 0.8).toFixed(1)}% rarity roll`
+        : id === 'experience'
+          ? `+${(level * 2.5).toFixed(1)}% XP gain`
+          : id === 'choices'
+            ? `${3 + level} level-up choices`
+            : `${level ? 'Autocast available' : 'Manual only'}`;
+}
 function runeMarkup() {
   const r = data.progression.runes;
   return (
     visibleRunes
       .map(
         (id) =>
-          `<article class="rune-row"><b>${RUNE_NAMES[id]}</b><span>Purchased ${r.owned[id]}/${RUNE_CAPS[id]} · selected <strong id="rune-value-${id}">${r.selected[id]}</strong></span><label>Selected level<input data-rune-select="${id}" type="range" min="0" max="${r.owned[id]}" value="${r.selected[id]}" ${playing ? 'disabled' : ''}></label><button data-rune-buy="${id}" class="outline-button" ${playing || r.owned[id] >= RUNE_CAPS[id] || data.profile.credits < runePrice(id, r.owned[id] + 1) ? 'disabled' : ''}>${r.owned[id] >= RUNE_CAPS[id] ? 'Fully purchased' : `Buy level ${r.owned[id] + 1} · ${runePrice(id, r.owned[id] + 1)} credits`}</button></article>`,
+          `<article class="rune-row"><b>${RUNE_NAMES[id]}</b><span>${runeBenefit(id, r.selected[id])}</span><span>Purchased ${r.owned[id]}/${RUNE_CAPS[id]} · selected <strong id="rune-value-${id}">${r.selected[id]}</strong></span><label>Selected level<input data-rune-select="${id}" type="range" min="0" max="${r.owned[id]}" value="${r.selected[id]}" ${playing ? 'disabled' : ''}></label><button data-rune-buy="${id}" class="outline-button" ${playing || r.owned[id] >= RUNE_CAPS[id] || data.profile.credits < runePrice(id, r.owned[id] + 1) ? 'disabled' : ''}>${r.owned[id] >= RUNE_CAPS[id] ? 'Fully purchased' : `Buy level ${r.owned[id] + 1} · ${runePrice(id, r.owned[id] + 1)} credits`}</button></article>`,
       )
       .join('') +
     '<button id="configure-autocast" class="outline-button full">Configure conditional autocast</button>'
@@ -1057,7 +1113,7 @@ function openHangar() {
   manager.open(
     'hangar',
     {
-      title: 'Six hearts. One last light.',
+      title: 'Seven hearts. One last light.',
       subtitle: `TOWER HANGAR · ${data.profile.credits} CREDITS`,
       width: 1080,
       height: 760,
@@ -1225,6 +1281,7 @@ function showImportReview(incoming: SaveV3, name: string) {
       storageFailed = false;
       playing = !!data.run;
       paused = playing && data.run?.phase === 'combat';
+      chosenMode = data.run && modern(data.run) ? modern(data.run)!.mode : 'normal';
       chosenTower = data.run?.tower ?? data.profile.unlocked[0];
       chosenStage = data.run?.stage ?? 0;
       chosenDifficulty = data.run?.difficulty ?? 0;
@@ -1253,7 +1310,7 @@ function openHelp() {
   manager.open(
     'help',
     { title: 'Forge your own answer.', subtitle: 'A SHORT FIELD GUIDE', width: 540, height: 700 },
-    `<div class="help-steps"><section><span>01</span><div><h3>The spire fights automatically.</h3><p>Use Q and E for your two active skills. Change targeting when a dangerous enemy needs attention.</p></div></section><section><span>02</span><div><h3>Build six different engines.</h3><p>All six sockets are available. New weapon cards fill them; duplicates strengthen existing weapons. Global cards affect all eligible weapons. Infusions combine on the weapon you choose.</p></div></section><section><span>03</span><div><h3>Choose, don’t collect everything.</h3><p>Choose a card every two waves. Shops appear every ten. Scarce scrap makes repair, power, and a future purchase compete with one another.</p></div></section><section><span>04</span><div><h3>Defense is part of your arsenal.</h3><p>Thorns, reflected damage, barrier breaks, and retaliation can fuel a build. The codex explains every card and the requirements for 40 special interactions.</p></div></section><section><span>05</span><div><h3>Keep the field in view.</h3><p>Drag, resize, dock, or minimize windows. Information windows leave combat live. Choices pause by default; toggle that off to keep playing while you decide.</p></div></section></div><button id="finish-help" class="gold-button full">Keep the light alive ${glyph('arrow')}</button>`,
+    `<div class="help-steps"><section><span>01</span><div><h3>The spire fights automatically.</h3><p>Use Q and E for your two active skills. Change targeting when a dangerous enemy needs attention.</p></div></section><section><span>02</span><div><h3>Build six different engines.</h3><p>All six sockets are available for weapons or defensive cores. Duplicates strengthen investment and accelerate mastery. Global cards affect all eligible weapons. Infusions combine on the weapon you choose.</p></div></section><section><span>03</span><div><h3>Choose, don’t collect everything.</h3><p>Defeat enemies to gain XP and choose a card each level. Shops appear every ten waves. Scarce scrap makes repair, power, and a future purchase compete with one another.</p></div></section><section><span>04</span><div><h3>Defense is part of your arsenal.</h3><p>Thorns, reflected damage, barrier breaks, and retaliation can fuel a build. The codex explains every card and the requirements for 40 special interactions.</p></div></section><section><span>05</span><div><h3>Keep the field in view.</h3><p>Drag, resize, dock, or minimize windows. Information windows leave combat live. Choices pause by default; toggle that off to keep playing while you decide.</p></div></section></div><button id="finish-help" class="gold-button full">Keep the light alive ${glyph('arrow')}</button>`,
   );
   $('finish-help').onclick = () => {
     data.profile.tutorialDone = true;
@@ -1279,7 +1336,7 @@ function openVictory() {
     'victory',
     {
       title: 'The light endures.',
-      subtitle: `${STAGES[s.stage].name.toUpperCase()} · 100 WAVES CLEARED`,
+      subtitle: `${STAGES[s.stage].name.toUpperCase()} · ${modern(s)?.mode === 'quick' ? 50 : 100} WAVES CLEARED`,
       width: 590,
       height: 590,
       choice: true,
@@ -1604,6 +1661,7 @@ async function init() {
       );
     }
   }
+  chosenMode = data.run && modern(data.run) ? modern(data.run)!.mode : 'normal';
   chosenTower = data.run?.tower ?? data.profile.unlocked[0] ?? 'bastion';
   chosenStage = data.run?.stage ?? 0;
   chosenDifficulty = data.run?.difficulty ?? 0;

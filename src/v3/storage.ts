@@ -2,11 +2,14 @@ import {
   defaultSettings as settingsV2,
   emptySave as emptyV2,
   parseGame as parseV2,
-  settleInMemory as settleV2,
   SaveError,
 } from '../v2/storage';
 import type { SaveV2, SettingsV2 } from '../v2/types';
 import type { SaveData } from '../types';
+import { CARDS as LEGACY_CARDS, WEAPONS as LEGACY_WEAPONS } from '../v2/catalog';
+import { CARDS, WEAPONS, TOWERS } from './catalog';
+import { rewardForRun } from './engine';
+import type { RunV3 } from './types';
 import {
   RUNE_CAPS,
   defaultRuneLoadout,
@@ -90,19 +93,27 @@ function finiteTree(value: unknown, depth = 0): void {
   if (depth > 24) invalid('metadata nesting exceeds 24 levels');
   if (typeof value === 'number' && !Number.isFinite(value))
     invalid('metadata contains nonfinite numbers');
-  if (
-    typeof value === 'undefined' ||
-    typeof value === 'function' ||
-    typeof value === 'symbol' ||
-    typeof value === 'bigint'
-  )
+  if (typeof value === 'function' || typeof value === 'symbol' || typeof value === 'bigint')
     invalid('metadata contains unsupported values');
+  if (Array.isArray(value)) {
+    if (value.length > 50_000) invalid('array has too many entries');
+    for (let i = 0; i < value.length; i++) {
+      if (!(i in value) || value[i] === undefined) invalid('arrays cannot contain holes');
+      finiteTree(value[i], depth + 1);
+    }
+    return;
+  }
   if (value && typeof value === 'object') {
-    if (Object.keys(value).length > 20_000) invalid('metadata has too many entries');
-    for (const [key, entry] of Object.entries(value)) {
+    if (![Object.prototype, null].includes(Object.getPrototypeOf(value)))
+      invalid('save contains non-JSON objects');
+    const entries = Object.getOwnPropertyDescriptors(value);
+    if (Object.keys(entries).length > 20_000) invalid('metadata has too many entries');
+    for (const [key, descriptor] of Object.entries(entries)) {
       if (['__proto__', 'constructor', 'prototype'].includes(key))
         invalid('metadata contains an unsafe key');
-      finiteTree(entry, depth + 1);
+      if (!('value' in descriptor)) invalid('save contains accessor properties');
+      // Engine-generated optional object fields may be undefined; JSON omits them.
+      if (descriptor.value !== undefined) finiteTree(descriptor.value, depth + 1);
     }
   }
 }
@@ -168,6 +179,120 @@ export function emptySave(): SaveV3 {
     },
   };
 }
+function list(value: unknown, label: string, max: number): unknown[] {
+  if (!Array.isArray(value) || value.length > max)
+    invalid(`${label} must contain at most ${max} entries`);
+  return value;
+}
+/** Project modern additions only for the established validator, then restore the validated original. */
+function modernProjection(value: unknown): { original: RunV3; projection: Obj } {
+  const original = object(value, 'run');
+  for (const field of [
+    'rulesVersion',
+    'mode',
+    'level',
+    'xp',
+    'xpRequired',
+    'offerRng',
+    'runeSnapshot',
+  ])
+    if (!(field in original)) invalid(`run.${field} is missing`);
+  if (original.rulesVersion !== 3) invalid('modern rules version is unsupported');
+  if (!['quick', 'normal', 'endless'].includes(original.mode as string))
+    invalid('run mode is invalid');
+  numeric(original.level, 'level', 1, 100_000);
+  numeric(original.xp, 'XP', 0, 1e12, false);
+  numeric(original.xpRequired, 'XP requirement', 1, 1e12);
+  numeric(original.offerRng, 'offer RNG', 1, 0xffff_ffff);
+  runeSnapshot(original.runeSnapshot, 'run rune snapshot');
+  if (!TOWERS.some((t) => t.id === original.tower)) invalid('modern tower is unknown');
+  const projection = structuredClone(original);
+  for (const field of [
+    'rulesVersion',
+    'mode',
+    'level',
+    'xp',
+    'xpRequired',
+    'offerRng',
+    'runeSnapshot',
+  ])
+    delete projection[field];
+  if (projection.tower === 'monolith') projection.tower = 'bastion';
+  const kinds = new Set(WEAPONS.map((w) => w.id));
+  const oldKinds = new Set(LEGACY_WEAPONS.map((w) => w.id));
+  const oldCards = new Set(LEGACY_CARDS.map((c) => c.id));
+  const ids = new Set<string>();
+  for (const item of list(projection.weapons, 'arsenal', 6)) {
+    const w = object(item, 'equipment');
+    const id = identifier(w.id, 'equipment ID');
+    if (ids.has(id)) invalid('duplicate equipment ID');
+    ids.add(id);
+    if (!kinds.has(w.kind as never)) invalid('equipment kind is unknown');
+    if (w.masteryRank !== undefined) numeric(w.masteryRank, 'mastery rank', 1, 6);
+    if (w.masteryProgress !== undefined)
+      numeric(w.masteryProgress, 'mastery progress', 0, 900, false);
+    if (w.masteryRequired !== undefined)
+      numeric(w.masteryRequired, 'mastery requirement', 0, 900, false);
+    if (w.fusionReady !== undefined && typeof w.fusionReady !== 'boolean')
+      invalid('fusion readiness must be boolean');
+    if (w.fusionReady === true && w.masteryRank !== 6)
+      invalid('fusion readiness requires mastery six');
+    for (const field of ['masteryRank', 'masteryProgress', 'masteryRequired', 'fusionReady'])
+      delete w[field];
+    if (!oldKinds.has(w.kind as never)) w.kind = 'bolt';
+  }
+  if (!ids.size) invalid('run requires an arsenal core');
+  const card = (item: unknown, offer: boolean): void => {
+    const c = object(item, offer ? 'offer' : 'card');
+    const def = CARDS.find((def) => def.id === c.cardId);
+    if (!def) invalid('card family is unknown');
+    if (!offer) numeric(c.stacks, 'card stacks', 1, def.maxStacks);
+    if (c.targetId !== undefined && !ids.has(identifier(c.targetId, 'card target')))
+      invalid('card targets an unknown core');
+    const targeted = def.group === 'infusion' || def.id === 'utility-apprenticeship';
+    if (!offer && targeted && c.targetId === undefined)
+      invalid('chosen-core investment needs a target');
+    if (!targeted && c.targetId !== undefined) invalid('global card cannot target one core');
+    if (!oldCards.has(def.id)) c.cardId = 'weapon-bolt';
+  };
+  const stacks = list(projection.cards, 'cards', 800);
+  const seenCards = new Set<string>();
+  for (const item of stacks) {
+    const c = object(item, 'card');
+    const key = `${c.cardId}:${c.targetId ?? ''}`;
+    if (seenCards.has(key)) invalid('duplicate card investment');
+    seenCards.add(key);
+    card(c, false);
+  }
+  for (const item of list(projection.enemies, 'enemies', 20_000)) {
+    const enemy = object(item, 'enemy');
+    if (enemy.xpBudget !== undefined) numeric(enemy.xpBudget, 'enemy XP budget', 0, 25, false);
+    delete enemy.xpBudget;
+  }
+  for (const item of list(projection.projectiles, 'projectiles', 20_000)) {
+    const p = object(item, 'projectile');
+    if (!kinds.has(p.kind as never)) invalid('projectile kind is unknown');
+    if (!oldKinds.has(p.kind as never)) p.kind = 'bolt';
+  }
+  const rewards = new Set<string>();
+  for (const item of list(projection.pendingRewards, 'pending rewards', 2000)) {
+    const reward = object(item, 'reward');
+    const id = identifier(reward.id, 'reward ID');
+    if (rewards.has(id)) invalid('duplicate reward ID');
+    rewards.add(id);
+    if (reward.level !== undefined) numeric(reward.level, 'reward level', 2, 100_000);
+    delete reward.level;
+    const offers = new Set<string>();
+    for (const item of list(reward.offers, 'offers', 5)) {
+      const offer = object(item, 'offer');
+      const id = identifier(offer.id, 'offer ID');
+      if (offers.has(id)) invalid('duplicate offer ID');
+      offers.add(id);
+      card(offer, true);
+    }
+  }
+  return { original: original as unknown as RunV3, projection };
+}
 export function parseGame(raw: string | unknown): SaveV3 {
   try {
     if (typeof raw === 'string') {
@@ -180,11 +305,31 @@ export function parseGame(raw: string | unknown): SaveV3 {
     if (![1, 2, 3].includes(version as number)) invalid('unsupported version');
     const sourceSettings = object(root.settings, 'settings');
     const settings = { ...defaultSettings(), ...sourceSettings };
+    const profile = version === 3 ? structuredClone(object(root.profile, 'profile')) : root.profile;
+    if (version === 3) {
+      const ownedTowers = list((profile as Obj).unlocked, 'unlocked towers', 7);
+      if (
+        ownedTowers.some((t) => !TOWERS.some((def) => def.id === t)) ||
+        new Set(ownedTowers).size !== ownedTowers.length
+      )
+        invalid('unlocked towers are invalid');
+      (profile as Obj).unlocked = ownedTowers.filter((t) => t !== 'monolith');
+    }
+    const modern =
+      version === 3 && root.run && object(root.run, 'run').rulesVersion !== undefined
+        ? modernProjection(root.run)
+        : null;
     const base = parseV2(
       version === 3
-        ? { version: 2, profile: root.profile, run: root.run, settings }
+        ? { version: 2, profile, run: modern?.projection ?? root.run, settings }
         : { ...root, settings: version === 1 ? sourceSettings : settings },
     );
+    if (version === 3) {
+      base.profile.unlocked = [
+        ...(object(root.profile, 'profile').unlocked as SaveV2['profile']['unlocked']),
+      ];
+      if (modern) base.run = structuredClone(modern.original);
+    }
     if (version !== 3)
       return {
         ...base,
@@ -221,7 +366,22 @@ export function parseGame(raw: string | unknown): SaveV3 {
         autocast: autocast(a.autocast),
         ...(a.gameplay !== undefined ? { gameplay: a.gameplay as Obj } : {}),
       };
+      for (const [slot, rune] of [
+        ['signature', 'autoSignature'],
+        ['secondary', 'autoSecondary'],
+      ] as const)
+        if (active.autocast[slot].enabled && active.runes[rune] === 0)
+          invalid(`${slot} autocast is not unlocked for this run`);
     }
+    if (modern) {
+      if (!active || active.rulesVersion !== 3)
+        invalid('modern expedition requires an active rules snapshot');
+      for (const id of Object.keys(RUNE_CAPS) as RuneId[])
+        if (active.runes[id] !== modern.original.runeSnapshot[id])
+          invalid('run rune snapshots disagree');
+      if (active.gameplay !== undefined)
+        invalid('modern progression belongs to the explicit run schema');
+    } else if (active?.rulesVersion === 3) invalid('legacy expedition cannot use modern rules');
     if (!Array.isArray(p.records) || p.records.length > 500)
       invalid('records must contain at most 500 entries');
     const records = p.records.map((entry, i) => {
@@ -239,6 +399,7 @@ export function parseGame(raw: string | unknown): SaveV3 {
       ]);
       identifier(r.runId, 'record run ID');
       identifier(r.tower, 'record tower');
+      if (!TOWERS.some((t) => t.id === r.tower)) invalid('record tower is unknown');
       if (!['quick', 'normal', 'endless'].includes(r.mode as string))
         invalid('record mode is invalid');
       numeric(r.stage, 'record stage', 0, 2);
@@ -385,11 +546,48 @@ export async function loadGame(): Promise<SaveV3> {
   });
 }
 function settleProfile(data: SaveV3, profile = data.profile): SaveV3 {
-  const legacy = settleV2({ version: 2, profile, run: data.run, settings: data.settings });
-  return parseGame({ ...data, profile: legacy.profile, run: legacy.run });
+  const run = data.run;
+  if (!run) return data;
+  const duplicate = profile.settledRuns.includes(run.id);
+  const next = structuredClone(profile);
+  next.settledRuns = [...new Set([...profile.settledRuns, run.id])].slice(-20_000);
+  next.seenSynergies = [...new Set([...profile.seenSynergies, ...run.synergies])];
+  if (!duplicate) {
+    next.credits += run.version === 2 ? rewardForRun(run) : run.earned;
+    next.runs += 1;
+    next.bestWave = Math.max(next.bestWave, run.wave);
+    next.totalKills += run.kills;
+    if (run.cleared) {
+      next.clears = [...new Set([...profile.clears, run.stage])].sort((a, b) => a - b);
+      next.stageUnlocked = Math.max(profile.stageUnlocked, Math.min(3, run.stage + 2));
+      next.difficultyUnlocked = Math.max(
+        profile.difficultyUnlocked,
+        Math.min(5, run.difficulty + 1),
+      );
+    }
+  }
+  const progression = structuredClone(data.progression);
+  if (!duplicate && run.version === 2 && 'rulesVersion' in run && run.rulesVersion === 3) {
+    const modern = run as RunV3;
+    if (!progression.records.some((r) => r.runId === run.id))
+      progression.records.push({
+        runId: run.id,
+        mode: modern.mode,
+        stage: run.stage,
+        difficulty: run.difficulty,
+        tower: run.tower,
+        runes: { ...modern.runeSnapshot },
+        wave: run.wave,
+        cleared: run.cleared,
+        seconds: run.time,
+        credits: rewardForRun(run),
+      });
+    progression.records = progression.records.slice(-500);
+  }
+  return { ...data, profile: next, run: { ...run, settled: true }, progression };
 }
 export function settleInMemory(data: SaveV3): SaveV3 {
-  return settleProfile(parseGame(data));
+  return parseGame(settleProfile(parseGame(data)));
 }
 export async function saveGame(data: SaveV3, replace = false): Promise<void> {
   const incoming = parseGame(data);
@@ -441,19 +639,15 @@ export async function settleGame(data: SaveV3): Promise<SaveV3> {
     const run = incoming.run!;
     if (current?.profile.settledRuns.includes(run.id)) return current;
     const progression = current?.progression ?? incoming.progression;
-    const settled = settleV2({
-      version: 2,
-      profile: current?.profile ?? incoming.profile,
-      run,
-      settings: incoming.settings,
-    });
+    const settled = settleProfile(
+      { ...incoming, progression },
+      current?.profile ?? incoming.profile,
+    );
     const nextRun = current?.run && current.run.id !== run.id ? current.run : settled.run;
     const result = parseGame({
-      ...incoming,
-      profile: settled.profile,
+      ...settled,
       run: nextRun,
       settings: current?.settings ?? incoming.settings,
-      progression,
     });
     store.put(result, ROOT);
     return result;

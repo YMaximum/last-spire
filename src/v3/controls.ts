@@ -1,6 +1,6 @@
 import type { Profile, RunV2, WeaponStats } from '../v2/types';
-import { effectPower, getWeaponStats, useSkill } from '../v2/engine';
-import { CARDS, SYNERGIES } from '../v2/catalog';
+import { effectPower, getWeaponStats, getDefenseStats, useSkill } from './engine';
+import { CARDS, SYNERGIES } from './catalog';
 
 export const RUNE_IDS = [
   'power',
@@ -237,40 +237,35 @@ export function getTowerStats(s: RunV2): TowerStatsSnapshot {
   const p = (effect: string) => effectPower(s, effect);
   const has = (effect: string) =>
     SYNERGIES.some((y) => y.effect === effect && s.synergies.includes(y.id));
-  const baseReduction =
-    p('armor') + (s.tower === 'bastion' ? 0.1 : 0) + (s.hp < s.maxHp * 0.3 ? p('emergency') : 0);
-  const mitigation = Object.fromEntries(
-    ['physical', 'fire', 'frost', 'lightning', 'poison', 'solar', 'void'].map((element) => {
-      const reduction = Math.min(
-        0.8,
-        Math.max(
-          0,
-          baseReduction +
-            (element === 'physical'
-              ? 0
-              : p(element === 'lightning' ? 'storm-shield' : `${element}-shield`)),
-        ),
-      );
-      return [element, 1 - (1 - reduction) * (s.tower === 'null' ? 1.12 : 1)];
-    }),
-  ) as TowerStatsSnapshot['mitigation'];
+  const defense = getDefenseStats(s);
   const damage = totalDamage(s);
   return {
     health: s.hp,
     maxHealth: s.maxHp,
     shield: s.shield,
-    maxShield: shieldCapacity(s),
-    healthRegen: p('regen') * (has('health-renewal') ? 1.6 : 1),
-    shieldRegen: p('shield-regen') * (has('shield-renewal') ? 1.5 : 1),
-    mitigation,
-    reflectMultiplier: p('reflect') * (has('solar-reflect') ? 2 : 1),
-    retaliationDamage: p('thorns') * (has('thorn-reflect') ? 2 : 1),
+    maxShield: defense.maxShield,
+    healthRegen: defense.healthRegen,
+    shieldRegen: defense.shieldRegen,
+    mitigation: defense.mitigation,
+    reflectMultiplier: defense.reflectMultiplier,
+    retaliationDamage: defense.retaliationDamage,
     signatureCooldown: s.skillCd,
     secondaryCooldown: s.secondaryCd,
     signatureCooldownDuration: 30 / (1 + p('skill-cooldown')),
     secondaryCooldownDuration: 38 / (1 + p('skill-cooldown')),
-    xpMultiplier: 1 + (s.counters.profileExperience || 0),
-    masteryMultiplier: 1 + (s.counters.profileMastery || 0),
+    xpMultiplier:
+      ((s as RunV2 & { mode?: string }).mode === 'quick' ? 0.75 : 1) *
+      (1 +
+        Math.min(
+          0.5,
+          (s.counters.profileExperience || 0) +
+            p('xp-gain') +
+            (s.counters.learningChain || 0) * p('xp-chain') +
+            (s.hp <= s.maxHp * 0.35 ? p('xp-low-health') : 0),
+        )),
+    masteryMultiplier:
+      ((s as RunV2 & { mode?: string }).mode === 'quick' ? 1.5 : 1) *
+      (1 + Math.min(0.5, s.counters.profileMastery || 0)),
     recentDps: getRecentDps(s),
     runAverageDps: s.time > 0 ? damage / s.time : 0,
     totalDamage: damage,

@@ -1,7 +1,7 @@
 import type { RunV2, WeaponInstance } from '../v2/types';
-import { CARDS, CARD_BY_ID, WEAPON_BY_ID, SYNERGIES, rarityLabel } from '../v2/catalog';
-import { activeSynergies, getWeaponStats } from '../v2/engine';
-import { cardIcon } from '../v2/icons';
+import { CARDS, CARD_BY_ID, WEAPON_BY_ID, SYNERGIES, rarityLabel } from './catalog';
+import { activeSynergies, getWeaponStats } from './engine';
+import { cardIcon } from './icons';
 import './inspector.css';
 
 export type EntityRef = { kind: 'weapon' | 'card' | 'synergy'; id: string };
@@ -291,7 +291,7 @@ export class BuildInspector {
       return `<button type="button" class="build-socket build-${w.rarity}${w.fusionReady ? ' build-fusion-ready' : ''}" ${entityAttributes(ref)} aria-label="Socket ${index + 1}: ${escapeHTML(weaponName(w))}, ${escapeHTML(masteryLabel(w))}${w.fusionReady ? ', fusion ready' : ''}">${iconFor(s, ref)}<span class="build-rank">${w.masteryRank !== undefined ? `M${Math.min(6, w.masteryRank)}` : w.mastery}</span><span class="build-mastery" aria-hidden="true"><i style="width:${progress(w) * 100}%"></i></span>${w.fusionReady ? '<span class="build-ready" aria-hidden="true">✦</span>' : ''}</button>`;
     }).join('');
     const collection = (kind: 'card' | 'synergy', ids: string[], label: string) =>
-      `<details class="build-collection" data-build-collection="${kind}"${expanded.includes(kind) ? ' open' : ''}><summary><span>${label}</span><b>${ids.length}</b><span class="build-expand" aria-hidden="true">⌄</span></summary><div class="build-collection-items" role="group" aria-label="${label}">${
+      `<details class="build-collection" data-build-collection="${kind}"${expanded.includes(kind) && ids.length ? ' open' : ''}><summary><span>${label}</span><b>${ids.length}</b><span class="build-expand" aria-hidden="true">⌄</span></summary><div class="build-collection-items" role="group" aria-label="${label}">${
         ids.length
           ? ids
               .map((id) => {

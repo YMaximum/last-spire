@@ -54,7 +54,10 @@ class GitHub:
         self.token = token
 
     def request(self, suffix):
-        require(suffix.startswith("/") and ".." not in suffix, "Invalid API path.")
+        # GitHub compare URLs require three dots. Allow only the exact endpoints
+        # used for release verification rather than rejecting that separator.
+        allowed = r"/(?:compare/[a-f0-9]{40}\.\.\.main|actions/workflows/checks\.yml|actions/runs/[1-9][0-9]*/attempts/[1-9][0-9]*)"
+        require(isinstance(suffix, str) and re.fullmatch(allowed, suffix), "Invalid API path.")
         request = urllib.request.Request(
             "https://api.github.com/repos/" + REPOSITORY + suffix,
             headers={"Authorization": "Bearer " + self.token,

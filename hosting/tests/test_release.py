@@ -57,6 +57,46 @@ class FakeAPI:
         return self.run
 
 
+class GitHubRequestTests(unittest.TestCase):
+    def test_checked_run_uses_validated_real_request_paths(self):
+        fixture = FakeAPI()
+        expected = [
+            (f"/compare/{SHA}...main", fixture.comparison),
+            ("/actions/workflows/checks.yml", fixture.workflow),
+            (f"/actions/runs/{RUN}/attempts/1", fixture.run),
+        ]
+        requests = []
+
+        def respond(request, timeout):
+            suffix, payload = expected[len(requests)]
+            self.assertEqual(request.full_url, "https://api.github.com/repos/" + release.REPOSITORY + suffix)
+            self.assertEqual(timeout, 30)
+            requests.append(request)
+            return io.BytesIO(json.dumps(payload).encode())
+
+        with patch.object(release.urllib.request, "build_opener") as opener:
+            opener.return_value.open.side_effect = respond
+            result = release.checked_run(release.GitHub("test-only"), SHA, RUN, 1)
+        self.assertEqual(result, fixture.run)
+        self.assertEqual(len(requests), 3)
+
+    def test_unexpected_request_paths_rejected_before_transport(self):
+        paths = [
+            None, 7, "", "https://example.com/", "//example.com/",
+            "/../other", "/actions/../secrets", "/actions/%2e%2e/secrets",
+            "/actions/workflows/checks.yml?redirect=elsewhere",
+            "/actions/workflows/other.yml", "/actions/workflows/checks.yml/",
+            "/actions/runs/0/attempts/1", "/actions/runs/42/attempts/0",
+            "/actions/runs/42/attempts/1#fragment", "/actions/runs/42/attempts/1\n",
+            f"/compare/{SHA}...other", f"/compare/{SHA}/../main",
+        ]
+        with patch.object(release.urllib.request, "build_opener") as opener:
+            for path in paths:
+                with self.subTest(path=path), self.assertRaisesRegex(ValueError, "Invalid API path"):
+                    release.GitHub("test-only").request(path)
+            opener.assert_not_called()
+
+
 class ArtifactTests(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory()

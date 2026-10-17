@@ -1,10 +1,18 @@
 import type { RunV2, WeaponInstance } from '../v2/types';
-import { CARDS, CARD_BY_ID, WEAPON_BY_ID, SYNERGIES, rarityLabel } from './catalog';
+import {
+  CARDS,
+  CARD_BY_ID,
+  WEAPON_BY_ID,
+  SYNERGIES,
+  FUSIONS,
+  FUSION_BY_ID,
+  rarityLabel,
+} from './catalog';
 import { activeSynergies, getWeaponStats } from './engine';
 import { cardIcon } from './icons';
 import './inspector.css';
 
-export type EntityRef = { kind: 'weapon' | 'card' | 'synergy'; id: string };
+export type EntityRef = { kind: 'weapon' | 'card' | 'synergy' | 'fusion'; id: string };
 type EquipmentMetadata = {
   masteryRank?: number;
   masteryProgress?: number;
@@ -72,6 +80,18 @@ function requirementRefs(requirements: string[]): EntityRef[] {
 }
 
 export function entitySummary(s: RunV2, ref: EntityRef): EntitySummary {
+  if (ref.kind === 'fusion') {
+    const f = FUSION_BY_ID[ref.id];
+    if (!f) return { title: 'Unknown fusion', body: 'No recipe is available.', refs: [] };
+    return {
+      title: f.name,
+      body: `${f.description} Requires ${f.ingredients.map((k) => WEAPON_BY_ID[k].name).join(' + ')} at mastery 6. Consumes two cores, creates one, and preserves compatible investments.`,
+      refs: f.ingredients.flatMap((k) => {
+        const c = CARDS.find((c) => c.weapon === k);
+        return c ? [{ kind: 'card' as const, id: c.id }] : [];
+      }),
+    };
+  }
   if (ref.kind === 'weapon') {
     const w = equipment(s, ref.id);
     if (!w)
@@ -166,10 +186,14 @@ function refTitle(s: RunV2, ref: EntityRef) {
   return entitySummary(s, ref).title;
 }
 function iconFor(s: RunV2, ref: EntityRef, size = 32): string {
+  if (ref.kind === 'fusion') return cardIcon(FUSION_BY_ID[ref.id]?.iconId ?? 'unknown', size);
   if (ref.kind === 'weapon') {
     const w = equipment(s, ref.id);
     return cardIcon(
-      w?.iconId || CARDS.find((c) => c.weapon === w?.kind)?.iconId || 'unknown',
+      w?.iconId ||
+        CARDS.find((c) => c.weapon === w?.kind)?.iconId ||
+        FUSIONS.find((f) => f.kind === w?.kind)?.iconId ||
+        'unknown',
       size,
     );
   }
@@ -256,14 +280,24 @@ export class BuildInspector {
         w.rarity,
         w.infusions,
         (w as InspectableWeapon).masteryRank,
-        (w as InspectableWeapon).masteryProgress,
-        (w as InspectableWeapon).masteryRequired,
         (w as InspectableWeapon).fusionReady,
       ]),
       s.cards,
       synergies,
     ]);
-    if (next === this.signature) return;
+    if (next === this.signature) {
+      // Mastery advances during combat. Keep hovered/focused buttons mounted.
+      for (const button of this.root.querySelectorAll<HTMLElement>(
+        '.build-socket[data-entity-id]',
+      )) {
+        const w = equipment(s, button.dataset.entityId!);
+        const fill = button.querySelector<HTMLElement>('.build-mastery i');
+        if (w && fill) fill.style.width = `${progress(w) * 100}%`;
+      }
+      return;
+    }
+    const hovered =
+      this.hovered && this.root.contains(this.hovered) ? this.readRef(this.hovered)?.ref : null;
     const firstRender = !this.signature;
     this.signature = next;
     const active =
@@ -306,7 +340,6 @@ export class BuildInspector {
           : '<p class="build-collection-empty">None collected yet</p>'
       }</div></details>`;
     this.root.innerHTML = `<section class="build-rack" aria-label="Six arsenal sockets"><h2>Arsenal <span>${s.weapons.length}/6</span></h2><div class="build-sockets">${equipmentButtons}</div></section><div class="build-collections">${collection('card', cards, 'Cards')}${collection('synergy', synergies, 'Synergies')}</div>`;
-    this.hideTooltip();
     if (active?.entityKind && active.entityId)
       [...this.root.querySelectorAll<HTMLElement>('[data-entity-kind]')]
         .find(
@@ -314,6 +347,13 @@ export class BuildInspector {
             el.dataset.entityKind === active.entityKind && el.dataset.entityId === active.entityId,
         )
         ?.focus({ preventScroll: true });
+    if (hovered) {
+      const element = [...this.root.querySelectorAll<HTMLElement>('[data-entity-kind]')].find(
+        (el) => el.dataset.entityKind === hovered.kind && el.dataset.entityId === hovered.id,
+      );
+      if (element) this.showTooltip({ element, ref: hovered });
+      else this.hideTooltip();
+    }
   }
 
   private readRef(target: EventTarget | null): { element: HTMLElement; ref: EntityRef } | null {
@@ -324,7 +364,7 @@ export class BuildInspector {
     const kind = element?.dataset.entityKind;
     return element &&
       (this.root.contains(element) || element.closest('.build-detail')) &&
-      (kind === 'weapon' || kind === 'card' || kind === 'synergy') &&
+      (kind === 'weapon' || kind === 'card' || kind === 'synergy' || kind === 'fusion') &&
       element.dataset.entityId
       ? { element, ref: { kind, id: element.dataset.entityId } }
       : null;
@@ -337,10 +377,14 @@ export class BuildInspector {
     }
   };
   private onShow = (event: Event) => {
-    const hit = this.readRef(event.target),
-      s = this.options.getRun();
-    if (!hit || !s || this.hovered === hit.element) return;
-    this.hideTooltip();
+    const hit = this.readRef(event.target);
+    if (!hit || this.hovered === hit.element) return;
+    this.showTooltip(hit);
+  };
+  private showTooltip(hit: { element: HTMLElement; ref: EntityRef }) {
+    const s = this.options.getRun();
+    if (!s) return;
+    this.hovered?.removeAttribute('aria-describedby');
     this.hovered = hit.element;
     const summary = entitySummary(s, hit.ref);
     const title = document.createElement('strong'),
@@ -351,10 +395,10 @@ export class BuildInspector {
     this.tooltip.hidden = false;
     hit.element.setAttribute('aria-describedby', this.tooltip.id);
     this.positionTooltip();
-  };
+  }
   private onLeave = (event: Event) => {
     const hit = this.readRef(event.target);
-    if (!hit) return;
+    if (!hit || this.hovered !== hit.element) return;
     const related = (event as FocusEvent | PointerEvent).relatedTarget;
     if (!(related instanceof Node) || !hit.element.contains(related)) this.hideTooltip();
   };

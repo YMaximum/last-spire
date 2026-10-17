@@ -21,7 +21,7 @@ import {
   type SaveV3,
 } from '../src/v3/storage';
 import { snapshotRunes } from '../src/v3/controls';
-import { NEW_CARDS, DEFENSIVE_KINDS } from '../src/v3/catalog';
+import { NEW_CARDS, DEFENSIVE_KINDS, FUSIONS } from '../src/v3/catalog';
 import { createRun as createModernRun, rewardForRun as modernReward } from '../src/v3/engine';
 import type { RunV3 } from '../src/v3/types';
 
@@ -80,6 +80,54 @@ function modernSave(): SaveV3 {
   save.progression.active!.rulesVersion = 3;
   return save;
 }
+function fusionSave(index = 0): SaveV3 {
+  const save = modernSave(),
+    run = save.run as RunV3,
+    recipe = FUSIONS[index];
+  run.time = 1000;
+  const original = run.weapons[0];
+  const a = {
+    ...structuredClone(original),
+    id: 'consumed-a',
+    kind: recipe.ingredients[0],
+    rarity: 'rare' as const,
+    masteryRank: 6,
+    masteryProgress: 900,
+    masteryRequired: 900,
+    fusionReady: true,
+    infusions: ['solar' as const],
+  };
+  const b = {
+    ...structuredClone(original),
+    id: 'consumed-b',
+    kind: recipe.ingredients[1],
+    rarity: 'epic' as const,
+    masteryRank: 6,
+    masteryProgress: 900,
+    masteryRequired: 900,
+    fusionReady: true,
+    infusions: ['void' as const],
+  };
+  run.weapons[0] = {
+    ...original,
+    kind: recipe.kind,
+    rarity: 'epic',
+    masteryRank: 6,
+    masteryProgress: 900,
+    masteryRequired: 900,
+    fusionReady: false,
+    infusions: ['solar', 'void'],
+    fusion: { recipeId: recipe.id, createdAt: 900, ingredients: [a, b], overflowPower: 0.1 },
+  };
+  run.cards.push({
+    cardId: 'utility-apprenticeship',
+    targetId: original.id,
+    stacks: 2,
+    mastery: 2,
+    rarity: 'rare',
+  });
+  return save;
+}
 beforeEach(reset);
 describe('v3 persistence and migration', () => {
   it('provides spectacular high-detail defaults without writing a root', async () => {
@@ -135,7 +183,7 @@ describe('v3 persistence and migration', () => {
     expect(legacySave(next).run).toEqual(run);
     expect(next.profile).toEqual(profile);
     expect(next.progression.runes.owned.power).toBe(6);
-    expect(next.progression.runes.selected.power).toBe(5);
+    expect(next.progression.runes.selected.power).toBe(6);
     expect(next.settings).toMatchObject({
       effects: 'low',
       intensity: 'spectacular',
@@ -177,10 +225,10 @@ describe('v3 persistence and migration', () => {
       },
     ],
     [
-      'selected legacy rune above cap',
+      'selected legacy rune exceeds ownership',
       (s: SaveV3) => {
         s.progression.runes.owned.power = 6;
-        s.progression.runes.selected.power = 6;
+        s.progression.runes.selected.power = 7;
       },
     ],
     [
@@ -563,5 +611,168 @@ describe('v3 persistence and migration', () => {
     run.weapons[0].infusions = [];
     Object.defineProperty(run, 'level', { get: () => 1 });
     expect(() => parseGame(save)).toThrow(/accessor/);
+  });
+  it.each(FUSIONS.map((recipe, index) => [recipe.id, index] as const))(
+    'round-trips %s with mastered provenance and inherited investments',
+    (_id, index) => {
+      const save = fusionSave(index);
+      const parsed = parseGame(exportGame(save));
+      expect(parsed.run).toEqual(save.run);
+      expect(parsed.progression).toEqual(save.progression);
+    },
+  );
+  it.each([
+    [
+      'wrong recipe',
+      (r: RunV3) => {
+        r.weapons[0].fusion!.recipeId = FUSIONS[1].id;
+      },
+    ],
+    [
+      'unknown recipe',
+      (r: RunV3) => {
+        r.weapons[0].fusion!.recipeId = 'fusion-invented';
+      },
+    ],
+    [
+      'recursive provenance',
+      (r: RunV3) => {
+        r.weapons[0].fusion!.ingredients[0].fusion = structuredClone(r.weapons[0].fusion!);
+      },
+    ],
+    [
+      'duplicate ingredient ID',
+      (r: RunV3) => {
+        r.weapons[0].fusion!.ingredients[1].id = r.weapons[0].fusion!.ingredients[0].id;
+      },
+    ],
+    [
+      'wrong ingredient',
+      (r: RunV3) => {
+        r.weapons[0].fusion!.ingredients[0].kind = 'mine';
+      },
+    ],
+    [
+      'unmastered ingredient',
+      (r: RunV3) => {
+        r.weapons[0].fusion!.ingredients[0].masteryRank = 5;
+      },
+    ],
+    [
+      'incomplete ingredient progress',
+      (r: RunV3) => {
+        r.weapons[0].fusion!.ingredients[0].masteryProgress = 899;
+      },
+    ],
+    [
+      'future creation time',
+      (r: RunV3) => {
+        r.weapons[0].fusion!.createdAt = r.time + 1;
+      },
+    ],
+    [
+      'nonfinite creation time',
+      (r: RunV3) => {
+        r.weapons[0].fusion!.createdAt = Infinity;
+      },
+    ],
+    [
+      'overflow beyond cap',
+      (r: RunV3) => {
+        r.weapons[0].fusion!.overflowPower = 0.16;
+      },
+    ],
+    [
+      'unknown provenance field',
+      (r: RunV3) => {
+        Object.assign(r.weapons[0].fusion!, { unknown: 1 });
+      },
+    ],
+    [
+      'lost infusion',
+      (r: RunV3) => {
+        r.weapons[0].infusions = ['solar'];
+      },
+    ],
+    [
+      'rarity downgrade',
+      (r: RunV3) => {
+        r.weapons[0].rarity = 'normal';
+      },
+    ],
+    [
+      'fusion input re-equipped',
+      (r: RunV3) => {
+        r.weapons.push(structuredClone(r.weapons[0].fusion!.ingredients[0]));
+      },
+    ],
+    [
+      'output offered for new fusion',
+      (r: RunV3) => {
+        r.weapons[0].fusionReady = true;
+      },
+    ],
+  ] as const)('rejects fusion %s', (_label, alter) => {
+    const save = fusionSave();
+    alter(save.run as RunV3);
+    expect(() => parseGame(save)).toThrow(SaveError);
+  });
+  it('requires provenance on fused cores and excludes it from ordinary equipment', () => {
+    const save = fusionSave();
+    delete (save.run as RunV3).weapons[0].fusion;
+    expect(() => parseGame(save)).toThrow(/provenance/);
+    const ordinary = fusionSave();
+    (ordinary.run as RunV3).weapons[0].kind = 'bolt';
+    expect(() => parseGame(ordinary)).toThrow(/ordinary/);
+  });
+  it('preserves primitive projectile physics with a known authored fusion appearance tag', () => {
+    const save = fusionSave(),
+      run = save.run as RunV3;
+    run.projectiles.push({
+      id: 891,
+      weaponId: run.weapons[0].id,
+      kind: 'rail',
+      fusionId: FUSIONS[0].id,
+      x: 500,
+      y: 400,
+      vx: 100,
+      vy: 0,
+      life: 1,
+      maxLife: 1,
+      damage: 15,
+      radius: 4,
+      elements: ['solar'],
+      pierce: 2,
+      bounces: 0,
+      homing: 0,
+      split: 0,
+      hit: [],
+      pulseTimer: 0,
+      pulseInterval: 0,
+      returning: false,
+      originX: 500,
+      originY: 400,
+      critical: false,
+      depth: 0,
+      seed: 1,
+      previousX: 500,
+      previousY: 400,
+    });
+    expect(
+      parseGame(save).run?.version === 2 && (parseGame(save).run as RunV3).projectiles,
+    ).toEqual(run.projectiles);
+    run.projectiles[0].fusionId = 'fusion-invented';
+    expect(() => parseGame(save)).toThrow(/projectile fusion/);
+  });
+  it('settles a fused checkpoint once and retains provenance after stale autosaves and reloads', async () => {
+    const save = fusionSave();
+    await saveGame(save);
+    const settled = await settleGame(save);
+    await saveGame(save);
+    const loaded = await loadGame();
+    expect(loaded).toEqual(settled);
+    expect(loaded.progression.records).toHaveLength(1);
+    expect((loaded.run as RunV3).weapons[0].fusion).toEqual((save.run as RunV3).weapons[0].fusion);
+    expect((await settleGame(save)).profile.credits).toBe(settled.profile.credits);
   });
 });

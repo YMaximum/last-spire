@@ -25,6 +25,9 @@ export const RUNE_CAPS: Record<RuneId, number> = {
   autoSignature: 1,
   autoSecondary: 1,
 };
+// Purchase caps do not revoke historical purchases from imported profiles.
+export const runeOwnershipLimit = (id: RuneId): number =>
+  ['power', 'vitality', 'fortune'].includes(id) ? 1000 : RUNE_CAPS[id];
 const object = (value: unknown): Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value)
     ? (value as Record<string, unknown>)
@@ -37,7 +40,7 @@ const integer = (value: unknown, min: number, max: number, fallback = min): numb
 /** Ownership is permanent; selected levels may be lowered freely. */
 export function defaultRuneLoadout(upgrades?: Profile['upgrades']): RuneLoadout {
   const owned = Object.fromEntries(
-    RUNE_IDS.map((id) => [id, integer(object(upgrades)[id], 0, RUNE_CAPS[id])]),
+    RUNE_IDS.map((id) => [id, integer(object(upgrades)[id], 0, runeOwnershipLimit(id))]),
   ) as Record<RuneId, number>;
   return { owned, selected: { ...owned } };
 }
@@ -50,7 +53,7 @@ export function normalizeRuneLoadout(value: unknown, upgrades?: Profile['upgrade
     selected = { ...fallback.selected };
   for (const id of RUNE_IDS) {
     // Old profile purchases remain authoritative if a stale selection is imported.
-    owned[id] = Math.max(fallback.owned[id], integer(ownedInput[id], 0, RUNE_CAPS[id]));
+    owned[id] = Math.max(fallback.owned[id], integer(ownedInput[id], 0, runeOwnershipLimit(id)));
     selected[id] = integer(selectedInput[id], 0, owned[id], owned[id]);
   }
   return { owned, selected };

@@ -16,3 +16,13 @@ export interface RunOptions {
   runes?: Partial<Record<RuneId, number>>;
 }
 export const MASTERY_THRESHOLDS = [0, 60, 180, 360, 600, 900] as const;
+export interface FusionPreview {
+  name: string;
+  description: string;
+  ingredients: string[];
+  summary: string;
+  inherited: string[];
+  conversions: string[];
+  awaken: string[];
+  lost: string[];
+}

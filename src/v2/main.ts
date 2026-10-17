@@ -1,4 +1,19 @@
 import './style.css';
+import '../v3/interface.css';
+import { BuildInspector, entityMarkup, type EntityRef } from '../v3/inspector';
+import {
+  defaultAutocastConfig,
+  normalizeAutocastConfig,
+  snapshotRunes,
+  RUNE_CAPS,
+  runePrice,
+  getTowerStats,
+  recordDamageSample,
+  tickAutocast,
+  type RuneId,
+  type AutocastRules,
+} from '../v3/controls';
+import type { SaveV3 } from '../v3/storage';
 import { TOWERS, STAGES, ELEMENT_COLORS, PATTERNS } from '../content';
 import {
   step as legacyStep,
@@ -53,10 +68,9 @@ import {
   readLegacyBackup,
   readRawSave,
   SaveError,
-} from './storage';
+} from '../v3/storage';
 import type {
   RunV2,
-  SaveV2,
   CardDefinition,
   CardOffer,
   PendingReward,
@@ -90,7 +104,7 @@ const glyph = (kind: string) => {
   };
   return `<svg class="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${paths[kind] ?? paths.diamond}"/></svg>`;
 };
-let data: SaveV2 = emptySave(),
+let data: SaveV3 = emptySave(),
   playing = false,
   paused = false,
   loading = true,
@@ -111,13 +125,18 @@ let chosenTower: TowerId = 'bastion',
   persistTimer = 0;
 let selectedOffer: { rewardId: string; offerId: string; purchase: boolean } | null = null;
 const app = $('app');
-app.innerHTML = `<main id="battlefield"><canvas id="arena" aria-label="Last Spire battlefield"></canvas><div class="arena-shade"></div><header class="battle-hud"><button class="brand-button" id="menu-btn" aria-label="Expedition menu">${glyph('tower')}<span>LAST SPIRE<small>THE RUNEFORGED AGE</small></span>${glyph('menu')}</button><div class="wave-hud"><span id="stage-label">VERDANT WILDS</span><strong id="wave-label">Wave 01 <em>/ 100</em></strong><div id="wave-progress"><i></i></div></div><div class="resource-hud"><span title="Scrap is spent during this expedition">${glyph('diamond')}<b id="scrap-value">0</b><small>SCRAP</small></span><span title="Credits unlock towers between expeditions">${glyph('diamond')}<b id="credit-value">0</b><small>CREDITS</small></span><button id="settings-btn" class="square-button" aria-label="Settings">${glyph('gear')}</button></div></header><div class="threat-strip"><span id="threat-text">One spire. A thousand ways to fight.</span><button id="pause-indicator" class="hidden">PAUSED · RESUME</button></div><nav class="field-tools" aria-label="Battlefield panels"><button id="arsenal-btn" title="Arsenal (A)">${glyph('tower')}<span>Arsenal</span></button><button id="codex-btn" title="Codex (C)">${glyph('book')}<span>Codex</span></button><button id="stats-btn" title="Combat statistics">${glyph('stats')}<span>Ledger</span></button><button id="rewards-btn" class="reward-tool hidden">${glyph('diamond')}<span id="reward-count">Choose upgrade</span></button></nav><div id="buff-strip" aria-label="Active buffs"></div><div id="event-toast" role="status" aria-live="polite"></div><div id="boss-warning" class="hidden"></div><footer class="combat-controls"><div class="integrity"><div><span>${glyph('heart')} SPIRE INTEGRITY</span><strong id="hp-value">—</strong></div><div class="hp-track"><i id="hp-fill"></i><i id="shield-fill"></i></div><span id="barrier-value">Barrier dormant</span></div><div class="ability-tray"><button class="ability" id="signature-btn"><span>${glyph('shield')}</span><div><small>SIGNATURE <kbd>Q</kbd></small><b id="signature-name">Bulwark</b></div><em id="signature-cd"></em></button><button class="ability" id="secondary-btn"><span>${glyph('bolt')}</span><div><small>SECONDARY <kbd>E</kbd></small><b id="secondary-name">Mend</b></div><em id="secondary-cd"></em></button></div><div class="playback"><button class="square-button" id="pause-btn" aria-label="Pause combat">${glyph('pause')}</button><button id="speed-btn" title="Speed (1, 2, 3)">1×</button><button id="target-btn" title="Target priority">${glyph('target')}<span id="target-label">Nearest</span></button></div></footer><div id="window-host"></div><div id="window-dock"></div><div id="loading-screen"><div class="loading-rune">${glyph('tower')}</div><h1>LAST SPIRE</h1><p>Waking the ancient machines…</p></div></main>`;
+app.innerHTML = `<main id="battlefield"><canvas id="arena" aria-label="Last Spire battlefield"></canvas><div class="arena-shade"></div><header class="battle-hud"><button class="brand-button" id="menu-btn" aria-label="Expedition menu">${glyph('tower')}<span>LAST SPIRE<small>THE RUNEFORGED AGE</small></span>${glyph('menu')}</button><div class="wave-hud"><span id="stage-label">VERDANT WILDS</span><strong id="wave-label">Wave 01 <em>/ 100</em></strong><div id="wave-progress"><i></i></div></div><div class="resource-hud"><span title="Scrap is spent during this expedition">${glyph('diamond')}<b id="scrap-value">0</b><small>SCRAP</small></span><span title="Credits unlock towers between expeditions">${glyph('diamond')}<b id="credit-value">0</b><small>CREDITS</small></span><button id="settings-btn" class="square-button" aria-label="Settings">${glyph('gear')}</button></div></header><div class="threat-strip"><span id="threat-text">One spire. A thousand ways to fight.</span><button id="pause-indicator" class="hidden">PAUSED · RESUME</button></div><nav class="field-tools" aria-label="Battlefield panels"><button id="arsenal-btn" title="Arsenal (A)">${glyph('tower')}<span>Arsenal</span></button><button id="codex-btn" title="Codex (C)">${glyph('book')}<span>Codex</span></button><button id="stats-btn" title="Combat statistics">${glyph('stats')}<span>Ledger</span></button><button id="autocast-btn" title="Conditional skill autocast">${glyph('bolt')}<span>Autocast</span></button><button id="rewards-btn" class="reward-tool hidden">${glyph('diamond')}<span id="reward-count">Choose upgrade</span></button></nav><div id="buff-strip" aria-label="Active buffs"></div><div id="event-toast" role="status" aria-live="polite"></div><div id="boss-warning" class="hidden"></div><footer class="combat-controls"><div class="integrity"><div><span>${glyph('heart')} SPIRE INTEGRITY</span><strong id="hp-value">—</strong></div><div class="hp-track"><i id="hp-fill"></i><i id="shield-fill"></i></div><span id="barrier-value">Barrier dormant</span></div><div class="ability-tray"><button class="ability" id="signature-btn"><span>${glyph('shield')}</span><div><small>SIGNATURE <kbd>Q</kbd></small><b id="signature-name">Bulwark</b></div><em id="signature-cd"></em></button><button class="ability" id="secondary-btn"><span>${glyph('bolt')}</span><div><small>SECONDARY <kbd>E</kbd></small><b id="secondary-name">Mend</b></div><em id="secondary-cd"></em></button></div><div class="playback"><button class="square-button" id="pause-btn" aria-label="Pause combat">${glyph('pause')}</button><button id="speed-btn" title="Speed (1, 2, 3)">1×</button><button id="target-btn" title="Target priority">${glyph('target')}<span id="target-label">Nearest</span></button></div></footer><div id="window-host"></div><div id="window-dock"></div><div id="loading-screen"><div class="loading-rune">${glyph('tower')}</div><h1>LAST SPIRE</h1><p>Waking the ancient machines…</p></div></main>`;
 const manager = new WindowManager(
   $('window-host'),
   $('window-dock'),
   () => data.settings,
   () => scheduleSave(),
 );
+const inspector = new BuildInspector({
+  host: $('battlefield'),
+  getRun: () => (playing && isV2(current()) ? (current() as RunV2) : null),
+  onOpen: openEntity,
+});
 const renderer = new BattleRenderer($<HTMLCanvasElement>('arena'));
 new ResizeObserver(() => renderer.resize()).observe($('arena'));
 function isV2(s: RunV2 | RunState): s is RunV2 {
@@ -126,6 +145,22 @@ function isV2(s: RunV2 | RunState): s is RunV2 {
 function current(): RunV2 | RunState {
   return playing && data.run ? data.run : preview;
 }
+function openEntity(ref: EntityRef) {
+  const s = current();
+  if (!isV2(s)) return;
+  manager.open(
+    'entity',
+    { title: 'Runeforged detail', subtitle: 'LIVE BUILD INSPECTION', width: 560, height: 590 },
+    entityMarkup(s, ref),
+  );
+}
+$('battlefield').addEventListener('click', (event) => {
+  const link = (event.target as HTMLElement).closest<HTMLElement>(
+    '[data-entity-kind][data-entity-id]',
+  );
+  if (link)
+    openEntity({ kind: link.dataset.entityKind as EntityRef['kind'], id: link.dataset.entityId! });
+});
 function tower() {
   return TOWERS.find((t) => t.id === current().tower)!;
 }
@@ -135,8 +170,15 @@ function applySettings() {
   document.documentElement.dataset.intensity = data.settings.intensity;
   renderer.resize();
 }
+function effectiveProfile() {
+  const levels = snapshotRunes(data.progression.runes);
+  return {
+    ...data.profile,
+    upgrades: { power: levels.power, vitality: levels.vitality, fortune: levels.fortune },
+  };
+}
 function makePreview() {
-  preview = createRun(data.profile, chosenTower, chosenStage, chosenDifficulty, 831251);
+  preview = createRun(effectiveProfile(), chosenTower, chosenStage, chosenDifficulty, 831251);
   preview.time = 12;
 }
 function scheduleSave() {
@@ -256,6 +298,18 @@ function updateHud() {
   $<HTMLButtonElement>('secondary-btn').disabled =
     !playing || s.phase !== 'combat' || s.secondaryCd > 0;
   $('signature-btn').title = tower().skillDescription;
+  const auto =
+    data.progression.active?.runId === s.id
+      ? data.progression.active.autocast
+      : defaultAutocastConfig();
+  for (const slot of ['signature', 'secondary'] as const) {
+    $(`${slot}-btn`).classList.toggle('auto-enabled', auto[slot].enabled);
+    $(`${slot}-btn`).setAttribute(
+      'aria-description',
+      auto[slot].enabled ? `Autocast enabled: ${auto[slot].preset}` : 'Manual skill',
+    );
+  }
+
   $('speed-btn').textContent = `${data.settings.speed}×`;
   $('target-label').textContent = s.targeting[0].toUpperCase() + s.targeting.slice(1);
   $('pause-btn').innerHTML = glyph(paused ? 'play' : 'pause');
@@ -326,7 +380,7 @@ function openLaunch() {
       width: 490,
       height: 610,
     },
-    `<p class="lead">One ancient machine. Six weapons. A build that belongs to you.</p><div class="launch-tower" style="--accent:${TOWERS.find((t) => t.id === chosenTower)!.color}">${glyph('tower')}<div><small>YOUR SPIRE</small><h3>${TOWERS.find((t) => t.id === chosenTower)!.name}</h3><p>${esc(chosenTower === 'tempest' ? 'Lightning chains jump to three nearby enemies.' : TOWERS.find((t) => t.id === chosenTower)!.passive)}</p></div></div><button id="launch-hangar" class="outline-button full">Choose tower & permanent runes ${glyph('arrow')}</button><label class="control-label">Expedition<select id="stage-select">${STAGES.map((st) => `<option value="${st.id}" ${chosenStage === st.id ? 'selected' : ''} ${st.id >= data.profile.stageUnlocked ? 'disabled' : ''}>${st.name}${st.id >= data.profile.stageUnlocked ? ' · Locked' : ''}</option>`).join('')}</select></label><label class="control-label">Difficulty<select id="difficulty-select">${Array.from({ length: 6 }, (_, i) => `<option value="${i}" ${i === chosenDifficulty ? 'selected' : ''} ${i > data.profile.difficultyUnlocked ? 'disabled' : ''}>${i === 0 ? 'Normal' : `Ascension ${i}`}${i > data.profile.difficultyUnlocked ? ' · Locked' : ''}</option>`).join('')}</select></label><div class="expedition-facts"><span>100 waves</span><span>Draft every 2 waves</span><span>Autosaved</span></div><button id="begin-btn" class="gold-button full">Begin expedition ${glyph('arrow')}</button><p class="quiet">Your choices build the power. The waves won’t wait.</p>`,
+    `<p class="lead">One ancient machine. Six weapons. A build that belongs to you.</p><div class="launch-tower" style="--accent:${TOWERS.find((t) => t.id === chosenTower)!.color}">${glyph('tower')}<div><small>YOUR SPIRE</small><h3>${TOWERS.find((t) => t.id === chosenTower)!.name}</h3><p>${esc(chosenTower === 'tempest' ? 'Lightning chains jump to three nearby enemies.' : TOWERS.find((t) => t.id === chosenTower)!.passive)}</p></div></div><button id="launch-hangar" class="outline-button full">Choose tower & permanent runes ${glyph('arrow')}</button><label class="control-label">Expedition<select id="stage-select">${STAGES.map((st) => `<option value="${st.id}" ${chosenStage === st.id ? 'selected' : ''} ${st.id >= data.profile.stageUnlocked ? 'disabled' : ''}>${st.name}${st.id >= data.profile.stageUnlocked ? ' · Locked' : ''}</option>`).join('')}</select></label><label class="control-label">Difficulty<select id="difficulty-select">${Array.from({ length: 6 }, (_, i) => `<option value="${i}" ${i === chosenDifficulty ? 'selected' : ''} ${i > data.profile.difficultyUnlocked ? 'disabled' : ''}>${i === 0 ? 'Normal' : `Ascension ${i}`}${i > data.profile.difficultyUnlocked ? ' · Locked' : ''}</option>`).join('')}</select></label><div class="expedition-facts"><span>100 waves</span><span>Draft every 2 waves</span><span>Autosaved</span></div><div class="launch-start"><button id="begin-btn" class="gold-button full">Start expedition ${glyph('play')}</button></div><p class="quiet">Your choices build the power. The waves won’t wait.</p>`,
   );
   $('launch-hangar').onclick = openHangar;
   $('stage-select').onchange = () => {
@@ -341,7 +395,18 @@ function openLaunch() {
   };
   $('begin-btn').onclick = () => {
     if (playing) return;
-    data.run = createRun(data.profile, chosenTower, chosenStage, chosenDifficulty);
+    data.run = createRun(effectiveProfile(), chosenTower, chosenStage, chosenDifficulty);
+    data.progression.active = {
+      runId: data.run.id,
+      rulesVersion: 2,
+      runes: snapshotRunes(data.progression.runes),
+      autocast: structuredClone(data.progression.autocast),
+    };
+    data.progression.active.autocast.signature.enabled &&=
+      data.progression.active.runes.autoSignature > 0;
+    data.progression.active.autocast.secondary.enabled &&=
+      data.progression.active.runes.autoSecondary > 0;
+    recordDamageSample(data.run);
     playing = true;
     paused = false;
     lastRewardId = '';
@@ -420,7 +485,27 @@ function offerMarkup(offer: CardOffer, shop: boolean) {
       info = previewCard(s, offer, c.scope === 'weapon' ? s.weapons[0]?.id : undefined);
     } catch {}
   }
-  return `<button class="card rarity-${offer.rarity}" data-offer="${esc(offer.id)}" style="--rarity:${RARITY_COLORS[offer.rarity]}" ${shop && s.scrap < offer.price ? 'disabled' : ''}><span class="card-top"><span>${rarityLabel(offer.rarity)}</span><span>${c.group.toUpperCase()}</span></span><span class="card-art">${cardIcon(c.iconId, 72)}</span><h3>${esc(c.name)}</h3><span class="card-scope">${esc(scopeLabel(c))}</span><p>${esc(c.description)}</p>${cardRules(c) ? `<small class="card-rules">${esc(cardRules(c))}</small>` : ''}${info.summary ? `<span class="card-change">${esc(info.summary)}</span>` : ''}${info.awaken.length ? `<span class="card-synergy">✦ ${esc(info.awaken.join(' · '))}</span>` : ''}${info.lost.length ? `<span class="card-loss">Releases ${esc(info.lost.join(', '))}</span>` : ''}<span class="card-action">${shop ? `${offer.price} scrap` : 'Choose upgrade'} ${glyph('arrow')}</span></button>`;
+  let ownership = 'NEW',
+    ownedText = '';
+  if (isV2(s)) {
+    const ownedWeapon = c.weapon && s.weapons.find((w) => w.kind === c.weapon);
+    const ownedCards = s.cards.filter((x) => x.cardId === c.id);
+    if (ownedWeapon) {
+      ownership = ownedWeapon.mastery >= 24 ? 'MAX MASTERY—RARITY UPGRADE' : 'UPGRADE';
+      ownedText = `Owned · ${getWeaponStats(s, ownedWeapon).damage.toFixed(1)} current damage · mastery ${ownedWeapon.mastery} → ${Math.min(24, ownedWeapon.mastery + 1)} · ${rarityLabel(ownedWeapon.rarity)} → at least ${rarityLabel(offer.rarity)}`;
+    } else if (ownedCards.length) {
+      ownership = 'UPGRADE';
+      ownedText = ownedCards
+        .map(
+          (x) =>
+            `${x.targetId ? (s.weapons.find((w) => w.id === x.targetId)?.kind ?? 'chosen weapon') + ': ' : ''}${x.stacks} → ${x.stacks + 1} picks · promotion ${x.mastery % 3}/3`,
+        )
+        .join(' · ');
+    }
+    if (c.scope === 'weapon' && s.weapons.length > 1)
+      info.summary = 'Choose a target to compare exact changes. ' + info.summary;
+  }
+  return `<button class="card rarity-${offer.rarity}" data-offer="${esc(offer.id)}" style="--rarity:${RARITY_COLORS[offer.rarity]}" ${shop && s.scrap < offer.price ? 'disabled' : ''}><span class="card-top"><span>${rarityLabel(offer.rarity)}</span><span>${c.group.toUpperCase()}</span></span><span class="ownership-badge">${ownership}</span>${ownedText ? `<span class="owned-comparison">${esc(ownedText)}</span>` : ''}<span class="card-art">${cardIcon(c.iconId, 72)}</span><h3>${esc(c.name)}</h3><span class="card-scope">${esc(scopeLabel(c))}</span><p>${esc(c.description)}</p>${cardRules(c) ? `<small class="card-rules">${esc(cardRules(c))}</small>` : ''}${info.summary ? `<span class="card-change">${esc(info.summary)}</span>` : ''}${info.awaken.length ? `<span class="card-synergy">✦ ${esc(info.awaken.join(' · '))}</span>` : ''}${info.lost.length ? `<span class="card-loss">Releases ${esc(info.lost.join(', '))}</span>` : ''}<span class="card-action">${shop ? `${offer.price} scrap` : 'Choose upgrade'} ${glyph('arrow')}</span></button>`;
 }
 function showRewards(id?: string) {
   const s = current();
@@ -756,30 +841,217 @@ function renderCodexResults() {
   $('codex-results').innerHTML =
     `<p class="result-count">${list.length} card families · tiers and ranks are not counted as extra cards</p><div class="codex-card-list">${list.map((c) => `<article class="codex-card">${cardIcon(c.iconId, 54)}<div><small>${c.group.toUpperCase()} · ${scopeLabel(c)}</small><h3>${esc(c.name)}</h3><p>${esc(c.description)}</p>${cardRules(c) ? `<small class="card-rules">${esc(cardRules(c))}</small>` : ''}</div></article>`).join('')}</div>`;
 }
-function openStats() {
+function statsBody() {
   const s = current();
-  const damage = isV2(s) ? Object.entries(s.damageByWeapon) : Object.entries(s.damageByElement);
-  const max = Math.max(1, ...damage.map(([, v]) => v));
+  const total = Object.values(isV2(s) ? s.damageByWeapon : s.damageByElement).reduce(
+    (a, b) => a + b,
+    0,
+  );
+  const line = (label: string, value: string) =>
+    `<div class="stat-line"><span>${label}</span><b>${value}</b></div>`;
+  let towerStats = line('Health', `${Math.ceil(s.hp)} / ${Math.ceil(s.maxHp)}`);
+  if (isV2(s)) {
+    const st = getTowerStats(s);
+    towerStats +=
+      line('Shield', `${st.shield.toFixed(0)} / ${st.maxShield.toFixed(0)}`) +
+      line('Health regeneration', `${st.healthRegen.toFixed(2)} / combat second`) +
+      line('Shield regeneration', `${st.shieldRegen.toFixed(2)} / combat second`) +
+      line('Physical mitigation', `${(st.mitigation.physical * 100).toFixed(1)}%`) +
+      line('Reflection', `${(st.reflectMultiplier * 100).toFixed(1)}%`) +
+      line('Retaliation damage', st.retaliationDamage.toFixed(1)) +
+      line('Signature cooldown', `${s.skillCd.toFixed(1)}s remaining`) +
+      line('Secondary cooldown', `${s.secondaryCd.toFixed(1)}s remaining`) +
+      line('XP gain', `${st.xpMultiplier.toFixed(2)}×`) +
+      line('Mastery gain', `${st.masteryMultiplier.toFixed(2)}×`) +
+      `<h3>Equipment</h3>` +
+      st.equipment
+        .map(
+          (w) =>
+            `<article class="rules"><b>${esc(WEAPONS.find((d) => d.id === w.kind)?.name ?? w.kind)}</b><p>${w.damage.toFixed(1)} damage · ${w.cooldown.toFixed(2)}s interval · ${w.count} projectiles · ${w.range.toFixed(0)} range · ${w.life.toFixed(1)}s lifetime</p></article>`,
+        )
+        .join('');
+  }
+  const dps = isV2(s) ? getTowerStats(s).recentDps : 0;
+  const results =
+    line('Recent DPS · last 10 combat seconds', dps.toFixed(1)) +
+    line('Run-average DPS', (total / Math.max(1, s.time)).toFixed(1)) +
+    line('Total damage', Math.round(total).toLocaleString()) +
+    line('Defeated', s.kills.toLocaleString()) +
+    line(
+      'Combat time',
+      `${Math.floor(s.time / 60)}:${String(Math.floor(s.time % 60)).padStart(2, '0')}`,
+    ) +
+    line('Projected credits', String(Math.floor(isV2(s) ? rewardForRun(s) : creditReward(s)))) +
+    Object.entries(isV2(s) ? s.damageByWeapon : s.damageByElement)
+      .filter(([, v]) => v > 0)
+      .sort((a, b) => b[1] - a[1])
+      .map(([id, v]) =>
+        line(esc(WEAPONS.find((w) => w.id === id)?.name ?? id), Math.round(v).toLocaleString()),
+      )
+      .join('');
+  return { towerStats, results };
+}
+function refreshStatsView() {
+  const body = statsBody();
+  if ($('live-tower-stats')) $('live-tower-stats').innerHTML = body.towerStats;
+  if ($('live-combat-stats')) $('live-combat-stats').innerHTML = body.results;
+}
+function openStats() {
   manager.open(
     'stats',
     {
-      title: 'The expedition ledger.',
-      subtitle: 'INFORMATION WINDOW · COMBAT STAYS LIVE',
-      width: 530,
-      height: 650,
+      title: 'The spire, measured.',
+      subtitle: 'LIVE STATS · UPDATES EACH SECOND',
+      width: 610,
+      height: 690,
     },
-    `<div class="ledger-grid"><div><small>Wave</small><b>${s.wave}${s.endless ? ' ∞' : ''}</b></div><div><small>Defeated</small><b>${s.kills.toLocaleString()}</b></div><div><small>Projected credits</small><b>${Math.floor(isV2(s) ? rewardForRun(s) : creditReward(s))}</b></div><div><small>Combat time</small><b>${Math.floor(s.time / 60)}:${String(Math.floor(s.time % 60)).padStart(2, '0')}</b></div>${isV2(s) ? `<div><small>Spent in shops</small><b>${s.stats.spent}</b></div><div><small>Incoming damage</small><b>${Math.round(s.stats.damageTaken)}</b></div>` : ''}</div><h3>Damage signature</h3><div class="damage-chart">${
-      damage
-        .filter(([, v]) => v > 0)
-        .sort((a, b) => b[1] - a[1])
-        .map(
-          ([id, v]) =>
-            `<div><span>${esc(isV2(s) ? (WEAPONS.find((w) => w.id === id)?.name ?? s.weapons.find((w) => w.id === id)?.kind ?? id) : id)}</span><div><i style="width:${(v / max) * 100}%"></i></div><b>${Math.round(v).toLocaleString()}</b></div>`,
-        )
-        .join('') || '<p>Damage statistics appear during combat.</p>'
-    }</div><p class="quiet">Seed ${s.seed.toString(16).toUpperCase()} · ${storageFailed ? 'Save unavailable: export a backup.' : 'Progress is stored on this device.'}</p><button class="outline-button full" id="refresh-stats">Refresh ledger</button>`,
+    `<div class="stats-tabs"><button id="stats-tower-tab" class="outline-button">Tower stats</button><button id="stats-combat-tab" class="outline-button">Combat results</button></div><div id="live-tower-stats"></div><div id="live-combat-stats" hidden></div><p class="quiet">Recent DPS uses actual recorded combat damage, excluding paused time. A resumed session starts a new ten-second measurement.</p>`,
   );
-  $('refresh-stats').onclick = openStats;
+  $('stats-tower-tab').onclick = () => {
+    $('live-tower-stats').hidden = false;
+    $('live-combat-stats').hidden = true;
+  };
+  $('stats-combat-tab').onclick = () => {
+    $('live-tower-stats').hidden = true;
+    $('live-combat-stats').hidden = false;
+  };
+  refreshStatsView();
+}
+const RUNE_NAMES: Record<RuneId, string> = {
+  power: 'Power',
+  vitality: 'Vitality',
+  fortune: 'Fortune',
+  experience: 'Scholarship',
+  choices: 'Wider choices',
+  autoSignature: 'Signature autocast',
+  autoSecondary: 'Secondary autocast',
+};
+const visibleRunes: RuneId[] = ['power', 'vitality', 'fortune', 'autoSignature', 'autoSecondary'];
+function runeMarkup() {
+  const r = data.progression.runes;
+  return (
+    visibleRunes
+      .map(
+        (id) =>
+          `<article class="rune-row"><b>${RUNE_NAMES[id]}</b><span>Purchased ${r.owned[id]}/${RUNE_CAPS[id]} · selected <strong id="rune-value-${id}">${r.selected[id]}</strong></span><label>Selected level<input data-rune-select="${id}" type="range" min="0" max="${r.owned[id]}" value="${r.selected[id]}" ${playing ? 'disabled' : ''}></label><button data-rune-buy="${id}" class="outline-button" ${playing || r.owned[id] >= RUNE_CAPS[id] || data.profile.credits < runePrice(id, r.owned[id] + 1) ? 'disabled' : ''}>${r.owned[id] >= RUNE_CAPS[id] ? 'Fully purchased' : `Buy level ${r.owned[id] + 1} · ${runePrice(id, r.owned[id] + 1)} credits`}</button></article>`,
+      )
+      .join('') +
+    '<button id="configure-autocast" class="outline-button full">Configure conditional autocast</button>'
+  );
+}
+function bindRunes() {
+  manager
+    .element('hangar')!
+    .querySelectorAll<HTMLInputElement>('[data-rune-select]')
+    .forEach((el) => {
+      el.oninput = () => {
+        $(`rune-value-${el.dataset.runeSelect}`).textContent = el.value;
+      };
+      el.onchange = () => {
+        if (playing) return;
+        const id = el.dataset.runeSelect as RuneId;
+        data.progression.runes.selected[id] = Math.min(
+          data.progression.runes.owned[id],
+          Number(el.value),
+        );
+        makePreview();
+        scheduleSave();
+        updateHud();
+      };
+    });
+  manager
+    .element('hangar')!
+    .querySelectorAll<HTMLButtonElement>('[data-rune-buy]')
+    .forEach(
+      (el) =>
+        (el.onclick = () => {
+          if (playing) return;
+          const id = el.dataset.runeBuy as RuneId,
+            r = data.progression.runes,
+            next = r.owned[id] + 1,
+            price = runePrice(id, next);
+          if (next > RUNE_CAPS[id] || data.profile.credits < price) return;
+          data.profile.credits -= price;
+          r.owned[id] = next;
+          r.selected[id] = next;
+          if (id === 'power' || id === 'vitality' || id === 'fortune')
+            data.profile.upgrades[id] = next;
+          makePreview();
+          scheduleSave();
+          openHangar();
+          updateHud();
+        }),
+    );
+  $('configure-autocast').onclick = openAutocast;
+}
+function openAutocast() {
+  const active = playing ? data.progression.active : null;
+  const rules = active?.runId === data.run?.id ? active!.autocast : data.progression.autocast;
+  const runes =
+    active?.runId === data.run?.id ? active!.runes : snapshotRunes(data.progression.runes);
+  manager.open(
+    'autocast',
+    {
+      title: 'The machine obeys.',
+      subtitle: 'CONDITIONAL SKILL AUTOMATION',
+      width: 650,
+      height: 740,
+    },
+    `<p>Purchased runes unlock each skill's autocast. Rules respect cooldowns and only cast when the skill can help. Manual Q/E remains available.</p>${(
+      ['signature', 'secondary'] as const
+    )
+      .map((slot) => {
+        const c = rules[slot],
+          unlocked = runes[slot === 'signature' ? 'autoSignature' : 'autoSecondary'] > 0;
+        return `<section class="autocast-slot"><h3>${slot === 'signature' ? 'Signature' : 'Secondary'} ${unlocked ? '' : '· Rune not selected'}</h3><label>Enable autocast<input type="checkbox" id="auto-${slot}-enabled" ${c.enabled ? 'checked' : ''} ${!unlocked ? 'disabled' : ''}></label><label>Strategy<select id="auto-${slot}-preset">${[
+          ['always', 'Every time'],
+          ['boss', 'Boss present'],
+          ['emergency', 'Emergency'],
+          ['advanced', 'Advanced rule'],
+        ]
+          .map(([v, t]) => `<option value="${v}" ${c.preset === v ? 'selected' : ''}>${t}</option>`)
+          .join(
+            '',
+          )}</select></label><label>Advanced conditions<select id="auto-${slot}-match"><option value="all" ${c.match === 'all' ? 'selected' : ''}>ALL conditions</option><option value="any" ${c.match === 'any' ? 'selected' : ''}>ANY condition</option></select></label>${(
+          ['health', 'shield', 'nearby', 'boss'] as const
+        )
+          .map((kind) => {
+            const condition = c.conditions.find((x) => x.kind === kind);
+            return `<div class="autocast-condition"><label><input type="checkbox" id="auto-${slot}-${kind}-use" ${condition ? 'checked' : ''}> ${kind === 'health' ? 'Health ≤ %' : kind === 'shield' ? 'Shield ≤ %' : kind === 'nearby' ? 'Nearby enemies ≥' : 'Boss present'}</label>${kind !== 'boss' ? `<input aria-label="${slot} ${kind} threshold" id="auto-${slot}-${kind}-value" type="number" min="${kind === 'nearby' ? 1 : 0}" max="${kind === 'nearby' ? 96 : 100}" value="${condition?.value ?? (kind === 'nearby' ? 5 : 40)}">` : ''}${kind === 'nearby' ? `<label>Radius<input id="auto-${slot}-radius" type="number" min="50" max="500" value="${condition?.radius ?? 200}"></label>` : ''}</div>`;
+          })
+          .join('')}</section>`;
+      })
+      .join('')}<button id="save-autocast" class="gold-button full">Save autocast rules</button>`,
+  );
+  $('save-autocast').onclick = () => {
+    const next = structuredClone(rules);
+    for (const slot of ['signature', 'secondary'] as const) {
+      next[slot] = {
+        enabled:
+          $<HTMLInputElement>(`auto-${slot}-enabled`).checked &&
+          runes[slot === 'signature' ? 'autoSignature' : 'autoSecondary'] > 0,
+        preset: $<HTMLSelectElement>(`auto-${slot}-preset`).value as typeof next.signature.preset,
+        match: $<HTMLSelectElement>(`auto-${slot}-match`).value as 'all' | 'any',
+        conditions: (['health', 'shield', 'nearby', 'boss'] as const)
+          .filter((kind) => $<HTMLInputElement>(`auto-${slot}-${kind}-use`).checked)
+          .map((kind) => ({
+            kind,
+            value:
+              kind === 'boss' ? 1 : Number($<HTMLInputElement>(`auto-${slot}-${kind}-value`).value),
+            ...(kind === 'nearby'
+              ? { radius: Number($<HTMLInputElement>(`auto-${slot}-radius`).value) }
+              : {}),
+          })),
+      };
+    }
+    const normalized = normalizeAutocastConfig(next);
+    if (active?.runId === data.run?.id) active!.autocast = normalized;
+    else data.progression.autocast = normalized;
+    scheduleSave();
+    updateHud();
+    manager.close('autocast');
+    notify('Autocast strategy saved.');
+  };
 }
 function openHangar() {
   manager.open(
@@ -797,7 +1069,7 @@ function openHangar() {
       },
     ).join(
       '',
-    )}</div><div class="permanent-runes"><div><h3>Permanent runes</h3><p>Small advantages. Your build still wins the battle.</p></div>${(['power', 'vitality', 'fortune'] as const).map((k) => `<button data-meta="${k}" class="outline-button" ${playing || data.profile.upgrades[k] >= 5 || data.profile.credits < 50 * (data.profile.upgrades[k] + 1) ? 'disabled' : ''}><b>${k} ${data.profile.upgrades[k]}/5</b><span>${k === 'power' ? '+2.5% damage' : k === 'vitality' ? '+3.5% health' : '+0.8% rarity roll'} · ${50 * (data.profile.upgrades[k] + 1)} credits</span></button>`).join('')}</div>`,
+    )}</div><div class="permanent-runes"><div><h3>Permanent runes</h3><p>Buying raises ownership. Choose any purchased level freely before starting; changes never cost credits.</p></div>${runeMarkup()}</div>`,
   );
   manager
     .element('hangar')!
@@ -821,24 +1093,7 @@ function openHangar() {
           if (manager.has('launch')) openLaunch();
         }),
     );
-  manager
-    .element('hangar')!
-    .querySelectorAll<HTMLButtonElement>('[data-meta]')
-    .forEach(
-      (b) =>
-        (b.onclick = () => {
-          if (playing) return;
-          const k = b.dataset.meta as keyof typeof data.profile.upgrades,
-            cost = 50 * (data.profile.upgrades[k] + 1);
-          if (data.profile.upgrades[k] >= 5 || data.profile.credits < cost) return;
-          data.profile.credits -= cost;
-          data.profile.upgrades[k]++;
-          makePreview();
-          scheduleSave();
-          openHangar();
-          updateHud();
-        }),
-    );
+  bindRunes();
 }
 function download(text: string, name: string) {
   const url = URL.createObjectURL(new Blob([text], { type: 'application/json' })),
@@ -947,7 +1202,7 @@ function openSettings() {
     }
   };
 }
-function showImportReview(incoming: SaveV2, name: string) {
+function showImportReview(incoming: SaveV3, name: string) {
   manager.open(
     'import',
     {
@@ -1115,6 +1370,7 @@ function openResults(startSettlement = true) {
       chosenStage = finished.stage;
       chosenDifficulty = finished.difficulty;
       data.run = null;
+      data.progression.active = null;
       playing = false;
       paused = false;
       lastPhase = '';
@@ -1180,6 +1436,7 @@ $('settings-btn').onclick = openSettings;
 $('arsenal-btn').onclick = openArsenal;
 $('codex-btn').onclick = () => openCodex();
 $('stats-btn').onclick = openStats;
+$('autocast-btn').onclick = openAutocast;
 $('rewards-btn').onclick = () => showRewards();
 $('pause-btn').onclick = togglePause;
 $('pause-indicator').onclick = () => {
@@ -1240,7 +1497,8 @@ let last = 0,
   saveTimer = 0,
   perfTime = 0,
   frames = 0,
-  drawCost = 0;
+  drawCost = 0,
+  statsTimer = 0;
 function frame(now: number) {
   const delta = Math.min(0.12, Math.max(0, (now - last) / 1000 || 0));
   last = now;
@@ -1248,8 +1506,12 @@ function frame(now: number) {
   if (playing && !paused && !manager.choicesPause() && s.phase === 'combat') {
     accumulator += delta * data.settings.speed;
     while (accumulator >= TICK) {
-      if (isV2(s)) step(s, TICK);
-      else legacyStep(s, TICK);
+      if (isV2(s)) {
+        const active = data.progression.active;
+        if (active?.runId === s.id) tickAutocast(s, active.autocast);
+        step(s, TICK);
+        recordDamageSample(s);
+      } else legacyStep(s, TICK);
       accumulator -= TICK;
       if (s.phase !== 'combat') break;
     }
@@ -1273,6 +1535,7 @@ function frame(now: number) {
   if (hudTimer > 0.16) {
     hudTimer = 0;
     updateHud();
+    inspector.update();
     if (playing) {
       const signature = isV2(s)
         ? `${s.cards.map((c) => c.cardId + c.mastery + c.targetId).join(',')}|${s.weapons.length}|${s.synergies.join(',')}`
@@ -1314,6 +1577,11 @@ function frame(now: number) {
       }
     }
   }
+  statsTimer += delta;
+  if (statsTimer >= 1) {
+    statsTimer = 0;
+    if (manager.visible('stats')) refreshStatsView();
+  }
   if (saveTimer > 5) {
     saveTimer = 0;
     if (playing && !settlePromise) void persist();
@@ -1342,6 +1610,7 @@ async function init() {
   playing = !!data.run;
   paused = playing && data.run?.phase === 'combat';
   makePreview();
+  if (isV2(current())) recordDamageSample(current() as RunV2);
   applySettings();
   loading = false;
   $('loading-screen').remove();

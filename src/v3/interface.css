@@ -1,0 +1,119 @@
+.launch-start {
+  position: sticky;
+  bottom: -18px;
+  padding: 14px 0 4px;
+  background: #15271f;
+  z-index: 2;
+}
+.launch-start button {
+  min-height: 58px;
+  font-size: 20px;
+}
+.ownership-badge {
+  display: inline-block;
+  color: #f1d79b;
+  font-size: 14px;
+  letter-spacing: 0.06em;
+  border: 1px solid #82734b;
+  padding: 4px 8px;
+}
+.owned-comparison {
+  display: block;
+  font-size: 14px;
+  color: #b9d2c9;
+  line-height: 1.5;
+  margin-top: 8px;
+}
+.rune-row {
+  padding: 16px;
+  border: 1px solid #5b624d;
+  display: grid;
+  gap: 10px;
+}
+.rune-row input[type='range'] {
+  width: 100%;
+  min-height: 32px;
+}
+.rune-row label,
+.autocast-slot label {
+  display: grid;
+  gap: 8px;
+}
+.rune-row button {
+  min-height: 44px;
+}
+.autocast-slot {
+  padding: 18px 0;
+  border-bottom: 1px solid #59614f;
+  display: grid;
+  gap: 12px;
+}
+.autocast-condition {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+.autocast-condition input[type='number'] {
+  width: 100px;
+}
+.stats-tabs {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 18px;
+}
+.stat-line {
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+  border-bottom: 1px solid #3b5148;
+  padding: 10px 0;
+}
+.auto-enabled {
+  box-shadow: inset 0 0 0 2px #a2c8b1;
+}
+.auto-indicator {
+  font-size: 14px;
+  color: #a9dcc0;
+  margin-left: 6px;
+}
+.entity-reference {
+  min-height: 44px;
+  margin: 4px;
+}
+.field-tools {
+  top: 148px;
+  left: 20px;
+  display: flex;
+  gap: 6px;
+}
+.field-tools > button {
+  min-height: 44px;
+  padding: 10px;
+}
+.field-tools:hover > button span,
+.field-tools:focus-within > button span {
+  max-width: 0;
+  opacity: 0;
+  margin-left: -12px;
+}
+.field-tools > button:hover span,
+.field-tools > button:focus-visible span {
+  max-width: 170px;
+  opacity: 1;
+  margin-left: 0;
+}
+@media (max-width: 650px) {
+  .field-tools {
+    top: 242px;
+    left: 12px;
+  }
+}
+@media (max-width: 650px) {
+  .launch-start {
+    bottom: -12px;
+  }
+  .rune-row {
+    padding: 12px;
+  }
+}

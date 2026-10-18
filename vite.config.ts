@@ -20,6 +20,7 @@ export default defineConfig({
         '**/id_ed25519',
         '**/.git/**',
         '**/.private/**',
+        '**/.account-build/**',
         '**/account-data/**',
         '**/server/**',
         '**/*.sqlite*',

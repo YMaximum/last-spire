@@ -2,25 +2,24 @@
 """Trusted host release command. Never run this inside an Actions worker."""
 import fcntl
 import hashlib
-import io
 import json
 import os
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 import re
 import shutil
 import stat
 import subprocess
 import sys
-import tarfile
 import tempfile
 import time
 import urllib.request
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from artifact_contract import inspect_archive
 
 REPOSITORY = "YMaximum/last-spire"
 WORKFLOW = ".github/workflows/checks.yml"
 SHA = re.compile(r"^[a-f0-9]{40}$")
 MAX_DOWNLOAD = 64 * 1024 * 1024
-MAX_EXPANDED = 128 * 1024 * 1024
 DOCKER = "/usr/bin/docker"
 
 
@@ -88,43 +87,7 @@ def checked_run(api, sha, run_id, attempt):
 
 
 def release_files(archive, sha, run_id, attempt):
-    files = {}
-    total = 0
-    entries = set()
-    with tarfile.open(fileobj=io.BytesIO(archive), mode="r|gz") as bundle:
-        for member in bundle:
-            name = member.name.rstrip("/") if member.isdir() else member.name
-            parts = name.split("/")
-            require(name and all(part not in ("", ".", "..") for part in parts)
-                    and not PurePosixPath(name).is_absolute()
-                    and re.fullmatch(r"[a-zA-Z0-9_./-]+", name), "Unsafe archive path.")
-            require(name not in entries, "Duplicate archive path.")
-            entries.add(name)
-            require(len(entries) <= 4096, "Too many archive entries.")
-            require(name == "manifest.json" or name == "dist" or name.startswith("dist/"), "Unexpected archive entry.")
-            if member.isdir():
-                require(name != "manifest.json", "Manifest must be a file.")
-                continue
-            require(member.isfile() and name != "dist", "Links and special files are forbidden.")
-            require(name != "manifest.json" or member.size <= 2 * 1024 * 1024, "Manifest is too large.")
-            total += member.size
-            require(0 <= member.size <= MAX_EXPANDED and total <= MAX_EXPANDED, "Expanded archive is too large.")
-            files[name] = bundle.extractfile(member).read()
-    require("manifest.json" in files, "Missing release manifest.")
-    manifest = json.loads(files.pop("manifest.json"))
-    expected = {"schema": 1, "repository": REPOSITORY, "commit": sha, "runId": run_id, "runAttempt": attempt}
-    require(all(manifest.get(key) == value for key, value in expected.items()), "Release identity does not match checked build.")
-    require(isinstance(manifest.get("files"), dict) and set(manifest["files"]) == set(files), "Manifest file list differs.")
-    require("dist/index.html" in files and "dist/release.json" in files, "Missing game entrypoint or release identity.")
-    require(not any(re.search(r"(?:^|/)qa[^/]*\.html$", name) for name in files), "QA pages must not be published.")
-    require(not any(re.search(r"(?:^|/)account-data/|\.sqlite(?:[-.][^/]*)?$", name, re.I) for name in files),
-            "Account databases must not be published.")
-    for name, data in files.items():
-        metadata = manifest["files"][name]
-        require(isinstance(metadata, dict) and type(metadata.get("size")) is int
-                and metadata["size"] == len(data) and metadata.get("sha256") == digest(data), "File checksum mismatch.")
-    require(json.loads(files["dist/release.json"]) == expected, "Served release identity differs.")
-    return files
+    return inspect_archive(archive, sha, run_id, attempt, collect=True)
 
 
 def trusted_directory(path, owner_uid=0):
@@ -283,10 +246,10 @@ def validate_candidate(config, root, sha):
 def install_release(root, sha, files):
     target = root / sha
     if target.exists():
-        existing = {"dist/" + str(path.relative_to(target / "dist")): path.read_bytes()
-                    for path in (target / "dist").rglob("*") if path.is_file()}
-        require(existing == files, "Existing immutable release differs from artifact.")
         verify_installed(root, sha)
+        receipt = json.loads((target / "receipt.json").read_text())
+        expected = {name: {"size": len(data), "sha256": digest(data)} for name, data in files.items()}
+        require(receipt["files"] == expected, "Existing immutable release differs from artifact.")
         return
     stage = Path(tempfile.mkdtemp(prefix=".incoming-", dir=root))
     try:
@@ -310,11 +273,12 @@ def verify_installed(root, sha):
     receipt = json.loads((target / "receipt.json").read_text())
     require(receipt.get("commit") == sha and isinstance(receipt.get("files"), dict), "Invalid installed release receipt.")
     files = {}
-    for path in (target / "dist").rglob("*"):
+    for path in target.rglob("*"):
         require(not path.is_symlink(), "Installed release contains a link.")
         if path.is_file():
             data = path.read_bytes()
-            files["dist/" + path.relative_to(target / "dist").as_posix()] = {"size": len(data), "sha256": digest(data)}
+            if path.relative_to(target).as_posix() != "receipt.json":
+                files[path.relative_to(target).as_posix()] = {"size": len(data), "sha256": digest(data)}
     require(files == receipt["files"], "Installed release checksum mismatch.")
 
 

@@ -7,8 +7,11 @@ import {
   mkdirSync,
   openSync,
   statfsSync,
+  readFileSync,
+  writeSync,
+  fsyncSync,
 } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { MAX_CLOUD_BYTES, validateSnapshot, type CloudSnapshot } from '../src/account/snapshot';
 import { ApiError, requireApi } from './errors';
@@ -19,6 +22,21 @@ export const LOGIN_MS = 10 * 60 * 1000;
 export const LEASE_MS = 90_000;
 export const MAX_DATABASE_BYTES = 256 * 1024 * 1024;
 export const MIN_FREE_BYTES = 256 * 1024 * 1024;
+export const MAX_DELETION_BYTES = 1024 * 1024;
+export function readDeletions(path: string): Set<string> {
+  privateDirectory(dirname(path));
+  privateFile(path);
+  requireApi(lstatSync(path).size <= MAX_DELETION_BYTES, 503, 'invalid_deletion_journal');
+  const lines = readFileSync(path, 'utf8');
+  requireApi(!lines || lines.endsWith('\n'), 503, 'invalid_deletion_journal');
+  const ids = lines ? lines.slice(0, -1).split('\n') : [];
+  requireApi(
+    ids.every((id) => /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/.test(id)),
+    503,
+    'invalid_deletion_journal',
+  );
+  return new Set(ids);
+}
 export const token = () => randomBytes(32).toString('base64url');
 export const hash = (value: string) => createHash('sha256').update(value).digest('hex');
 export interface Player {
@@ -75,12 +93,39 @@ export class AccountStore {
   readonly db: DatabaseSync;
   readonly directory: string;
   readonly path: string;
+  readonly deletionJournal: string;
   constructor(
     directory: string,
     readonly now = Date.now,
     private freeBytes?: () => number,
+    deletionJournal?: string,
   ) {
     this.directory = privateDirectory(directory);
+    this.deletionJournal = resolve(deletionJournal ?? join(this.directory, 'deletions.jsonl'));
+    privateDirectory(dirname(this.deletionJournal));
+    if (!existsSync(this.deletionJournal)) {
+      requireApi(deletionJournal === undefined, 503, 'deletion_journal_required');
+      const fd = openSync(
+        this.deletionJournal,
+        constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY | constants.O_NOFOLLOW,
+        0o600,
+      );
+      try {
+        fsyncSync(fd);
+      } finally {
+        closeSync(fd);
+      }
+      const parent = openSync(
+        dirname(this.deletionJournal),
+        constants.O_RDONLY | constants.O_DIRECTORY,
+      );
+      try {
+        fsyncSync(parent);
+      } finally {
+        closeSync(parent);
+      }
+    }
+    const deleted = readDeletions(this.deletionJournal);
     this.path = join(this.directory, 'accounts.sqlite');
     if (!existsSync(this.path)) {
       closeSync(
@@ -126,6 +171,11 @@ export class AccountStore {
       // SQLite sidecars inherit the database's private permissions; verify any already present.
       for (const suffix of ['-wal', '-shm'])
         if (existsSync(this.path + suffix)) privateFile(this.path + suffix);
+      if (deleted.size)
+        this.transaction(() => {
+          const remove = this.db.prepare('DELETE FROM players WHERE id=?');
+          for (const id of deleted) remove.run(id);
+        });
     } catch (error) {
       this.db.close();
       throw error;
@@ -360,6 +410,29 @@ export class AccountStore {
   deleteAccount(session: Session) {
     requireApi(session.userId, 401, 'unauthenticated');
     requireApi(this.now() - session.authenticatedAt <= LOGIN_MS, 403, 'recent_sign_in_required');
+    this.player(session.userId);
+    const line = session.userId + '\n';
+    const recorded = readDeletions(this.deletionJournal).has(session.userId);
+    requireApi(
+      recorded ||
+        lstatSync(this.deletionJournal).size + Buffer.byteLength(line) <= MAX_DELETION_BYTES,
+      503,
+      'deletion_journal_full',
+    );
+    const fd = openSync(
+      this.deletionJournal,
+      constants.O_WRONLY | constants.O_APPEND | constants.O_NOFOLLOW | constants.O_NONBLOCK,
+    );
+    try {
+      requireApi(
+        recorded || writeSync(fd, line) === Buffer.byteLength(line),
+        503,
+        'deletion_journal_unavailable',
+      );
+      fsyncSync(fd);
+    } finally {
+      closeSync(fd);
+    }
     this.transaction(() => this.db.prepare('DELETE FROM players WHERE id=?').run(session.userId!));
     this.db.exec('PRAGMA wal_checkpoint(TRUNCATE)');
   }

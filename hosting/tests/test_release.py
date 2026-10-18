@@ -7,11 +7,13 @@ import subprocess
 import tarfile
 import tempfile
 import unittest
+import sys
 from unittest.mock import patch
 
 spec = importlib.util.spec_from_file_location("release", Path(__file__).parents[1] / "release.py")
 release = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(release)
+import artifact_contract
 SHA = "a" * 40
 OLD = "b" * 40
 PREVIOUS = "c" * 40
@@ -216,11 +218,11 @@ class ArtifactTests(unittest.TestCase):
         for name in ("dist/accounts.sqlite", "dist/accounts.sqlite-wal", "dist/backup.sqlite.sha256", "dist/account-data/profile.json"):
             files = fixture_files()
             files[name] = b"not-real-player-data"
-            with self.subTest(name=name), self.assertRaisesRegex(ValueError, "Account databases"):
+            with self.subTest(name=name), self.assertRaisesRegex(ValueError, "Private files"):
                 release.release_files(tar_bytes(files), SHA, RUN, 1)
 
     def test_expansion_bound(self):
-        with patch.object(release, "MAX_EXPANDED", 10), self.assertRaisesRegex(ValueError, "too large"):
+        with patch.object(artifact_contract, "MAX_EXPANDED", 10), self.assertRaisesRegex(ValueError, "too large"):
             release.release_files(tar_bytes(), SHA, RUN, 1)
 
     def test_exact_main_successful_attempt_is_required(self):
@@ -339,6 +341,9 @@ class PackagingTests(unittest.TestCase):
         (self.root / "dist/assets").mkdir(parents=True)
         (self.root / "dist/index.html").write_text('<script src="/assets/game.js"></script>')
         (self.root / "dist/assets/game.js").write_text("console.log('game');")
+        (self.root / ".account-build").mkdir()
+        for name in ("main.cjs", "backup.cjs", "THIRD_PARTY_NOTICES.txt"):
+            (self.root / ".account-build" / name).write_text("synthetic bundled fixture")
         self.env = {**os.environ, "GITHUB_SHA": self.sha, "GITHUB_REF": "refs/heads/main", "GITHUB_RUN_ID": str(RUN), "GITHUB_RUN_ATTEMPT": "1"}
 
     def package(self):

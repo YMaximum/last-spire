@@ -119,3 +119,7 @@ docker compose up -d
 ```
 
 The container serves static assets as an unprivileged user. Compose binds only `127.0.0.1:8080`, uses a read-only filesystem with temporary writable storage, and exposes `/healthz` for health checks. An independently managed HTTPS reverse proxy can front that loopback port. Environment-specific infrastructure, certificates, DNS, and deployment credentials are intentionally outside this repository. Building or starting this local container does not publish the game.
+
+## Account service releases
+
+Guests keep browser-local saves. Optional Google sign-in and cloud saves require the separately operated API described in [the account release runbook](docs/ACCOUNT-RELEASING.md). Building or merging this repository does not deploy or enable that service.

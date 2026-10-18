@@ -13,6 +13,7 @@ fi
 /usr/bin/docker image inspect "$image" >/dev/null
 install -d -o root -g root -m 755 /etc/last-spire /usr/local/lib/last-spire /var/lib/last-spire/releases
 install -o root -g root -m 644 hosting/release.py /usr/local/lib/last-spire/release.py
+install -o root -g root -m 644 hosting/artifact_contract.py /usr/local/lib/last-spire/artifact_contract.py
 sed 's@root /usr/share/nginx/html;@root /srv/releases/current/dist;@' hosting/nginx.conf > /etc/last-spire/nginx.conf.next
 chown root:root /etc/last-spire/nginx.conf.next
 chmod 644 /etc/last-spire/nginx.conf.next

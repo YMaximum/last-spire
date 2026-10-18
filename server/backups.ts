@@ -15,7 +15,14 @@ import {
 import { dirname, join } from 'node:path';
 import { backup, DatabaseSync } from 'node:sqlite';
 import { requireApi } from './errors';
-import { AccountStore, MAX_DATABASE_BYTES, privateDirectory, privateFile, token } from './store';
+import {
+  AccountStore,
+  MAX_DATABASE_BYTES,
+  privateDirectory,
+  privateFile,
+  token,
+  readDeletions,
+} from './store';
 
 const NAME = /^snapshot-([0-9]+)-[a-f0-9-]{36}\.sqlite$/;
 const RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
@@ -104,13 +111,15 @@ export async function createBackup(store: AccountStore): Promise<string> {
 }
 
 /** Restore into a NEW directory. It cannot overwrite an active database. */
-export async function restoreBackup(source: string, target: string) {
+export async function restoreBackup(source: string, target: string, deletionJournal?: string) {
   await verifyBackup(source);
+  const journal = deletionJournal ?? join(dirname(dirname(source)), 'deletions.jsonl');
+  readDeletions(journal);
   const directory = privateDirectory(target),
     destination = join(directory, 'accounts.sqlite');
   requireApi(!existsSync(destination), 409, 'restore_target_exists');
   copyFileSync(source, destination, constants.COPYFILE_EXCL);
-  const store = new AccountStore(directory);
+  const store = new AccountStore(directory, Date.now, undefined, journal);
   try {
     store.transaction(() => {
       store.db.prepare('DELETE FROM sessions').run();

@@ -138,7 +138,8 @@
         </li>
         <li>
           Database recovery copies can retain deleted data for up to seven days. They are not live
-          saves. Operators must honor deletion requests when restoring an older backup.
+          saves. A private deletion journal retains only random internal account IDs, without names,
+          Google identifiers, or progress, to prevent recovery from restoring deleted accounts.
         </li>
       </ul>
       <p>

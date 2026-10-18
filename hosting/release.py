@@ -243,6 +243,16 @@ def validate_candidate(config, root, sha):
         nginx.unlink(missing_ok=True)
 
 
+def readable_code_directories(root):
+    # Only immutable public code lives here. Keep the caller's private umask
+    # for credentials/data while allowing the unprivileged runtimes to traverse.
+    directories = [root] + [path for path in root.rglob("*") if path.is_dir()]
+    for path in directories:
+        require(not path.is_symlink() and path.stat().st_uid == os.geteuid(), "Unsafe release directory ownership.")
+    for path in directories:
+        path.chmod(0o755)
+
+
 def install_release(root, sha, files):
     target = root / sha
     if target.exists():
@@ -250,6 +260,7 @@ def install_release(root, sha, files):
         receipt = json.loads((target / "receipt.json").read_text())
         expected = {name: {"size": len(data), "sha256": digest(data)} for name, data in files.items()}
         require(receipt["files"] == expected, "Existing immutable release differs from artifact.")
+        readable_code_directories(target)
         return
     stage = Path(tempfile.mkdtemp(prefix=".incoming-", dir=root))
     try:
@@ -262,6 +273,7 @@ def install_release(root, sha, files):
         receipt = {"commit": sha, "files": {name: {"sha256": digest(data), "size": len(data)} for name, data in files.items()}}
         (stage / "receipt.json").write_text(json.dumps(receipt))
         (stage / "receipt.json").chmod(0o644)
+        readable_code_directories(stage)
         os.rename(stage, target)
     finally:
         if stage.exists():

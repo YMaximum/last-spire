@@ -1,5 +1,7 @@
 import hashlib
 import io
+import os
+import stat
 import json
 from pathlib import Path
 import sys
@@ -56,6 +58,41 @@ class ContractTests(unittest.TestCase):
             changed = {**entries, 'api/main.cjs': b'changed bundle'}
             with self.assertRaisesRegex(ValueError, 'immutable release differs'):
                 release.install_release(root, SHA, changed)
+
+    def test_private_umask_does_not_hide_public_code_or_relax_private_defaults(self):
+        previous = os.umask(0o077)
+        try:
+            with tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                entries = {**files(), 'dist/assets/app.js': b'synthetic asset'}
+                release.install_release(root, SHA, entries)
+                for relative in ('', 'api', 'dist', 'dist/assets'):
+                    self.assertEqual(stat.S_IMODE((root / SHA / relative).stat().st_mode), 0o755)
+                for relative in entries:
+                    self.assertEqual(stat.S_IMODE((root / SHA / relative).stat().st_mode), 0o644)
+                private = root / 'private-data'
+                private.mkdir()
+                (private / 'credential').write_text('synthetic private fixture')
+                self.assertEqual(stat.S_IMODE(private.stat().st_mode), 0o700)
+                self.assertEqual(stat.S_IMODE((private / 'credential').stat().st_mode), 0o600)
+        finally:
+            os.umask(previous)
+
+    def test_matching_existing_release_repairs_directories_after_integrity_checks(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            entries = files()
+            release.install_release(root, SHA, entries)
+            (root / SHA / 'api').chmod(0o700)
+            changed = {**entries, 'api/main.cjs': b'different code'}
+            with self.assertRaisesRegex(ValueError, 'immutable release differs'):
+                release.install_release(root, SHA, changed)
+            self.assertEqual(stat.S_IMODE((root / SHA / 'api').stat().st_mode), 0o700)
+            release.install_release(root, SHA, entries)
+            self.assertEqual(stat.S_IMODE((root / SHA / 'api').stat().st_mode), 0o755)
+            release.verify_installed(root, SHA)
+            for relative, expected in entries.items():
+                self.assertEqual((root / SHA / relative).read_bytes(), expected)
 
     def test_partial_or_unexpected_api_inventory_is_rejected(self):
         for name in contract.API_FILES:

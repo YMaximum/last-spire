@@ -5,6 +5,11 @@ import { defineConfig } from 'vite';
 export default defineConfig({
   server: {
     host: '127.0.0.1',
+    // Opt in only for a separately started loopback account API. No production proxy.
+    proxy:
+      process.env.LAST_SPIRE_API_PROXY === '1'
+        ? { '/api': { target: 'http://127.0.0.1:8092', changeOrigin: false } }
+        : undefined,
     fs: {
       strict: true,
       deny: [

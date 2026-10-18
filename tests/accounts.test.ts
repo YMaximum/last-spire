@@ -377,12 +377,17 @@ describe('account HTTP boundary', () => {
     if (!credential.startsWith('valid:')) throw new ApiError(401, 'auth_failed');
     return { subject: credential.slice(6), name: 'Spirekeeper' };
   });
+  const verifyCode = vi.fn(async (code: string) => {
+    if (code !== 'fixture-code') throw new ApiError(401, 'auth_failed');
+    return { subject: 'code-subject', name: 'Spirekeeper' };
+  });
   beforeEach(async () => {
     verify.mockClear();
+    verifyCode.mockClear();
     clock = 1_800_000_000_000;
     directory = mkdtempSync(join(tmpdir(), 'last-spire-http-test-'));
     store = new AccountStore(directory, () => clock);
-    server = accountServer(store, { origin: ORIGIN, clientId: CLIENT }, verify);
+    server = accountServer(store, { origin: ORIGIN, clientId: CLIENT }, verify, verifyCode);
     await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
     const address = server.address();
     if (!address || typeof address === 'string') throw new Error('No test listener');
@@ -441,6 +446,87 @@ describe('account HTTP boundary', () => {
     expect(boot.body.player).toBeNull();
     expect(boot.body.clientId).toBe(CLIENT);
     expect(boot.headers.get('access-control-allow-origin')).toBeNull();
+  });
+  it('protects the code-popup route with session, exact origin and CSRF before exchange', async () => {
+    const boot = await request('/api/session');
+    const initial = boot.headers.get('set-cookie')!.split(';')[0];
+    expect(boot.body.codeSignIn).toBe(true);
+    for (const [csrf, origin] of [
+      [undefined, ORIGIN],
+      ['wrong', ORIGIN],
+      [boot.body.csrf, 'https://foreign.example.test'],
+    ]) {
+      expect(
+        (
+          await request(
+            '/api/auth/google/code',
+            'POST',
+            { code: 'fixture-code' },
+            initial,
+            csrf,
+            origin,
+          )
+        ).status,
+      ).toBe(403);
+    }
+    expect(verifyCode).not.toHaveBeenCalled();
+    expect(
+      (
+        await request(
+          '/api/auth/google/code',
+          'POST',
+          { code: 'fixture-code', credential: 'extra' },
+          initial,
+          boot.body.csrf,
+        )
+      ).status,
+    ).toBe(400);
+    const ok = await request(
+      '/api/auth/google/code',
+      'POST',
+      { code: 'fixture-code' },
+      initial,
+      boot.body.csrf,
+    );
+    expect(ok.status).toBe(200);
+    expect(verifyCode).toHaveBeenCalledExactlyOnceWith('fixture-code');
+    expect(ok.body.player.name).toBe('Spirekeeper');
+    expect(ok.headers.get('set-cookie')!.split(';')[0]).not.toBe(initial);
+    expect((await request('/api/save', 'GET', undefined, initial)).status).toBe(401);
+    expect(
+      (
+        await request(
+          '/api/auth/google/code',
+          'POST',
+          { code: 'fixture-code' },
+          initial,
+          boot.body.csrf,
+        )
+      ).status,
+    ).toBe(401);
+    expect(JSON.stringify(ok.body)).not.toContain('fixture-code');
+  });
+  it('disables code sign-in without server-only configuration while retaining guest health/session access', async () => {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    server = accountServer(store, { origin: ORIGIN, clientId: CLIENT }, verify);
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const address = server.address();
+    if (!address || typeof address === 'string') throw new Error('No test listener');
+    base = `http://127.0.0.1:${address.port}`;
+    const boot = await request('/api/session');
+    expect(boot.body.codeSignIn).toBe(false);
+    const cookie = boot.headers.get('set-cookie')!.split(';')[0];
+    const response = await request(
+      '/api/auth/google/code',
+      'POST',
+      { code: 'fixture-code' },
+      cookie,
+      boot.body.csrf,
+    );
+    expect(response.status).toBe(503);
+    expect(response.body).toEqual({ error: 'sign_in_not_configured' });
+    expect(verifyCode).not.toHaveBeenCalled();
+    expect((await request('/api/healthz')).status).toBe(200);
   });
   it('rejects missing sessions, duplicate cookies, origin mismatch and missing/wrong CSRF before verification', async () => {
     const boot = await request('/api/session'),

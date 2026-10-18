@@ -1,6 +1,7 @@
 import { resolve } from 'node:path';
 import { accountServer, validateConfig } from './app';
-import { googleVerifier } from './identity';
+import { googleVerifier, googleCodeVerifier } from './identity';
+import { readGoogleClientSecret } from './secrets';
 import { AccountStore } from './store';
 import { createBackup } from './backups';
 
@@ -19,7 +20,11 @@ const config = validateConfig({
   trustProxy: process.env.LAST_SPIRE_TRUST_PROXY === '1',
 });
 const store = new AccountStore(directory);
-const server = accountServer(store, config, googleVerifier(clientId));
+const secretFile = process.env.GOOGLE_CLIENT_SECRET_FILE;
+const verifyCode = secretFile
+  ? googleCodeVerifier(clientId, readGoogleClientSecret(secretFile), origin)
+  : undefined;
+const server = accountServer(store, config, googleVerifier(clientId), verifyCode);
 let backupBusy = false;
 async function dailyBackup() {
   if (backupBusy) return;

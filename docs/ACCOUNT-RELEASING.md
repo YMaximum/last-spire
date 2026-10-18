@@ -14,6 +14,17 @@ No credentials, database, deletion journal, source maps, operational notes, or d
 
 The current host-wide scheduler holds its build lock for its **entire dispatcher lifetime**, including idle time. An idle queue alone does not make this lock available. Installation, collector changes, API deployment, backup, and restore preparation intentionally refuse while it is held.
 
+Before stopping the dispatcher, check whether systemd owns the lock's parent through `RuntimeDirectory=`. Its [default cleanup](https://www.freedesktop.org/software/systemd/man/latest/systemd.exec.html#RuntimeDirectoryPreserve=) removes that directory on stop. If applicable, configure a narrow root-owned drop-in for that dispatcher containing:
+
+```ini
+[Service]
+RuntimeDirectoryPreserve=yes
+```
+
+Reload the systemd configuration without restarting the running dispatcher. Verify the effective setting is `yes`, the dispatcher remains active, and the lock's device/inode identity is unchanged. Preserve the directory's existing ownership and permissions. Record the setting change in private operations notes. This preserves runtime files across stops; completed-worker cleanup must still run normally, and `/run` remains temporary across host reboots.
+
+Record the existing lock's device/inode before maintenance and verify the same file remains after the idle dispatcher stops. If the lock disappears or changes identity, restore dispatch and investigate. Never recreate or replace the lock to bypass installation checks. After a reboot, let the normal dispatcher startup establish its lock before attempting release maintenance.
+
 Before those operations, use the existing trusted CI administration tools to record each repository's original dispatch-enabled flag and temporarily disable dispatch for all enabled repositories. Let already active workers finish normally, verify that no worker remains active, then stop only the dispatcher service. Do not stop an active dispatcher to interrupt a build, delete its lock file, or substitute a different lock. Repository configuration and credentials remain intact.
 
 Perform the reviewed operation while it holds that same existing lock. Afterwards, including on failure, restart the dispatcher and restore **exactly** the original dispatch flags; leave originally disabled repositories disabled. Verify dispatcher health and the recorded flags. Keep actual service names and commands in private operations notes. No production game, API, or unrelated service needs to stop for the maintenance window. CI checks needed for deployment must already have completed before pausing dispatch.

@@ -10,6 +10,8 @@ The existing `last-spire-deploy <sha>` and `last-spire-rollback` commands contin
 
 No credentials, database, deletion journal, source maps, operational notes, or development fixtures belong in either artifact. Secret scans cover both compiled components. The VPS does not run npm installation during deployment.
 
+Immutable code directories must be traversable by the unprivileged runtimes. The trusted release installer explicitly sets those directories to `0755` even when called with a private `0077` umask; new code files are `0644`. Reusing an identical installed artifact verifies its checksums before repairing its code-directory permissions. This does not change the caller's umask, credential files, account data, or backups, which retain their private permissions.
+
 ## Shared CI maintenance window
 
 The current host-wide scheduler holds its build lock for its **entire dispatcher lifetime**, including idle time. An idle queue alone does not make this lock available. Installation, collector changes, API deployment, backup, and restore preparation intentionally refuse while it is held.

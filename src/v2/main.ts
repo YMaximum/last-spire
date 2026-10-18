@@ -16,7 +16,8 @@ import {
 import type { SaveV3, SaveScope } from '../v3/storage';
 import { AccountSync } from '../account/sync';
 import { AccountPanel } from '../account/panel';
-import { archiveSave } from '../account/cache';
+import { EntryScreen } from '../account/entry';
+import { archiveSave, rememberedPlayer } from '../account/cache';
 import { STAGES, ELEMENT_COLORS, PATTERNS } from '../content';
 import { TOWERS, isDefensiveKind, FUSIONS, FUSION_BY_ID } from '../v3/catalog';
 import type { RunV3, RunMode } from '../v3/types';
@@ -169,6 +170,27 @@ const accountSync = new AccountSync({
 const accountPanel = new AccountPanel(accountSync, manager, download, () => {
   paused = true;
   updateHud();
+});
+const entryScreen = new EntryScreen({
+  session: () => accountSync.api.bootstrap(),
+  remembered: rememberedPlayer,
+  guest: () => {},
+  signIn: async (code) => {
+    const nonce = accountSync.api.session?.nonce;
+    await accountSync.signIn(code, 'code');
+    if (!accountSync.view.player || accountSync.api.session?.nonce === nonce)
+      throw new Error('Sign-in failed.');
+    accountPanel.open();
+  },
+  continueAccount: async () => {
+    await accountSync.initialize();
+    if (!accountSync.active && !accountSync.view.player) throw new Error('Account unavailable.');
+    if (
+      !accountSync.active ||
+      ['choice', 'conflict', 'lease', 'reauth', 'error'].includes(accountSync.view.phase)
+    )
+      accountPanel.open();
+  },
 });
 const inspector = new BuildInspector({
   host: $('battlefield'),
@@ -1813,7 +1835,7 @@ $('target-btn').onclick = () => {
   updateHud();
 };
 document.addEventListener('keydown', (e) => {
-  if (contextChanging) return;
+  if (contextChanging || entryScreen.visible) return;
   const input = e.target as HTMLElement;
   if (input.matches('input,select,textarea') || e.altKey || e.ctrlKey || e.metaKey) return;
   const key = e.key.toLowerCase();
@@ -1860,7 +1882,14 @@ function frame(now: number) {
   last = now;
   const s = current();
   const simulationStarted = performance.now();
-  if (playing && !paused && !contextChanging && !manager.choicesPause() && s.phase === 'combat') {
+  if (
+    playing &&
+    !paused &&
+    !contextChanging &&
+    !entryScreen.visible &&
+    !manager.choicesPause() &&
+    s.phase === 'combat'
+  ) {
     accumulator += delta * data.settings.speed;
     while (accumulator >= TICK) {
       if (isV2(s)) {
@@ -2013,7 +2042,7 @@ async function init() {
     showLegacyRewards(data.run);
   } else notify('Expedition restored. Press Space or tap play when you’re ready.');
   requestAnimationFrame(frame);
-  void accountSync.initialize();
+  if (!recovery) entryScreen.open();
 }
 window.addEventListener('online', () => void accountSync.refresh());
 void init();

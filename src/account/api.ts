@@ -42,6 +42,7 @@ function invalid(): never {
 
 export class AccountApi {
   session: AccountSession | null = null;
+  private sessionRequest: Promise<AccountSession> | null = null;
   constructor(private fetcher: typeof fetch = (...args) => fetch(...args)) {}
   async request(path: string, method = 'GET', body?: unknown): Promise<any> {
     const abort = new AbortController(),
@@ -104,6 +105,16 @@ export class AccountApi {
     }
   }
   async bootstrap(): Promise<AccountSession> {
+    if (this.sessionRequest) return this.sessionRequest;
+    const pending = this.loadSession();
+    this.sessionRequest = pending;
+    try {
+      return await pending;
+    } finally {
+      if (this.sessionRequest === pending) this.sessionRequest = null;
+    }
+  }
+  private async loadSession(): Promise<AccountSession> {
     const s = await this.request('session');
     if (
       !s ||

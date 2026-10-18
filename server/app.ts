@@ -11,9 +11,22 @@ export interface ApiConfig {
   development?: boolean;
   /** Only enable behind a trusted loopback proxy which overwrites this header. */
   trustProxy?: boolean;
+  releaseCommit?: string;
+  trustedProxyAddress?: string;
 }
 
 export function validateConfig(config: ApiConfig): ApiConfig {
+  requireApi(
+    config.trustedProxyAddress === undefined ||
+      (config.trustProxy === true && isIP(config.trustedProxyAddress) !== 0),
+    500,
+    'invalid_proxy',
+  );
+  requireApi(
+    config.releaseCommit === undefined || /^[a-f0-9]{40}$/.test(config.releaseCommit),
+    500,
+    'invalid_release',
+  );
   const origin = new URL(config.origin);
   requireApi(
     origin.origin === config.origin && !origin.username && !origin.password,
@@ -150,7 +163,11 @@ export function accountServer(
   }
   function clientAddress(req: IncomingMessage): string {
     const remote = req.socket.remoteAddress ?? 'unknown';
-    if (config.trustProxy && ['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(remote)) {
+    if (
+      config.trustProxy &&
+      (['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(remote) ||
+        remote === config.trustedProxyAddress)
+    ) {
       const forwarded = req.headers['x-forwarded-for'];
       if (typeof forwarded === 'string' && isIP(forwarded)) return forwarded;
     }
@@ -160,7 +177,17 @@ export function accountServer(
     const path = req.url,
       method = req.method;
     if (method === 'GET' && path === '/api/healthz')
-      return reply(res, 200, { ok: true, schema: 1 });
+      return reply(res, 200, {
+        ok: true,
+        schema: 1,
+        ...(config.releaseCommit
+          ? {
+              commit: config.releaseCommit,
+              database: Number(store.db.prepare('PRAGMA user_version').get()!.user_version),
+              runtime: Number(process.versions.node.split('.')[0]),
+            }
+          : {}),
+      });
     requireApi(limiter.allow('global', 1200, 60_000), 429, 'rate_limited');
     requireApi(limiter.allow('ip:' + clientAddress(req), 240, 60_000), 429, 'rate_limited');
     if (method !== 'GET') {

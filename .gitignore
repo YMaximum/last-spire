@@ -4,6 +4,7 @@ account-data/
 *.sqlite-*
 *.sqlite.sha256
 dist/
+.account-build/
 .release/
 __pycache__/
 *.log

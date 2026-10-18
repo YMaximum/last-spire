@@ -1,0 +1,24 @@
+# Replace only the existing game's site block, after checked API/static deployment.
+# Validate the complete configuration before a deliberate Caddy reload.
+last-spire.nyassar.com {
+    encode zstd gzip
+    @account_api path /api /api/*
+    handle @account_api {
+        request_body {
+            max_size 9MB
+        }
+        reverse_proxy 127.0.0.1:8092 {
+            header_up X-Forwarded-For {http.request.remote.host}
+            transport http {
+                dial_timeout 3s
+                response_header_timeout 15s
+            }
+        }
+    }
+    handle {
+        reverse_proxy 127.0.0.1:8091 {
+            header_down Content-Security-Policy "default-src 'self'; script-src 'self' https://accounts.google.com/gsi/client; style-src 'self' 'unsafe-inline' https://accounts.google.com/gsi/style; img-src 'self' data:; connect-src 'self' https://accounts.google.com/gsi/; frame-src https://accounts.google.com/gsi/; object-src 'none'; base-uri 'self'; frame-ancestors 'none'"
+            header_down Cross-Origin-Opener-Policy same-origin-allow-popups
+        }
+    }
+}

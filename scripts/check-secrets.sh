@@ -2,7 +2,7 @@
 # Linux CI: verified upstream binary, local/redacted scan, no artifact upload.
 set -eu
 umask 077
-if [ ! -f dist/index.html ]; then
+if [ ! -f dist/index.html ] || [ ! -f .account-build/main.cjs ]; then
   echo 'Build the game first: secret checks cover both Git history and the actual browser bundle.' >&2
   exit 1
 fi
@@ -18,5 +18,7 @@ curl --proto '=https' --proto-redir '=https' --tlsv1.2 --fail --location --silen
   https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz
 printf '551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb  %s\n' "$scan_work/gitleaks.tar.gz" | sha256sum --check --status
 tar -xzf "$scan_work/gitleaks.tar.gz" -C "$scan_work" gitleaks
-"$scan_work/gitleaks" git . --log-opts=--all --redact=100 --no-banner
-"$scan_work/gitleaks" dir dist --redact=100 --no-banner
+python3 scripts/test-secret-config.py "$scan_work/gitleaks"
+"$scan_work/gitleaks" git . --config .gitleaks.toml --log-opts=--all --redact=100 --no-banner
+"$scan_work/gitleaks" dir dist --config .gitleaks.toml --redact=100 --no-banner
+"$scan_work/gitleaks" dir .account-build --config .gitleaks.toml --redact=100 --no-banner

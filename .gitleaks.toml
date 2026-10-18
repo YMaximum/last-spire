@@ -1,0 +1,16 @@
+title = "Last Spire secret checks"
+[extend]
+useDefault = true
+
+# google-auth-library 11.3.1 gtoken/getCredentials.js reads a JSON property.
+# esbuild names that local object body2; the expression contains no key value.
+# Keep every default rule. This exception requires BOTH this exact generated
+# path and this exact match. A dependency/bundler change needs another review.
+[[rules]]
+id = "generic-api-key"
+[[rules.allowlists]]
+description = "Verified Google dependency property access, not a credential"
+condition = "AND"
+regexTarget = "match"
+paths = ['''^\.account-build/main\.cjs$''']
+regexes = ['''^privateKey = body2\.private_key;$''']

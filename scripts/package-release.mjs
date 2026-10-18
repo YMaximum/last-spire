@@ -1,25 +1,74 @@
 // A checked, deterministic archive. The trusted host independently validates it.
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
-import { cpSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  cpSync,
+  lstatSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 const sha = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
-if (!/^[a-f0-9]{40}$/.test(sha) || process.env.GITHUB_SHA !== sha || process.env.GITHUB_REF !== 'refs/heads/main') {
+if (
+  !/^[a-f0-9]{40}$/.test(sha) ||
+  process.env.GITHUB_SHA !== sha ||
+  process.env.GITHUB_REF !== 'refs/heads/main'
+) {
   throw new Error('Release packaging requires the exact checked main commit in GitHub Actions.');
 }
-if (execFileSync('git', ['status', '--porcelain', '--untracked-files=no'], { encoding: 'utf8' }).trim()) {
+if (
+  execFileSync('git', ['status', '--porcelain', '--untracked-files=no'], {
+    encoding: 'utf8',
+  }).trim()
+) {
   throw new Error('Tracked source changed during checks.');
 }
 const work = mkdtempSync(join(tmpdir(), 'last-spire-release-'));
-const privatePath = /(?:^|\/)(?:\.private|\.release|\.aws|\.codex|\.agents|\.serena|account-data|reports|playlogs|qa-data|checkpoints)\/|(?:^|\/)\.env(?:\.|$)|(?:^|\/)(?:id_rsa|id_ed25519)$|\.sqlite(?:[-.][^/]*)?$|\.(?:pem|key|p12|pfx)$/i;
+const privatePath =
+  /(?:^|\/)(?:\.private|\.release|\.account-build|\.aws|\.codex|\.agents|\.serena|account-data|reports|playlogs|qa-data|checkpoints)\/|(?:^|\/)\.env(?:\.|$)|(?:^|\/)(?:id_rsa|id_ed25519|google-client-secret)(?:\.|$)|\.sqlite(?:[-.][^/]*)?$|\.(?:pem|key|p12|pfx)$/i;
 try {
   cpSync('dist', join(work, 'dist'), { recursive: true, dereference: false });
-  const release = { schema: 1, repository: 'YMaximum/last-spire', commit: sha, runId: Number(process.env.GITHUB_RUN_ID), runAttempt: Number(process.env.GITHUB_RUN_ATTEMPT) };
-  if (!Number.isSafeInteger(release.runId) || release.runId <= 0) throw new Error('Missing workflow run ID.');
-  if (!Number.isSafeInteger(release.runAttempt) || release.runAttempt <= 0) throw new Error('Missing workflow run attempt.');
+  const release = {
+    schema: 2,
+    repository: 'YMaximum/last-spire',
+    commit: sha,
+    runId: Number(process.env.GITHUB_RUN_ID),
+    runAttempt: Number(process.env.GITHUB_RUN_ATTEMPT),
+  };
+  if (!Number.isSafeInteger(release.runId) || release.runId <= 0)
+    throw new Error('Missing workflow run ID.');
+  if (!Number.isSafeInteger(release.runAttempt) || release.runAttempt <= 0)
+    throw new Error('Missing workflow run attempt.');
   writeFileSync(join(work, 'dist/release.json'), `${JSON.stringify(release)}\n`);
+  const compiled = ['main.cjs', 'backup.cjs', 'THIRD_PARTY_NOTICES.txt'];
+  if (readdirSync('.account-build').sort().join(',') !== [...compiled].sort().join(','))
+    throw new Error('Unexpected API build files.');
+  mkdirSync(join(work, 'api'));
+  for (const file of compiled) {
+    if (!lstatSync(join('.account-build', file)).isFile())
+      throw new Error('API bundle must be a regular file.');
+    cpSync(join('.account-build', file), join(work, 'api', file), { dereference: false });
+  }
+  writeFileSync(
+    join(work, 'api/release.json'),
+    JSON.stringify({
+      schema: 1,
+      component: 'accounts',
+      repository: release.repository,
+      commit: sha,
+      runId: release.runId,
+      runAttempt: release.runAttempt,
+      protocol: 1,
+      database: 1,
+      node: 22,
+    }) + '\n',
+  );
   const files = {};
   const scan = (relative) => {
     for (const name of readdirSync(join(work, relative)).sort()) {
@@ -28,21 +77,44 @@ try {
       if (stat.isDirectory()) scan(path);
       else if (stat.isFile()) {
         if (!/^[a-zA-Z0-9_./-]+$/.test(path)) throw new Error(`Unsupported release path: ${path}`);
-        if (privatePath.test(path)) throw new Error(`Private file is forbidden in release: ${path}`);
+        if (privatePath.test(path))
+          throw new Error(`Private file is forbidden in release: ${path}`);
         const bytes = readFileSync(join(work, path));
-        files[path] = { sha256: createHash('sha256').update(bytes).digest('hex'), size: bytes.length };
+        files[path] = {
+          sha256: createHash('sha256').update(bytes).digest('hex'),
+          size: bytes.length,
+        };
       } else throw new Error(`Release contains a link or special file: ${path}`);
     }
   };
   scan('dist');
-  if (!files['dist/index.html'] || Object.keys(files).some((path) => /(?:^|\/)qa[^/]*\.html$/.test(path))) {
+  scan('api');
+  if (
+    !files['dist/index.html'] ||
+    Object.keys(files).some((path) => /(?:^|\/)qa[^/]*\.html$/.test(path))
+  ) {
     throw new Error('Missing game entrypoint or QA pages included in production.');
   }
   writeFileSync(join(work, 'manifest.json'), `${JSON.stringify({ ...release, files }, null, 2)}\n`);
   mkdirSync('.release', { recursive: true });
   const archive = `last-spire-${sha}.tar.gz`;
-  execFileSync('tar', ['--sort=name', '--mtime=@0', '--owner=0', '--group=0', '--numeric-owner', '-czf', `${process.cwd()}/.release/${archive}`, '-C', work, 'manifest.json', 'dist']);
-  const digest = createHash('sha256').update(readFileSync(`.release/${archive}`)).digest('hex');
+  execFileSync('tar', [
+    '--sort=name',
+    '--mtime=@0',
+    '--owner=0',
+    '--group=0',
+    '--numeric-owner',
+    '-czf',
+    `${process.cwd()}/.release/${archive}`,
+    '-C',
+    work,
+    'manifest.json',
+    'dist',
+    'api',
+  ]);
+  const digest = createHash('sha256')
+    .update(readFileSync(`.release/${archive}`))
+    .digest('hex');
   writeFileSync(`.release/${archive}.sha256`, `${digest}  ${archive}\n`);
   console.log(`Packaged checked commit ${sha}: sha256:${digest}`);
 } finally {

@@ -101,8 +101,7 @@ LAST_SPIRE_API_PROXY=1 npm run dev -- --port 5173 --strictPort
 
 The opt-in proxy targets only `http://127.0.0.1:8092`, preserves the browser Origin, and is disabled by default. Open `http://localhost:5173` rather than a different hostname for the registered Google origin. When the API is unavailable or an HTML fallback is returned, account controls explain the failure while guest saves remain usable. Google loads from its official hosted script; there are no OAuth secrets in browser configuration.
 
-## Production enablement still required
+## Production enablement
+The reviewed infrastructure in [ACCOUNT-RELEASING.md](ACCOUNT-RELEASING.md) packages the API separately from the public browser files. It supplies resource-limited runtime commands, private production-secret onboarding, collector validation, backup preparation, and rollback. Merging the code does not enable sign-in or change production routing.
 
-Before exposing production sign-in: package/deploy the non-root API through the reviewed artifact contract, route it on the same origin, configure the production OAuth client, allow the minimum Google CSP origins and appropriate popup policy, publish/link the privacy notice in Google branding, and complete actual Google sign-in tests. The bundled `/privacy.html` explains identity data, cloud/local storage, deletion and same-server recovery limits. Synthetic integration tests do not claim a real Google login occurred.
-
-The existing static release pipeline continues to package only `dist/`. No backend is deployed or exposed by merging this interface PR. Cloud saves become available only through a separately reviewed, deliberately deployed API release.
+Follow that runbook after review and merge. Production requires a dedicated Google client and hidden secret file, a stable deletion journal outside the replaceable data directory, a checked artifact and collection receipt, explicit API/frontend deployment, same-origin routing, and real Google sign-in checks. The bundled privacy notice describes stored identity, checkpoints, deletion, and same-VPS recovery limits. Synthetic tests do not establish production Google login.

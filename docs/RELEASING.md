@@ -77,3 +77,7 @@ In the local game, open Settings and export your save. On the public hostname, o
 The first infrastructure PR can be checked locally before the self-hosted workflow exists on `main`. After the user merges it, finish hidden credential onboarding, arm host collection for the reviewed SHA, run the main checks, verify collection, and publish that checked SHA. A workflow that has not started because of missing registration or credentials has not passed validation. Collection happens after the job exits; if its gate was armed too late, rerun the main workflow and approve the new attempt through the scheduler when required.
 
 If DNS, credentials, resources, certificate issuance, artifact validation or health checks fail, report the exact blocked step without printing tokens, signed download URLs, or private inventories. Keep the current release and unrelated services running. Save a private checkpoint; never substitute an unchecked local build for the required release artifact.
+
+## Optional account API
+
+[ACCOUNT-RELEASING.md](ACCOUNT-RELEASING.md) describes the separately deployed Google sign-in and cloud-save service, schema-2 release artifacts, and the guarded collector upgrade. The static commands above continue serving only `dist/`; API bundles and private player data are never part of the nginx document root. Historical schema-1 game releases remain eligible for checked static rollback.

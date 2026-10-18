@@ -2,7 +2,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 import { isIP } from 'node:net';
 import { MAX_CLOUD_BYTES } from '../src/account/snapshot';
 import { ApiError, requireApi } from './errors';
-import { sameSecret, type IdentityVerifier } from './identity';
+import { sameSecret, type IdentityVerifier, type GoogleCodeVerifier } from './identity';
 import { AccountStore, LOGIN_MS, SESSION_MS } from './store';
 
 export interface ApiConfig {
@@ -113,7 +113,12 @@ function reply(res: ServerResponse, status: number, value: unknown) {
   res.end(JSON.stringify(value));
 }
 
-export function accountServer(store: AccountStore, input: ApiConfig, verify: IdentityVerifier) {
+export function accountServer(
+  store: AccountStore,
+  input: ApiConfig,
+  verify: IdentityVerifier,
+  verifyCode?: GoogleCodeVerifier,
+) {
   const config = validateConfig(input),
     limiter = new RateLimiter(store.now);
   let uploads = 0;
@@ -177,6 +182,7 @@ export function accountServer(store: AccountStore, input: ApiConfig, verify: Ide
       cookie(res, raw, Math.max(0, Math.floor((session.expiresAt - store.now()) / 1000)));
       return reply(res, 200, {
         clientId: config.clientId,
+        codeSignIn: !!verifyCode,
         csrf: session.csrf,
         nonce: session.nonce,
         generation: store.generation,
@@ -192,21 +198,26 @@ export function accountServer(store: AccountStore, input: ApiConfig, verify: Ide
         403,
         'csrf_rejected',
       );
-    if (method === 'POST' && path === '/api/auth/google') {
+    if (method === 'POST' && (path === '/api/auth/google' || path === '/api/auth/google/code')) {
       requireApi(
         limiter.allow('login-ip:' + clientAddress(req), 20, LOGIN_MS),
         429,
         'rate_limited',
       );
-      const data = object(await readBody(req, 16 * 1024), ['credential']);
+      const codeFlow = path === '/api/auth/google/code';
+      if (codeFlow) requireApi(verifyCode, 503, 'sign_in_not_configured');
+      const field = codeFlow ? 'code' : 'credential';
+      const data = object(await readBody(req, 16 * 1024), [field]);
       requireApi(
-        typeof data.credential === 'string' &&
-          data.credential.length > 0 &&
-          data.credential.length <= 12_000,
+        typeof data[field] === 'string' &&
+          (data[field] as string).length > 0 &&
+          (data[field] as string).length <= 12_000,
         400,
         'invalid_request',
       );
-      const identity = await verify(data.credential, session.nonce);
+      const identity = codeFlow
+        ? await verifyCode!(data[field] as string)
+        : await verify(data[field] as string, session.nonce);
       const result = store.login(session, identity);
       cookie(res, result.raw, Math.floor(SESSION_MS / 1000));
       return reply(res, 200, {
@@ -216,6 +227,13 @@ export function accountServer(store: AccountStore, input: ApiConfig, verify: Ide
       });
     }
     requireApi(session.userId, 401, 'unauthenticated');
+    // A cookie can change in another tab between bootstrap and a read. This is
+    // an additional identity assertion, never a source of authorization.
+    requireApi(
+      !req.headers['x-last-spire-player'] || req.headers['x-last-spire-player'] === session.userId,
+      401,
+      'session_changed',
+    );
     requireApi(limiter.allow('user:' + session.userId, 120, 60_000), 429, 'rate_limited');
     if (method === 'POST' && path === '/api/auth/logout') {
       object(await readBody(req, 1024), []);

@@ -24,7 +24,7 @@ npm run preview
 
 The production output is `dist/`. Serve it over HTTP. All visual assets, icons, fonts, and effects work offline after the files have loaded; there are no external font or asset requests.
 
-The optional Google account/save service is being introduced separately. Its API, security model and VPS-only backup limits are documented in [Accounts and cloud saves](docs/ACCOUNTS.md). The current game remains browser-only: this service foundation does not add a sign-in button, upload guest saves, or deploy a backend.
+Optional Google sign-in and account-isolated cloud-save controls are available through **Account & cloud saves** when a same-origin account service is configured. Guest play remains local. First adoption, checkpoint conflicts, and device takeovers require a deliberate choice. The service, local development setup, and VPS-only recovery limits are documented in [Accounts and cloud saves](docs/ACCOUNTS.md). Merging source does not deploy the backend or upload existing guest saves. A separately reviewed API release is required before production cloud saving is enabled.
 
 ## Playing
 

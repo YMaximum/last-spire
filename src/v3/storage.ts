@@ -632,7 +632,15 @@ async function transact<T>(
     connection.close();
   }
 }
-async function backupLegacy(store: IDBObjectStore, raw: unknown): Promise<void> {
+export type SaveScope = 'guest' | `account:${string}`;
+export function saveKey(scope: SaveScope = 'guest'): string {
+  if (scope === 'guest') return ROOT;
+  if (!/^account:[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/.test(scope))
+    throw new SaveError('Invalid account save context', 'invalid');
+  return scope;
+}
+async function backupLegacy(store: IDBObjectStore, raw: unknown, scope: SaveScope): Promise<void> {
+  if (scope !== 'guest') return;
   if (
     raw &&
     [1, 2].includes((raw as { version?: number }).version ?? 0) &&
@@ -640,10 +648,13 @@ async function backupLegacy(store: IDBObjectStore, raw: unknown): Promise<void> 
   )
     store.put(raw, BACKUP);
 }
-export async function readRawSave(): Promise<unknown> {
-  return transact('readonly', (store) => request(store.get(ROOT)));
+export async function readRawSave(scope: SaveScope = 'guest'): Promise<unknown> {
+  const key = saveKey(scope);
+  return transact('readonly', (store) => request(store.get(key)));
 }
-export async function readLegacyBackup(): Promise<unknown> {
+export async function readLegacyBackup(scope: SaveScope = 'guest'): Promise<unknown> {
+  saveKey(scope);
+  if (scope !== 'guest') return undefined;
   return transact(
     'readonly',
     async (store) =>
@@ -652,12 +663,13 @@ export async function readLegacyBackup(): Promise<unknown> {
       (await request(store.get('backup-before-v2'))),
   );
 }
-export async function loadGame(): Promise<SaveV3> {
+export async function loadGame(scope: SaveScope = 'guest'): Promise<SaveV3> {
+  const key = saveKey(scope);
   return transact('readwrite', async (store) => {
-    const raw = await request(store.get(ROOT));
+    const raw = await request(store.get(key));
     if (raw === undefined) return emptySave();
     const result = parseGame(raw);
-    await backupLegacy(store, raw);
+    await backupLegacy(store, raw, scope);
     return result;
   });
 }
@@ -705,10 +717,15 @@ function settleProfile(data: SaveV3, profile = data.profile): SaveV3 {
 export function settleInMemory(data: SaveV3): SaveV3 {
   return parseGame(settleProfile(parseGame(data)));
 }
-export async function saveGame(data: SaveV3, replace = false): Promise<void> {
+export async function saveGame(
+  data: SaveV3,
+  replace = false,
+  scope: SaveScope = 'guest',
+): Promise<void> {
+  const key = saveKey(scope);
   const incoming = parseGame(data);
   await transact('readwrite', async (store) => {
-    const raw = await request(store.get(ROOT));
+    const raw = await request(store.get(key));
     let current: SaveV3 | null = null;
     if (raw !== undefined && !replace) {
       try {
@@ -720,7 +737,7 @@ export async function saveGame(data: SaveV3, replace = false): Promise<void> {
         );
       }
     }
-    await backupLegacy(store, raw);
+    await backupLegacy(store, raw, scope);
     if (!replace && incoming.run && current?.profile.settledRuns.includes(incoming.run.id)) {
       if (!incoming.run.settled || !incoming.profile.settledRuns.includes(incoming.run.id)) return;
       incoming.run = current.run;
@@ -739,19 +756,21 @@ export async function saveGame(data: SaveV3, replace = false): Promise<void> {
           ...new Set([...incoming.profile.settledRuns, ...current.profile.settledRuns]),
         ].slice(-20_000);
     }
-    store.put(parseGame(incoming), ROOT);
+    store.put(parseGame(incoming), key);
+    store.put(incoming.settings, 'device-settings');
   });
 }
-export async function replaceGame(data: SaveV3): Promise<void> {
-  return saveGame(data, true);
+export async function replaceGame(data: SaveV3, scope: SaveScope = 'guest'): Promise<void> {
+  return saveGame(data, true, scope);
 }
-export async function settleGame(data: SaveV3): Promise<SaveV3> {
+export async function settleGame(data: SaveV3, scope: SaveScope = 'guest'): Promise<SaveV3> {
+  const key = saveKey(scope);
   const incoming = parseGame(data);
   if (!incoming.run) return incoming;
   return transact('readwrite', async (store) => {
-    const raw = await request(store.get(ROOT));
+    const raw = await request(store.get(key));
     const current = raw === undefined ? null : parseGame(raw);
-    await backupLegacy(store, raw);
+    await backupLegacy(store, raw, scope);
     const run = incoming.run!;
     if (current?.profile.settledRuns.includes(run.id)) return current;
     const progression = current?.progression ?? incoming.progression;
@@ -765,8 +784,23 @@ export async function settleGame(data: SaveV3): Promise<SaveV3> {
       run: nextRun,
       settings: current?.settings ?? incoming.settings,
     });
-    store.put(result, ROOT);
+    store.put(result, key);
     return result;
+  });
+}
+/** Presentation preferences stay on this device, including across account switches. */
+export async function loadDeviceSettings(): Promise<SaveV3['settings'] | null> {
+  return transact('readonly', async (store) => {
+    const settings = await request(store.get('device-settings'));
+    return settings === undefined ? null : parseGame({ ...emptySave(), settings }).settings;
+  });
+}
+export async function deleteAccountCache(scope: SaveScope): Promise<void> {
+  if (scope === 'guest')
+    throw new SaveError('Guest saves cannot be removed by account deletion.', 'invalid');
+  const key = saveKey(scope);
+  await transact('readwrite', async (store) => {
+    await request(store.delete(key));
   });
 }
 export function legacySave(data: SaveV3): SaveData {

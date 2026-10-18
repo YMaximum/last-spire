@@ -13,7 +13,11 @@ import {
   type RuneId,
   type AutocastRules,
 } from '../v3/controls';
-import type { SaveV3 } from '../v3/storage';
+import type { SaveV3, SaveScope } from '../v3/storage';
+import { AccountSync } from '../account/sync';
+import { AccountPanel } from '../account/panel';
+import { EntryScreen } from '../account/entry';
+import { archiveSave, rememberedPlayer } from '../account/cache';
 import { STAGES, ELEMENT_COLORS, PATTERNS } from '../content';
 import { TOWERS, isDefensiveKind, FUSIONS, FUSION_BY_ID } from '../v3/catalog';
 import type { RunV3, RunMode } from '../v3/types';
@@ -67,6 +71,7 @@ import { WindowManager } from './windows';
 import {
   emptySave,
   loadGame,
+  loadDeviceSettings,
   saveGame,
   settleGame,
   settleInMemory,
@@ -124,6 +129,9 @@ let data: SaveV3 = emptySave(),
   saveBusy = false,
   saveQueued = false,
   settlePromise: Promise<void> | null = null;
+let saveScope: SaveScope = 'guest';
+let contextChanging = false,
+  contextEpoch = 0;
 let chosenMode: RunMode = 'normal';
 let chosenTower: TowerId = 'bastion',
   chosenStage = 0,
@@ -139,13 +147,51 @@ const observedOffers = new Set<string>();
 let selectedOffer: { rewardId: string; offerId: string; purchase: boolean } | null = null;
 const telemetry = new LocalTelemetry();
 const app = $('app');
-app.innerHTML = `<main id="battlefield"><canvas id="arena" aria-label="Last Spire battlefield"></canvas><div class="arena-shade"></div><header class="battle-hud"><button class="brand-button" id="menu-btn" aria-label="Expedition menu">${glyph('tower')}<span>LAST SPIRE<small>THE RUNEFORGED AGE</small></span>${glyph('menu')}</button><div class="wave-hud"><span id="stage-label">VERDANT WILDS</span><strong id="wave-label">Wave 01 <em>/ 100</em></strong><div id="wave-progress"><i></i></div></div><div class="resource-hud"><span title="Scrap is spent during this expedition">${glyph('diamond')}<b id="scrap-value">0</b><small>SCRAP</small></span><span title="Credits unlock towers between expeditions">${glyph('diamond')}<b id="credit-value">0</b><small>CREDITS</small></span><button id="settings-btn" class="square-button" aria-label="Settings">${glyph('gear')}</button></div></header><div class="threat-strip"><span id="threat-text">One spire. A thousand ways to fight.</span><button id="pause-indicator" class="hidden">PAUSED · RESUME</button></div><nav class="field-tools" aria-label="Battlefield panels"><button id="arsenal-btn" title="Arsenal (A)">${glyph('tower')}<span>Arsenal</span></button><button id="codex-btn" title="Codex (C)">${glyph('book')}<span>Codex</span></button><button id="stats-btn" title="Combat statistics">${glyph('stats')}<span>Ledger</span></button><button id="autocast-btn" title="Conditional skill autocast">${glyph('bolt')}<span>Autocast</span></button><button id="rewards-btn" class="reward-tool hidden">${glyph('diamond')}<span id="reward-count">Choose upgrade</span></button></nav><div id="buff-strip" aria-label="Active buffs"></div><div id="event-toast" role="status" aria-live="polite"></div><div id="boss-warning" class="hidden"></div><footer class="combat-controls"><div class="integrity"><div><span>${glyph('heart')} SPIRE INTEGRITY</span><strong id="hp-value">—</strong></div><div class="hp-track"><i id="hp-fill"></i><i id="shield-fill"></i></div><span id="barrier-value">Barrier dormant</span></div><div class="ability-tray"><button class="ability" id="signature-btn"><span>${glyph('shield')}</span><div><small>SIGNATURE <kbd>Q</kbd></small><b id="signature-name">Bulwark</b></div><em id="signature-cd"></em><span id="signature-auto" class="auto-indicator" hidden>AUTO</span></button><button class="ability" id="secondary-btn"><span>${glyph('bolt')}</span><div><small>SECONDARY <kbd>E</kbd></small><b id="secondary-name">Mend</b></div><em id="secondary-cd"></em><span id="secondary-auto" class="auto-indicator" hidden>AUTO</span></button></div><div class="playback"><button class="square-button" id="pause-btn" aria-label="Pause combat">${glyph('pause')}</button><button id="speed-btn" title="Speed (1, 2, 3)">1×</button><button id="target-btn" title="Target priority">${glyph('target')}<span id="target-label">Nearest</span></button></div></footer><div id="xp-hud" hidden><span id="xp-label"></span><div class="xp-track"><i id="xp-fill"></i></div></div><div id="window-host"></div><div id="window-dock"></div><div id="loading-screen"><div class="loading-rune">${glyph('tower')}</div><h1>LAST SPIRE</h1><p>Waking the ancient machines…</p></div></main>`;
+app.innerHTML = `<main id="battlefield"><canvas id="arena" aria-label="Last Spire battlefield"></canvas><div class="arena-shade"></div><header class="battle-hud"><button class="brand-button" id="menu-btn" aria-label="Expedition menu">${glyph('tower')}<span>LAST SPIRE<small>THE RUNEFORGED AGE</small></span>${glyph('menu')}</button><div class="wave-hud"><span id="stage-label">VERDANT WILDS</span><strong id="wave-label">Wave 01 <em>/ 100</em></strong><div id="wave-progress"><i></i></div></div><div class="resource-hud"><span title="Scrap is spent during this expedition">${glyph('diamond')}<b id="scrap-value">0</b><small>SCRAP</small></span><span title="Credits unlock towers between expeditions">${glyph('diamond')}<b id="credit-value">0</b><small>CREDITS</small></span><button id="settings-btn" class="square-button" aria-label="Settings">${glyph('gear')}</button></div></header><div class="threat-strip"><span id="threat-text">One spire. A thousand ways to fight.</span><button id="pause-indicator" class="hidden">PAUSED · RESUME</button></div><nav class="field-tools" aria-label="Battlefield panels"><button id="arsenal-btn" title="Arsenal (A)">${glyph('tower')}<span>Arsenal</span></button><button id="codex-btn" title="Codex (C)">${glyph('book')}<span>Codex</span></button><button id="stats-btn" title="Combat statistics">${glyph('stats')}<span>Ledger</span></button><button id="autocast-btn" title="Conditional skill autocast">${glyph('bolt')}<span>Autocast</span></button><button id="account-btn" title="Account and cloud saves">${glyph('shield')}<span>Guest · Local</span></button><button id="rewards-btn" class="reward-tool hidden">${glyph('diamond')}<span id="reward-count">Choose upgrade</span></button></nav><div id="buff-strip" aria-label="Active buffs"></div><div id="event-toast" role="status" aria-live="polite"></div><div id="boss-warning" class="hidden"></div><footer class="combat-controls"><div class="integrity"><div><span>${glyph('heart')} SPIRE INTEGRITY</span><strong id="hp-value">—</strong></div><div class="hp-track"><i id="hp-fill"></i><i id="shield-fill"></i></div><span id="barrier-value">Barrier dormant</span></div><div class="ability-tray"><button class="ability" id="signature-btn"><span>${glyph('shield')}</span><div><small>SIGNATURE <kbd>Q</kbd></small><b id="signature-name">Bulwark</b></div><em id="signature-cd"></em><span id="signature-auto" class="auto-indicator" hidden>AUTO</span></button><button class="ability" id="secondary-btn"><span>${glyph('bolt')}</span><div><small>SECONDARY <kbd>E</kbd></small><b id="secondary-name">Mend</b></div><em id="secondary-cd"></em><span id="secondary-auto" class="auto-indicator" hidden>AUTO</span></button></div><div class="playback"><button class="square-button" id="pause-btn" aria-label="Pause combat">${glyph('pause')}</button><button id="speed-btn" title="Speed (1, 2, 3)">1×</button><button id="target-btn" title="Target priority">${glyph('target')}<span id="target-label">Nearest</span></button></div></footer><div id="xp-hud" hidden><span id="xp-label"></span><div class="xp-track"><i id="xp-fill"></i></div></div><div id="window-host"></div><div id="window-dock"></div><div id="loading-screen"><div class="loading-rune">${glyph('tower')}</div><h1>LAST SPIRE</h1><p>Waking the ancient machines…</p></div></main>`;
 const manager = new WindowManager(
   $('window-host'),
   $('window-dock'),
   () => data.settings,
   () => scheduleSave(),
 );
+const accountSync = new AccountSync({
+  save: () => data,
+  scope: () => saveScope,
+  persist: async () => {
+    await persist();
+    if (storageFailed || blocked)
+      throw new Error(
+        'Local progress could not be secured. Export it before switching checkpoints.',
+      );
+  },
+  activate: activateSave,
+  changed: () => accountPanel.update(),
+});
+const accountPanel = new AccountPanel(accountSync, manager, download, () => {
+  paused = true;
+  updateHud();
+});
+const entryScreen = new EntryScreen({
+  session: () => accountSync.api.bootstrap(),
+  remembered: rememberedPlayer,
+  guest: () => {},
+  signIn: async (code) => {
+    const nonce = accountSync.api.session?.nonce;
+    await accountSync.signIn(code, 'code');
+    if (!accountSync.view.player || accountSync.api.session?.nonce === nonce)
+      throw new Error('Sign-in failed.');
+    accountPanel.open();
+  },
+  continueAccount: async () => {
+    await accountSync.initialize();
+    if (!accountSync.active && !accountSync.view.player) throw new Error('Account unavailable.');
+    if (
+      !accountSync.active ||
+      ['choice', 'conflict', 'lease', 'reauth', 'error'].includes(accountSync.view.phase)
+    )
+      accountPanel.open();
+  },
+});
 const inspector = new BuildInspector({
   host: $('battlefield'),
   getRun: () => (playing && isV2(current()) ? (current() as RunV2) : null),
@@ -216,7 +262,7 @@ function scheduleSave() {
 }
 let saveCompletion: Promise<void> = Promise.resolve();
 async function persist() {
-  if (loading || blocked) return;
+  if (loading || blocked || contextChanging) return;
   if (saveBusy || settlePromise) {
     saveQueued = true;
     await (settlePromise || saveCompletion);
@@ -228,8 +274,10 @@ async function persist() {
     completeSave = resolve;
   });
   try {
-    await saveGame(data);
+    const scope = saveScope;
+    await saveGame(data, false, scope);
     storageFailed = false;
+    accountSync.onLocalSave(scope);
   } catch (e) {
     storageFailed = true;
     if (e instanceof SaveError && e.code === 'invalid') blocked = true;
@@ -252,7 +300,8 @@ async function settle() {
   if (!data.run || data.run.settled) return;
   const task = async () => {
     try {
-      data = await settleGame(data);
+      data = await settleGame(data, saveScope);
+      accountSync.onLocalSave(saveScope);
     } catch {
       data = settleInMemory(data);
       storageFailed = true;
@@ -270,6 +319,55 @@ async function settle() {
       saveQueued = false;
       scheduleSave();
     }
+  }
+}
+async function activateSave(incoming: SaveV3, target: SaveScope, explicitImport = false) {
+  if (contextChanging) throw new Error('Another checkpoint is being opened. Please wait.');
+  contextChanging = true;
+  paused = true;
+  document.documentElement.dataset.accountSwitching = 'true';
+  clearTimeout(persistTimer);
+  try {
+    if (settlePromise) await settlePromise;
+    await saveCompletion;
+    if (!explicitImport) {
+      if (blocked)
+        throw new Error(
+          'Recover or export the protected local checkpoint before switching accounts.',
+        );
+      await saveGame(data, false, saveScope);
+    }
+    const next = parseGame({ ...incoming, settings: data.settings });
+    await saveGame(next, true, target);
+    ++contextEpoch;
+    saveScope = target;
+    data = next;
+    blocked = false;
+    storageFailed = false;
+    saveQueued = false;
+    playing = !!data.run;
+    paused = playing && data.run?.phase === 'combat';
+    chosenMode = data.run && modern(data.run) ? modern(data.run)!.mode : 'normal';
+    chosenTower = data.run?.tower ?? data.profile.unlocked[0] ?? 'bastion';
+    chosenStage = data.run?.stage ?? 0;
+    chosenDifficulty = data.run?.difficulty ?? 0;
+    lastPhase = '';
+    lastSignature = '';
+    lastRewardId = '';
+    lastWave = 0;
+    manager.closeAll();
+    clearTimeout(persistTimer);
+    applySettings();
+    makePreview();
+    updateHud();
+    if (!playing) openLaunch();
+    else if (data.run?.phase === 'victory') openVictory();
+    else if (data.run?.phase === 'ended') openResults();
+    else if (data.run?.version === 1 && ['draft', 'shop'].includes(data.run.phase))
+      showLegacyRewards(data.run);
+  } finally {
+    contextChanging = false;
+    delete document.documentElement.dataset.accountSwitching;
   }
 }
 let toastTimer = 0,
@@ -491,7 +589,7 @@ function openMenu() {
       width: 410,
       height: 500,
     },
-    `<div class="menu-list">${!playing ? '<button id="menu-launch">Prepare expedition</button>' : ''}<button id="menu-arsenal">${glyph('tower')} Arsenal & synergies</button><button id="menu-codex">${glyph('book')} Field codex</button><button id="menu-hangar">${glyph('shield')} Tower hangar</button><button id="menu-settings">${glyph('gear')} Settings & saves</button><button id="menu-help">How to play</button>${playing ? '<button id="menu-retire" class="danger-text">Retire & collect rewards</button>' : ''}</div><p class="quiet">${playing ? 'Combat continues behind information windows. Use Space to pause.' : 'Original arcane machines. Endless possibilities.'}</p>`,
+    `<div class="menu-list">${!playing ? '<button id="menu-launch">Prepare expedition</button>' : ''}<button id="menu-arsenal">${glyph('tower')} Arsenal & synergies</button><button id="menu-codex">${glyph('book')} Field codex</button><button id="menu-hangar">${glyph('shield')} Tower hangar</button><button id="menu-settings">${glyph('gear')} Settings & saves</button><button id="menu-account">${glyph('shield')} Account & cloud saves</button><button id="menu-help">How to play</button>${playing ? '<button id="menu-retire" class="danger-text">Retire & collect rewards</button>' : ''}</div><p class="quiet">${playing ? 'Combat continues behind information windows. Use Space to pause.' : 'Original arcane machines. Endless possibilities.'}</p>`,
   );
   $('menu-launch')?.addEventListener('click', () => {
     manager.close('menu');
@@ -501,6 +599,7 @@ function openMenu() {
   $('menu-codex').onclick = () => openCodex();
   $('menu-hangar').onclick = openHangar;
   $('menu-settings').onclick = openSettings;
+  $('menu-account').onclick = () => accountPanel.open();
   $('menu-help').onclick = openHelp;
   $('menu-retire')?.addEventListener('click', openRetire);
 }
@@ -1389,11 +1488,11 @@ function openSettings() {
     'settings',
     {
       title: 'Find your rhythm.',
-      subtitle: 'PRESENTATION · CONTROLS · LOCAL SAVES',
+      subtitle: 'PRESENTATION · CONTROLS · SAVES',
       width: 610,
       height: 760,
     },
-    `<div class="settings-list"><label>Sound effects<input id="setting-sound" type="checkbox" ${data.settings.sound ? 'checked' : ''}></label><label>Floating damage numbers<input id="setting-damage-numbers" type="checkbox" ${data.settings.damageNumbers ? 'checked' : ''}></label><label>Reduced motion<input id="setting-motion" type="checkbox" ${data.settings.reducedMotion ? 'checked' : ''}></label><label>Camera shake<input id="setting-shake" type="checkbox" ${data.settings.shake ? 'checked' : ''}></label><label>Pause draft & shop windows<input id="setting-pause" type="checkbox" ${data.settings.autoPauseChoices ? 'checked' : ''}></label><label>Text & interface scale<select id="setting-scale">${[100, 115, 130, 150].map((v) => `<option value="${v}" ${data.settings.uiScale === v ? 'selected' : ''}>${v}%</option>`).join('')}</select></label><label>Weapon spectacle<select id="setting-intensity">${['subtle', 'balanced', 'spectacular'].map((v) => `<option value="${v}" ${v === data.settings.intensity ? 'selected' : ''}>${v[0].toUpperCase() + v.slice(1)}</option>`).join('')}</select></label><label>Effects quality<select id="setting-quality"><option value="high" ${data.settings.effects === 'high' ? 'selected' : ''}>High detail</option><option value="low" ${data.settings.effects === 'low' ? 'selected' : ''}>Battery friendly</option></select></label></div><div class="save-status ${storageFailed || blocked ? 'warning' : ''}">${blocked ? 'A saved checkpoint needs recovery. Automatic writes are stopped to protect it.' : storageFailed ? 'Storage is unavailable. Progress is kept in this tab: export before closing.' : 'Local saves are active. Combat checkpoints and queued choices are autosaved.'}</div><div class="save-actions"><button id="local-analytics" class="outline-button">Local gameplay data</button><button id="export-save" class="outline-button">Export current save</button><label class="file-button outline-button">Import save<input id="import-save" type="file" accept="application/json,.json"></label><button id="paste-import" class="outline-button">Paste a save</button><button id="export-backup" class="outline-button">Download migration backup</button></div><p class="quiet">Save files stay on your device. Import shows a review before replacing progress. A recovered original expedition keeps its old rules until it ends.</p><div class="controls-reference"><h3>At your command</h3><p><kbd>Space</kbd> pause · <kbd>Q</kbd> signature · <kbd>E</kbd> secondary<br><kbd>A</kbd> arsenal · <kbd>C</kbd> codex · <kbd>1 / 2 / 3</kbd> speed<br><kbd>Esc</kbd> close the top window, then pause<br>Drag window headers, or focus a header and use <kbd>Alt + arrows</kbd>.</p></div><a class="outline-button full" href="/icon-contact-sheet.html" target="_blank" rel="noopener">Inspect the original card icon collection ↗</a>`,
+    `<div class="settings-list"><label>Sound effects<input id="setting-sound" type="checkbox" ${data.settings.sound ? 'checked' : ''}></label><label>Floating damage numbers<input id="setting-damage-numbers" type="checkbox" ${data.settings.damageNumbers ? 'checked' : ''}></label><label>Reduced motion<input id="setting-motion" type="checkbox" ${data.settings.reducedMotion ? 'checked' : ''}></label><label>Camera shake<input id="setting-shake" type="checkbox" ${data.settings.shake ? 'checked' : ''}></label><label>Pause draft & shop windows<input id="setting-pause" type="checkbox" ${data.settings.autoPauseChoices ? 'checked' : ''}></label><label>Text & interface scale<select id="setting-scale">${[100, 115, 130, 150].map((v) => `<option value="${v}" ${data.settings.uiScale === v ? 'selected' : ''}>${v}%</option>`).join('')}</select></label><label>Weapon spectacle<select id="setting-intensity">${['subtle', 'balanced', 'spectacular'].map((v) => `<option value="${v}" ${v === data.settings.intensity ? 'selected' : ''}>${v[0].toUpperCase() + v.slice(1)}</option>`).join('')}</select></label><label>Effects quality<select id="setting-quality"><option value="high" ${data.settings.effects === 'high' ? 'selected' : ''}>High detail</option><option value="low" ${data.settings.effects === 'low' ? 'selected' : ''}>Battery friendly</option></select></label></div><div class="save-status ${storageFailed || blocked ? 'warning' : ''}">${blocked ? 'A saved checkpoint needs recovery. Automatic writes are stopped to protect it.' : storageFailed ? 'Storage is unavailable. Progress is kept in this tab: export before closing.' : 'Local saves are active. Combat checkpoints and queued choices are autosaved.'}</div><div class="save-actions"><button id="settings-account" class="outline-button">Account & cloud saves</button><button id="local-analytics" class="outline-button">Local gameplay data</button><button id="export-save" class="outline-button">Export current save</button><label class="file-button outline-button">Import save<input id="import-save" type="file" accept="application/json,.json"></label><button id="paste-import" class="outline-button">Paste a save</button><button id="export-backup" class="outline-button">Download migration backup</button></div><p class="quiet">Guest saves stay on your device. Optional account sync is managed in Account & cloud saves. Import reviews and replaces only the active save context. A recovered original expedition keeps its old rules until it ends.</p><div class="controls-reference"><h3>At your command</h3><p><kbd>Space</kbd> pause · <kbd>Q</kbd> signature · <kbd>E</kbd> secondary<br><kbd>A</kbd> arsenal · <kbd>C</kbd> codex · <kbd>1 / 2 / 3</kbd> speed<br><kbd>Esc</kbd> close the top window, then pause<br>Drag window headers, or focus a header and use <kbd>Alt + arrows</kbd>.</p></div><a class="outline-button full" href="/icon-contact-sheet.html" target="_blank" rel="noopener">Inspect the original card icon collection ↗</a>`,
   );
   const bindCheck = (
     id: string,
@@ -1427,10 +1526,11 @@ function openSettings() {
     scheduleSave();
   };
   $('export-save').onclick = downloadCurrent;
+  $('settings-account').onclick = () => accountPanel.open();
   $('local-analytics').onclick = openTelemetry;
   $('export-backup').onclick = async () => {
     try {
-      const raw = await readLegacyBackup();
+      const raw = await readLegacyBackup(saveScope);
       if (!raw) {
         notify('No migration backup was found. Your current save can still be exported.');
         return;
@@ -1464,12 +1564,15 @@ function openSettings() {
     };
   };
   $<HTMLInputElement>('import-save').onchange = async () => {
+    const epoch = contextEpoch;
     const input = $<HTMLInputElement>('import-save'),
       file = input.files?.[0];
     if (!file) return;
     try {
       if (file.size > 8 * 1024 * 1024) throw new Error('File exceeds 8 MB');
       const incoming = parseGame(await file.text());
+      if (epoch !== contextEpoch)
+        throw new Error('The active account changed. Choose the import again.');
       showImportReview(incoming, file.name);
     } catch (e) {
       notify(`Import rejected: ${e instanceof Error ? e.message : 'Invalid save'}`, 'warning');
@@ -1479,6 +1582,7 @@ function openSettings() {
   };
 }
 function showImportReview(incoming: SaveV3, name: string) {
+  const importEpoch = contextEpoch;
   manager.open(
     'import',
     {
@@ -1488,34 +1592,19 @@ function showImportReview(incoming: SaveV3, name: string) {
       height: 450,
       choice: true,
     },
-    `<p class="lead">${esc(name)}</p><div class="ledger-grid"><div><small>Credits</small><b>${incoming.profile.credits}</b></div><div><small>Towers</small><b>${incoming.profile.unlocked.length}/${TOWERS.length}</b></div><div><small>Best wave</small><b>${incoming.profile.bestWave}</b></div><div><small>Active run</small><b>${incoming.run ? `Wave ${incoming.run.wave}` : 'None'}</b></div></div><p>This replaces the current local progress. Export your current save first if you want to keep both.</p><div class="result-actions"><button id="cancel-import" class="outline-button">Cancel</button><button id="confirm-import" class="gold-button">Restore this save</button></div>`,
+    `<p class="lead">${esc(name)}</p><div class="ledger-grid"><div><small>Credits</small><b>${incoming.profile.credits}</b></div><div><small>Towers</small><b>${incoming.profile.unlocked.length}/${TOWERS.length}</b></div><div><small>Best wave</small><b>${incoming.profile.bestWave}</b></div><div><small>Active run</small><b>${incoming.run ? `Wave ${incoming.run.wave}` : 'None'}</b></div></div><p>This replaces only the active ${saveScope === 'guest' ? 'guest' : 'account'} progress. Export your current save first if you want to keep both. Account imports are reviewed against the cloud before upload.</p><div class="result-actions"><button id="cancel-import" class="outline-button">Cancel</button><button id="confirm-import" class="gold-button">Restore this save</button></div>`,
   );
   $('cancel-import').onclick = () => manager.close('import');
   $('confirm-import').onclick = async () => {
     const button = $<HTMLButtonElement>('confirm-import');
     button.disabled = true;
     try {
-      await saveGame(incoming, true);
-      data = incoming;
-      blocked = false;
-      storageFailed = false;
-      playing = !!data.run;
-      paused = playing && data.run?.phase === 'combat';
-      chosenMode = data.run && modern(data.run) ? modern(data.run)!.mode : 'normal';
-      chosenTower = data.run?.tower ?? data.profile.unlocked[0];
-      chosenStage = data.run?.stage ?? 0;
-      chosenDifficulty = data.run?.difficulty ?? 0;
-      lastPhase = '';
-      lastSignature = '';
-      lastRewardId = '';
-      lastWave = 0;
-      manager.closeAll();
-      applySettings();
-      makePreview();
-      updateHud();
-      if (!playing) openLaunch();
-      else if (data.run?.phase === 'victory') openVictory();
-      else if (data.run?.phase === 'ended') openResults();
+      if (importEpoch !== contextEpoch)
+        throw new Error('The active account changed. Review the import again.');
+      if (saveScope !== 'guest')
+        await archiveSave(saveScope.slice(8), data, 'Before manual import');
+      await activateSave(incoming, saveScope, true);
+      accountSync.onLocalSave(saveScope);
       notify('Save restored.');
     } catch (e) {
       button.disabled = false;
@@ -1639,11 +1728,13 @@ function openResults(startSettlement = true) {
   $('result-export').onclick = downloadCurrent;
   $('result-ledger').onclick = openStats;
   $('return-spire').onclick = async () => {
+    const epoch = contextEpoch;
     const button = $<HTMLButtonElement>('return-spire');
     button.disabled = true;
     button.textContent = 'Securing rewards…';
     try {
       await settle();
+      if (epoch !== contextEpoch || contextChanging) return;
       const finished = data.run;
       if (!finished?.settled) {
         button.disabled = false;
@@ -1693,7 +1784,7 @@ function openRecovery(error: string) {
   );
   $('raw-backup').onclick = async () => {
     try {
-      download(JSON.stringify(await readRawSave(), null, 2), 'last-spire-recovery.json');
+      download(JSON.stringify(await readRawSave(saveScope), null, 2), 'last-spire-recovery.json');
     } catch {
       notify('The saved checkpoint could not be read.', 'warning');
     }
@@ -1718,6 +1809,7 @@ function activate(which: 'signature' | 'secondary') {
 }
 $('menu-btn').onclick = openMenu;
 $('settings-btn').onclick = openSettings;
+$('account-btn').onclick = () => accountPanel.open();
 $('arsenal-btn').onclick = openArsenal;
 $('codex-btn').onclick = () => openCodex();
 $('stats-btn').onclick = openStats;
@@ -1743,6 +1835,7 @@ $('target-btn').onclick = () => {
   updateHud();
 };
 document.addEventListener('keydown', (e) => {
+  if (contextChanging || entryScreen.visible) return;
   const input = e.target as HTMLElement;
   if (input.matches('input,select,textarea') || e.altKey || e.ctrlKey || e.metaKey) return;
   const key = e.key.toLowerCase();
@@ -1789,7 +1882,14 @@ function frame(now: number) {
   last = now;
   const s = current();
   const simulationStarted = performance.now();
-  if (playing && !paused && !manager.choicesPause() && s.phase === 'combat') {
+  if (
+    playing &&
+    !paused &&
+    !contextChanging &&
+    !entryScreen.visible &&
+    !manager.choicesPause() &&
+    s.phase === 'combat'
+  ) {
     accumulator += delta * data.settings.speed;
     while (accumulator >= TICK) {
       if (isV2(s)) {
@@ -1900,6 +2000,7 @@ async function init() {
   await telemetry.init();
   try {
     data = await loadGame();
+    data.settings = (await loadDeviceSettings()) ?? data.settings;
   } catch (e) {
     if (e instanceof SaveError && e.code === 'invalid') {
       blocked = true;
@@ -1941,5 +2042,7 @@ async function init() {
     showLegacyRewards(data.run);
   } else notify('Expedition restored. Press Space or tap play when you’re ready.');
   requestAnimationFrame(frame);
+  if (!recovery) entryScreen.open();
 }
+window.addEventListener('online', () => void accountSync.refresh());
 void init();

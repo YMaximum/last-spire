@@ -1,0 +1,164 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <meta name="theme-color" content="#101918" />
+    <title>Privacy & saves — Last Spire</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        font-family: system-ui, sans-serif;
+        font-size: 18px;
+        background: #101918;
+        color: #e4e5d7;
+      }
+      body {
+        margin: 0;
+        background: radial-gradient(ellipse at top, #243c31, transparent 65%);
+        line-height: 1.75;
+      }
+      main {
+        max-width: 760px;
+        margin: auto;
+        padding: 48px 24px 80px;
+      }
+      a {
+        color: #bce4ca;
+        text-underline-offset: 4px;
+      }
+      h1,
+      h2 {
+        color: #e3cb93;
+        line-height: 1.25;
+      }
+      h1 {
+        font-size: clamp(32px, 6vw, 48px);
+      }
+      h2 {
+        font-size: 25px;
+        margin-top: 36px;
+      }
+      .eyebrow {
+        font-size: 14px;
+        letter-spacing: 0.16em;
+        color: #c6b17d;
+      }
+      .notice {
+        padding: 18px 22px;
+        border: 1px solid #5d755e;
+        background: #182b23;
+      }
+      li {
+        margin: 10px 0;
+      }
+      footer {
+        margin-top: 40px;
+        border-top: 1px solid #435241;
+        padding-top: 20px;
+        font-size: 16px;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <a href="/">← Return to Last Spire</a>
+      <p class="eyebrow">LAST SPIRE · CONTINUITY VAULT</p>
+      <h1>Your progress.<br />Your choice.</h1>
+      <p>Privacy and save information · updated 18 October 2026</p>
+      <p class="notice">
+        You can play as a guest without Google sign-in. Guest progress stays in the browser. Cloud
+        saving is optional and is available only when the game’s account service is enabled.
+      </p>
+      <h2>Guest saves and device settings</h2>
+      <p>
+        The game stores progress in this browser using IndexedDB. Audio, graphics, window layouts,
+        and interface preferences stay on the device. Separate, optional gameplay observations also
+        stay in the browser; you can export or delete them in Settings → Local gameplay data. They
+        are not uploaded with cloud saves.
+      </p>
+      <h2>Optional Google identity</h2>
+      <p>
+        Opening the account sign-in interface loads Google’s identity library to show its sign-in
+        button. Google handles its sign-in screen under
+        <a href="https://policies.google.com/privacy" rel="noopener noreferrer"
+          >Google’s privacy policy</a
+        >. Last Spire receives a short-lived identity proof, verifies it on the save server, and
+        uses the stable Google identifier and a display name to identify your game account.
+      </p>
+      <p>
+        Last Spire does not receive your Google password, request Gmail or Drive access, or store
+        Google access or refresh tokens. Email and picture claims are not stored in the account
+        database. The identity proof is used for verification and is not kept as an account
+        credential.
+      </p>
+      <h2>What cloud saving stores</h2>
+      <p>
+        If you deliberately adopt an account checkpoint, the save server stores permanent progress,
+        unlocks, credits, and the active expedition, including its build, random-generator state,
+        queued choices, and reward-settlement record. Up to five prior cloud revisions are retained
+        for recovery. Account data is kept until you delete the game account.
+      </p>
+      <p>
+        Guest and account progress are separate. The game does not automatically add currencies
+        together or overwrite conflicting saves. A device takeover requires a choice; unsynced
+        progress remains in that device’s account cache.
+      </p>
+      <h2>Sessions and request protection</h2>
+      <p>
+        The service uses an essential, first-party, HttpOnly session cookie. Production cookies are
+        Secure and SameSite Strict. A signed-in session can last up to 30 days; sign-out revokes
+        that session. Short-lived sign-in sessions expire after ten minutes. No advertising or
+        third-party analytics cookies are added by Last Spire.
+      </p>
+      <p>
+        The server uses IP addresses temporarily in memory to limit abusive requests. Hosting
+        infrastructure may process ordinary connection information to deliver the website. Save
+        payloads, Google proofs, and authentication cookies must not be written to application logs.
+      </p>
+      <h2>Export, sign-out, and deletion</h2>
+      <ul>
+        <li>
+          Export your current save from Settings or Account &amp; cloud saves. Treat exported files
+          as personal progress data.
+        </li>
+        <li>
+          Signing out returns to the guest save. The account’s local cache is retained so unsynced
+          progress can be recovered.
+        </li>
+        <li>
+          Account &amp; cloud saves → Delete account removes the live account, its cloud saves and
+          history, and all server sessions. A recent Google sign-in and typed confirmation are
+          required.
+        </li>
+        <li>
+          Deletion also removes that account’s cache and recovery copies from the current browser.
+          Other devices’ offline copies cannot be erased remotely; clear their site data yourself if
+          needed.
+        </li>
+        <li>
+          Database recovery copies can retain deleted data for up to seven days. They are not live
+          saves. Operators must honor deletion requests when restoring an older backup.
+        </li>
+      </ul>
+      <p>
+        Clearing browser site data removes guest and cached account progress, settings, and local
+        logs on that browser. Export anything you want to keep first.
+      </p>
+      <h2>Recovery limits</h2>
+      <p>
+        The hobby save service currently keeps recovery copies on the same server. They can help
+        recover a bad checkpoint, but cannot protect against total server loss, disk loss, or
+        compromise. Keep an export on another device if your progress matters to you. Off-site
+        storage is not currently included.
+      </p>
+      <h2>Questions</h2>
+      <p>
+        For account or privacy questions, use the developer support contact shown on the Google
+        sign-in screen. Do not post identity proofs, session cookies, or personal saves in public
+        issues.
+      </p>
+      <footer><a href="/">Keep the light alive →</a></footer>
+    </main>
+  </body>
+</html>

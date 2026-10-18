@@ -4,7 +4,7 @@ Describe the problem and resulting behavior. Include a before/after example when
 
 ## Validation
 
-List the checks actually run and their results. Add screenshots for visible changes. Identify untested browsers or hardware when relevant.
+List the checks actually run and their results. Share synthetic screenshots for visible changes in chat or as review attachments; do not commit QA screenshots. Identify untested browsers or hardware when relevant.
 
 ## Compatibility and release notes
 

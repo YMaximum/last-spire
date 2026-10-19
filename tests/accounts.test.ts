@@ -193,7 +193,7 @@ describe('persistent account checkpoints', () => {
     const snapshot = snapshotFromSave(save);
     const writeId = randomUUID();
     const saved = write(actor.player.id, 0, lease.leaseToken, snapshot, writeId);
-    const { stages: _, ...oldProgression } = snapshot.progression;
+    const { stages: _, bestiary: __, ...oldProgression } = snapshot.progression;
     const oldClient = { ...snapshot, version: 3, progression: oldProgression };
     expect(() =>
       store.write(actor.player.id, store.generation, 1, lease.leaseToken, randomUUID(), oldClient),
@@ -204,6 +204,28 @@ describe('persistent account checkpoints', () => {
     );
     expect(store.read(actor.player.id).revision).toBe(1);
   });
+  it('protects encounter discoveries against an older schema-four client', () => {
+    const actor = login();
+    const lease = store.acquireLease(actor.player.id, store.generation, 0, false);
+    const save = activeSave();
+    save.progression.bestiary.swarmer = { encountered: 4, defeated: 3 };
+    const snapshot = snapshotFromSave(save);
+    write(actor.player.id, 0, lease.leaseToken, snapshot);
+    const old = structuredClone(snapshot) as Record<string, any>;
+    old.version = 4;
+    delete old.progression.bestiary;
+    if (old.run) {
+      delete old.run.encounterVersion;
+      delete old.run.discoveries;
+    }
+    expect(() =>
+      store.write(actor.player.id, store.generation, 1, lease.leaseToken, randomUUID(), old),
+    ).toThrow('update_required');
+    expect(store.read(actor.player.id).snapshot?.progression.bestiary.swarmer).toEqual({
+      encountered: 4,
+      defeated: 3,
+    });
+  });
   it('migrates stored old cloud checkpoints on read and retains the original in revision history on write', () => {
     const actor = login();
     const lease = store.acquireLease(actor.player.id, store.generation, 0, false);
@@ -212,14 +234,14 @@ describe('persistent account checkpoints', () => {
     save.profile.stageUnlocked = 2;
     save.profile.difficultyUnlocked = 3;
     const snapshot = snapshotFromSave(save);
-    const { stages: _, ...progression } = snapshot.progression;
+    const { stages: _, bestiary: __, ...progression } = snapshot.progression;
     const old = { ...snapshot, version: 3, progression };
     write(actor.player.id, 0, lease.leaseToken, snapshot);
     store.db
       .prepare('UPDATE saves SET payload=? WHERE userId=?')
       .run(JSON.stringify(old), actor.player.id);
     const migrated = store.read(actor.player.id).snapshot!;
-    expect(migrated.version).toBe(4);
+    expect(migrated.version).toBe(5);
     expect(migrated.progression.stages.map((s) => s.unlockedDifficulty)).toEqual([3, 3, 0]);
     expect(migrated.run).toEqual(old.run);
     write(actor.player.id, 1, lease.leaseToken, migrated);

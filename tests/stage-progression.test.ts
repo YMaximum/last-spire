@@ -40,7 +40,9 @@ function checkpoint(mode: RunMode = 'normal', stage = 0, difficulty = 0) {
 function oldEnvelope() {
   const { save, run } = checkpoint();
   delete run.shopVersion;
-  const { stages: _, ...progression } = save.progression;
+  delete run.encounterVersion;
+  delete run.discoveries;
+  const { stages: _, bestiary: __, ...progression } = save.progression;
   return { ...save, version: 3, progression };
 }
 async function putRaw(value: unknown, scope: SaveScope) {
@@ -150,7 +152,7 @@ describe('independent stage difficulty access', () => {
       old.profile.clears = [0];
       old.profile.credits = 357;
       const migrated = parseGame(old);
-      expect(migrated.version).toBe(4);
+      expect(migrated.version).toBe(5);
       expect(migrated.profile).toEqual(old.profile);
       expect(migrated.progression.stages.map((s) => s.unlockedDifficulty)).toEqual([4, 4, 0]);
       expect(migrated.progression.stages[0]).toMatchObject({
@@ -188,7 +190,7 @@ describe('independent stage difficulty access', () => {
       expect(await readLegacyBackup(scope)).toEqual(old);
       expect(await readRawSave(scope)).toEqual(old);
       await saveGame(migrated, false, scope);
-      expect((await loadGame(scope)).version).toBe(4);
+      expect((await loadGame(scope)).version).toBe(5);
       expect(await readLegacyBackup(scope)).toEqual(old);
       expect((await loadGame(scope)).run).toEqual(old.run);
       expect(
@@ -202,7 +204,7 @@ describe('independent stage difficulty access', () => {
     const save = emptySave();
     await saveGame(save);
     for (const bad of [
-      { ...save, version: 5 },
+      { ...save, version: 6 },
       { ...save, progression: { ...save.progression, stages: [] } },
       {
         ...save,

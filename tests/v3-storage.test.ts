@@ -163,7 +163,7 @@ describe('v3 persistence and migration', () => {
     expect(await readRawSave()).toEqual(old);
     expect(await readLegacyBackup()).toEqual(old);
     await saveGame(next);
-    expect((await loadGame()).version).toBe(4);
+    expect((await loadGame()).version).toBe(5);
     expect(await readLegacyBackup()).toEqual(old);
   });
   it('preserves v1 long runs, explicit preferences and ownership above current purchase caps', async () => {

@@ -27,6 +27,8 @@ import {
   type AutocastRules,
 } from '../game/controls';
 
+import { ENEMY_BY_ID, type BestiaryRecords } from '../content/enemies';
+import { mergeDiscoveries } from '../game/bestiary';
 export { SaveError };
 export type RunMode = 'quick' | 'normal' | 'endless';
 export interface ActiveRunConfig {
@@ -49,13 +51,14 @@ export interface ModeRecord {
   credits: number;
 }
 export interface GameSave extends Omit<SaveV2, 'version'> {
-  version: 4;
+  version: 5;
   progression: {
     runes: RuneLoadout;
     autocast: AutocastRules;
     active: ActiveRunConfig | null;
     records: ModeRecord[];
     stages: StageProgress[];
+    bestiary: BestiaryRecords;
   };
 }
 /** Compatibility type name for callers of the existing save API. */
@@ -179,7 +182,7 @@ export function emptySave(): SaveV3 {
   const base = emptyV2();
   return {
     ...base,
-    version: 4,
+    version: 5,
     settings: defaultSettings(),
     progression: {
       runes: defaultRuneLoadout(base.profile.upgrades),
@@ -187,6 +190,7 @@ export function emptySave(): SaveV3 {
       active: null,
       records: [],
       stages: freshStageProgress(),
+      bestiary: {},
     },
   };
 }
@@ -219,6 +223,18 @@ function parseStages(value: unknown): StageProgress[] {
       legacyClear: entry.legacyClear,
     };
   });
+}
+function parseDiscoveries(value: unknown): BestiaryRecords {
+  const result = object(value, 'bestiary records');
+  if (Object.keys(result).length > Object.keys(ENEMY_BY_ID).length)
+    invalid('too many bestiary entries');
+  for (const [id, value] of Object.entries(result)) {
+    if (!Object.hasOwn(ENEMY_BY_ID, id)) invalid('unknown bestiary entry');
+    const record = shape(value, 'discovery', ['encountered', 'defeated']);
+    numeric(record.encountered, 'encounter count', 0, 1e12);
+    numeric(record.defeated, 'defeat count', 0, record.encountered as number);
+  }
+  return structuredClone(result) as BestiaryRecords;
 }
 function equipment(value: unknown, time: number, ingredient = false): Obj {
   const w = shape(
@@ -342,7 +358,14 @@ function modernProjection(value: unknown): { original: RunV3; projection: Obj } 
   if (!TOWERS.some((t) => t.id === original.tower)) invalid('modern tower is unknown');
   if (original.shopVersion !== undefined && original.shopVersion !== 2)
     invalid('shop rules are unsupported');
+  if (original.encounterVersion !== undefined && original.encounterVersion !== 2)
+    invalid('encounter rules are unsupported');
+  if (original.encounterVersion === 2) parseDiscoveries(original.discoveries);
+  else if (original.discoveries !== undefined)
+    invalid('legacy encounter rules cannot track new discoveries');
   const projection = structuredClone(original);
+  delete projection.encounterVersion;
+  delete projection.discoveries;
   delete projection.shopVersion;
   for (const field of [
     'rulesVersion',
@@ -419,6 +442,17 @@ function modernProjection(value: unknown): { original: RunV3; projection: Obj } 
   for (const item of list(projection.enemies, 'enemies', 20_000)) {
     const enemy = object(item, 'enemy');
     if (enemy.xpBudget !== undefined) numeric(enemy.xpBudget, 'enemy XP budget', 0, 25, false);
+    if (enemy.archetypeId !== undefined) {
+      const def = ENEMY_BY_ID[enemy.archetypeId as keyof typeof ENEMY_BY_ID];
+      if (
+        original.encounterVersion !== 2 ||
+        !def ||
+        def.role !== enemy.kind ||
+        (def.stage !== undefined && def.stage !== original.stage)
+      )
+        invalid('enemy archetype does not belong to this encounter');
+      delete enemy.archetypeId;
+    } else if (original.encounterVersion === 2) invalid('new encounter requires an archetype');
     delete enemy.xpBudget;
   }
   for (const item of list(projection.projectiles, 'projectiles', 20_000)) {
@@ -457,11 +491,11 @@ export function parseGame(raw: string | unknown): SaveV3 {
     finiteTree(raw);
     const root = object(raw, 'save');
     const version = root.version;
-    if (![1, 2, 3, 4].includes(version as number))
+    if (![1, 2, 3, 4, 5].includes(version as number))
       invalid(
         'This checkpoint requires a newer Last Spire client. Reload or update before continuing.',
       );
-    const expanded = version === 3 || version === 4;
+    const expanded = version === 3 || version === 4 || version === 5;
     const sourceSettings = object(root.settings, 'settings');
     const settings = { ...defaultSettings(), ...sourceSettings };
     const profile = expanded ? structuredClone(object(root.profile, 'profile')) : root.profile;
@@ -494,7 +528,7 @@ export function parseGame(raw: string | unknown): SaveV3 {
       if (base.run?.cleared) recordStageClear(base.profile, stages, base.run);
       return {
         ...base,
-        version: 4,
+        version: 5,
         settings: { ...defaultSettings(), ...sourceSettings } as SettingsV2,
         progression: {
           runes: legacyRunes(base.profile.upgrades),
@@ -502,6 +536,7 @@ export function parseGame(raw: string | unknown): SaveV3 {
           active: null,
           records: [],
           stages,
+          bestiary: {},
         },
       };
     }
@@ -511,7 +546,8 @@ export function parseGame(raw: string | unknown): SaveV3 {
       'autocast',
       'active',
       'records',
-      ...(version === 4 ? ['stages'] : []),
+      ...((version as number) >= 4 ? ['stages'] : []),
+      ...(version === 5 ? ['bestiary'] : []),
     ]);
     const runes = loadout(p.runes);
     const rules = autocast(p.autocast);
@@ -589,12 +625,21 @@ export function parseGame(raw: string | unknown): SaveV3 {
       fortune: runes.owned.fortune,
     };
     const stages =
-      version === 4 ? parseStages(p.stages) : migrateStageProgress(base.profile, records);
+      (version as number) >= 4
+        ? parseStages(p.stages)
+        : migrateStageProgress(base.profile, records);
     if (base.run?.cleared) recordStageClear(base.profile, stages, base.run);
     const result: SaveV3 = {
       ...base,
-      version: 4,
-      progression: { runes, autocast: rules, active, records, stages },
+      version: 5,
+      progression: {
+        runes,
+        autocast: rules,
+        active,
+        records,
+        stages,
+        bestiary: version === 5 ? parseDiscoveries(p.bestiary) : {},
+      },
     };
     const json = JSON.stringify(result);
     if (new TextEncoder().encode(json).byteLength > MAX_BYTES) invalid('file exceeds 8 MB');
@@ -696,6 +741,13 @@ export function saveKey(scope: SaveScope = 'guest'): string {
   return scope;
 }
 async function backupLegacy(store: IDBObjectStore, raw: unknown, scope: SaveScope): Promise<void> {
+  const encounterBackup = `backup-before-encounters:${saveKey(scope)}`;
+  if (
+    raw &&
+    [1, 2, 3, 4].includes((raw as { version?: number }).version ?? 0) &&
+    (await request(store.get(encounterBackup))) === undefined
+  )
+    store.put(raw, encounterBackup);
   const migrationKey = `backup-before-stage-progression:${saveKey(scope)}`;
   if (
     raw &&
@@ -718,6 +770,8 @@ export async function readRawSave(scope: SaveScope = 'guest'): Promise<unknown> 
 export async function readLegacyBackup(scope: SaveScope = 'guest'): Promise<unknown> {
   saveKey(scope);
   return transact('readonly', async (store) => {
+    const encountered = await request(store.get(`backup-before-encounters:${saveKey(scope)}`));
+    if (encountered !== undefined) return encountered;
     const migrated = await request(store.get(`backup-before-stage-progression:${saveKey(scope)}`));
     if (migrated !== undefined || scope !== 'guest') return migrated;
     return (
@@ -751,6 +805,8 @@ function settleProfile(data: SaveV3, profile = data.profile): SaveV3 {
     next.totalKills += run.kills;
   }
   const progression = structuredClone(data.progression);
+  if (!duplicate && run.version === 2 && 'encounterVersion' in run && run.encounterVersion === 2)
+    progression.bestiary = mergeDiscoveries(progression.bestiary, (run as RunV3).discoveries || {});
   recordStageClear(next, progression.stages, run);
   if (!duplicate && run.version === 2 && 'rulesVersion' in run && run.rulesVersion === 3) {
     const modern = run as RunV3;

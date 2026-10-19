@@ -119,6 +119,7 @@ export interface WeaponInstance {
   };
 }
 export interface EnemyV2 extends Enemy {
+  archetypeId?: import('../content/enemies').EnemyArchetypeId;
   xpBudget?: number;
   damageType: Element | 'physical';
   bounty: number;

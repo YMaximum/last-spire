@@ -1,6 +1,15 @@
 import './style.css';
 import './interface.css';
 import './expedition.css';
+import './bestiary.css';
+import { bestiaryMarkup, type BestiaryOptions } from './bestiary';
+import {
+  ENEMY_BY_ID,
+  nextEncounter,
+  formationName,
+  type EnemyArchetypeId,
+} from '../content/enemies';
+import { mergeDiscoveries } from '../game/bestiary';
 import { BuildInspector, entityMarkup, type EntityRef } from './inspector';
 import {
   defaultAutocastConfig,
@@ -47,6 +56,7 @@ import {
 import { cardIcon } from './icons';
 import {
   createRun,
+  hasEncounters,
   step,
   TICK,
   getWeaponStats,
@@ -122,6 +132,7 @@ const glyph = (kind: string) => {
     gear: 'm9 3-1 3-3 1-2 3 2 2v3l3 1 1 3h6l1-3 3-1v-3l2-2-2-3-3-1-1-3H9Zm3 6a3 3 0 1 0 0 6 3 3 0 0 0 0-6',
     play: 'm8 4 12 8-12 8V4Z',
     pause: 'M7 4v16M17 4v16',
+    beast: 'm4 3 3 5h10l3-5-1 13-7 5-7-5Z M8 12h1 M15 12h1 M10 17h4',
     shield: 'M12 3 3 7v6c0 5 9 9 9 9s9-4 9-9V7l-9-4Z',
     bolt: 'm14 2-9 12h7l-2 8 9-13h-7l2-7Z',
     diamond: 'm12 3 9 9-9 9-9-9 9-9Z',
@@ -161,7 +172,7 @@ const observedOffers = new Set<string>();
 let selectedOffer: { rewardId: string; offerId: string; purchase: boolean } | null = null;
 const telemetry = new LocalTelemetry();
 const app = $('app');
-app.innerHTML = `<main id="battlefield"><canvas id="arena" aria-label="Last Spire battlefield"></canvas><div class="arena-shade"></div><header class="battle-hud"><button class="brand-button" id="menu-btn" aria-label="Expedition menu">${glyph('tower')}<span>LAST SPIRE<small>THE RUNEFORGED AGE</small></span>${glyph('menu')}</button><div class="wave-hud"><span id="stage-label">VERDANT WILDS</span><strong id="wave-label">Wave 01 <em>/ 100</em></strong><div id="wave-progress"><i></i></div></div><div class="resource-hud"><span title="Scrap is spent during this expedition">${glyph('diamond')}<b id="scrap-value">0</b><small>SCRAP</small></span><span title="Credits unlock towers between expeditions">${glyph('diamond')}<b id="credit-value">0</b><small>CREDITS</small></span><button id="settings-btn" class="square-button" aria-label="Settings">${glyph('gear')}</button></div></header><div class="threat-strip"><span id="threat-text">One spire. A thousand ways to fight.</span><button id="pause-indicator" class="hidden">PAUSED · RESUME</button></div><nav class="field-tools" aria-label="Battlefield panels"><button id="expedition-btn" class="launch-tool">${glyph('play')}<span>Start expedition</span></button><button id="fusion-btn" class="fusion-tool" title="Fusion forge (F)">${glyph('diamond')}<span id="fusion-count">Fusions</span></button><button id="arsenal-btn" title="Arsenal (A)">${glyph('tower')}<span>Arsenal</span></button><button id="codex-btn" title="Codex (C)">${glyph('book')}<span>Codex</span></button><button id="stats-btn" title="Combat statistics">${glyph('stats')}<span>Ledger</span></button><button id="autocast-btn" title="Conditional skill autocast">${glyph('bolt')}<span>Autocast</span></button><button id="account-btn" title="Account and cloud saves">${glyph('shield')}<span>Guest · Local</span></button><button id="rewards-btn" class="reward-tool hidden">${glyph('diamond')}<span id="reward-count">Choose upgrade</span></button></nav><div id="buff-strip" aria-label="Active buffs"></div><div id="event-toast" role="status" aria-live="polite"></div><div id="boss-warning" class="hidden"></div><footer class="combat-controls"><div class="integrity"><div><span>${glyph('heart')} SPIRE INTEGRITY</span><strong id="hp-value">—</strong></div><div class="hp-track"><i id="hp-fill"></i><i id="shield-fill"></i></div><span id="barrier-value">Barrier dormant</span></div><div class="ability-tray"><button class="ability" id="signature-btn"><span>${glyph('shield')}</span><div><small>SIGNATURE <kbd>Q</kbd></small><b id="signature-name">Bulwark</b></div><em id="signature-cd"></em><span id="signature-auto" class="auto-indicator" hidden>AUTO</span></button><button class="ability" id="secondary-btn"><span>${glyph('bolt')}</span><div><small>SECONDARY <kbd>E</kbd></small><b id="secondary-name">Mend</b></div><em id="secondary-cd"></em><span id="secondary-auto" class="auto-indicator" hidden>AUTO</span></button></div><div class="playback"><button class="square-button" id="pause-btn" aria-label="Pause combat">${glyph('pause')}</button><button id="speed-btn" title="Speed (1, 2, 3)">1×</button><button id="target-btn" title="Target priority">${glyph('target')}<span id="target-label">Nearest</span></button></div></footer><div id="xp-hud" hidden><span id="xp-label"></span><div class="xp-track"><i id="xp-fill"></i></div></div><div id="window-host"></div><div id="window-dock"></div><div id="catchup-notice" class="catchup-notice hidden" role="status" aria-live="polite"><div>${glyph('tower')}<h2>Catching up to your battle…</h2><p>Resolving elapsed combat. Your next decision will pause the spire.</p></div></div><div id="loading-screen"><div class="loading-rune">${glyph('tower')}</div><h1>LAST SPIRE</h1><p>Waking the ancient machines…</p></div></main>`;
+app.innerHTML = `<main id="battlefield"><canvas id="arena" aria-label="Last Spire battlefield"></canvas><div class="arena-shade"></div><header class="battle-hud"><button class="brand-button" id="menu-btn" aria-label="Expedition menu">${glyph('tower')}<span>LAST SPIRE<small>THE RUNEFORGED AGE</small></span>${glyph('menu')}</button><div class="wave-hud"><span id="stage-label">VERDANT WILDS</span><strong id="wave-label">Wave 01 <em>/ 100</em></strong><div id="wave-progress"><i></i></div></div><div class="resource-hud"><span title="Scrap is spent during this expedition">${glyph('diamond')}<b id="scrap-value">0</b><small>SCRAP</small></span><span title="Credits unlock towers between expeditions">${glyph('diamond')}<b id="credit-value">0</b><small>CREDITS</small></span><button id="settings-btn" class="square-button" aria-label="Settings">${glyph('gear')}</button></div></header><div class="threat-strip"><button id="threat-text" class="threat-reference" title="Inspect upcoming enemies in the bestiary">One spire. A thousand ways to fight.</button><button id="pause-indicator" class="hidden">PAUSED · RESUME</button></div><nav class="field-tools" aria-label="Battlefield panels"><button id="expedition-btn" class="launch-tool">${glyph('play')}<span>Start expedition</span></button><button id="fusion-btn" class="fusion-tool" title="Fusion forge (F)">${glyph('diamond')}<span id="fusion-count">Fusions</span></button><button id="arsenal-btn" title="Arsenal (A)">${glyph('tower')}<span>Arsenal</span></button><button id="codex-btn" title="Codex (C)">${glyph('book')}<span>Codex</span></button><button id="bestiary-btn" title="Bestiary (B)">${glyph('beast')}<span>Bestiary</span></button><button id="stats-btn" title="Combat statistics">${glyph('stats')}<span>Ledger</span></button><button id="autocast-btn" title="Conditional skill autocast">${glyph('bolt')}<span>Autocast</span></button><button id="account-btn" title="Account and cloud saves">${glyph('shield')}<span>Guest · Local</span></button><button id="rewards-btn" class="reward-tool hidden">${glyph('diamond')}<span id="reward-count">Choose upgrade</span></button></nav><div id="buff-strip" aria-label="Active buffs"></div><div id="event-toast" role="status" aria-live="polite"></div><div id="boss-warning" class="hidden"></div><footer class="combat-controls"><div class="integrity"><div><span>${glyph('heart')} SPIRE INTEGRITY</span><strong id="hp-value">—</strong></div><div class="hp-track"><i id="hp-fill"></i><i id="shield-fill"></i></div><span id="barrier-value">Barrier dormant</span></div><div class="ability-tray"><button class="ability" id="signature-btn"><span>${glyph('shield')}</span><div><small>SIGNATURE <kbd>Q</kbd></small><b id="signature-name">Bulwark</b></div><em id="signature-cd"></em><span id="signature-auto" class="auto-indicator" hidden>AUTO</span></button><button class="ability" id="secondary-btn"><span>${glyph('bolt')}</span><div><small>SECONDARY <kbd>E</kbd></small><b id="secondary-name">Mend</b></div><em id="secondary-cd"></em><span id="secondary-auto" class="auto-indicator" hidden>AUTO</span></button></div><div class="playback"><button class="square-button" id="pause-btn" aria-label="Pause combat">${glyph('pause')}</button><button id="speed-btn" title="Speed (1, 2, 3)">1×</button><button id="target-btn" title="Target priority">${glyph('target')}<span id="target-label">Nearest</span></button></div></footer><div id="xp-hud" hidden><span id="xp-label"></span><div class="xp-track"><i id="xp-fill"></i></div></div><div id="window-host"></div><div id="window-dock"></div><div id="catchup-notice" class="catchup-notice hidden" role="status" aria-live="polite"><div>${glyph('tower')}<h2>Catching up to your battle…</h2><p>Resolving elapsed combat. Your next decision will pause the spire.</p></div></div><div id="loading-screen"><div class="loading-rune">${glyph('tower')}</div><h1>LAST SPIRE</h1><p>Waking the ancient machines…</p></div></main>`;
 const manager = new WindowManager(
   $('window-host'),
   $('window-dock'),
@@ -509,6 +520,17 @@ function updateHud() {
     : isV2(s)
       ? describeNextThreat(s)
       : `${s.enemies.length} enemies · recovered expedition continues with its original rules`;
+  if (isV2(s) && hasEncounters(s) && playing) {
+    const { wave, roster } = nextEncounter(s);
+    const priority = roster.filter(
+      (id) => ENEMY_BY_ID[id].mechanic !== 'shared' || ENEMY_BY_ID[id].role === 'boss',
+    );
+    const names = (priority.length ? priority : roster)
+      .slice(0, 2)
+      .map((id) => ENEMY_BY_ID[id].name);
+    $('threat-text').textContent =
+      `Upcoming ${wave} · ${formationName(wave)} · ${names.join(' + ')} · Bestiary ↗`;
+  }
   if (isV2(s)) {
     const groups = new Map<
       string,
@@ -1341,6 +1363,92 @@ function openArsenal() {
         }),
     );
 }
+let bestiaryState: BestiaryOptions | undefined;
+function openBestiary(id?: EnemyArchetypeId, previewWave?: number) {
+  const run = current();
+  const stage = run.stage;
+  bestiaryState = {
+    stage,
+    wave: previewWave ?? Math.max(1, run.wave),
+    difficulty: run.difficulty,
+    mode: modern(run)?.mode ?? 'normal',
+    records: mergeDiscoveries(
+      data.progression.bestiary,
+      isV2(run) && hasEncounters(run) && !data.profile.settledRuns.includes(run.id)
+        ? run.discoveries
+        : {},
+    ),
+    filter: stage as 0 | 1 | 2,
+    selected: id,
+    legacy: !isV2(run) || !hasEncounters(run),
+  };
+  renderBestiary();
+}
+function renderBestiary() {
+  const state = bestiaryState!;
+  manager.open(
+    'bestiary',
+    {
+      title: 'The adversary archive.',
+      subtitle: 'TACTICS · SCALED STATS · DISCOVERY',
+      width: 850,
+      height: 750,
+    },
+    bestiaryMarkup(state),
+  );
+  document.querySelectorAll<HTMLButtonElement>('[data-enemy-id]').forEach((button) => {
+    button.onclick = () => {
+      state.selected = button.dataset.enemyId as EnemyArchetypeId;
+      const enemy = ENEMY_BY_ID[state.selected];
+      state.stage = enemy.stage ?? state.stage;
+      const firstWave =
+        enemy.id === 'guardian'
+          ? state.mode === 'quick'
+            ? 12
+            : 25
+          : enemy.mechanic === 'shared'
+            ? enemy.firstWave
+            : state.mode === 'quick'
+              ? Math.ceil(enemy.firstWave / 2)
+              : enemy.firstWave;
+      state.wave = Math.max(state.wave, firstWave);
+      renderBestiary();
+      if (document.querySelector('.bestiary')!.clientWidth < 700)
+        document.querySelector('.bestiary-inspect')!.scrollIntoView({ block: 'start' });
+    };
+  });
+  $('bestiary-back').onclick = () => $('bestiary-search').scrollIntoView({ block: 'start' });
+  $('bestiary-search').oninput = () => {
+    const input = $<HTMLInputElement>('bestiary-search');
+    state.query = input.value;
+    const caret = input.selectionStart;
+    renderBestiary();
+    const replacement = $<HTMLInputElement>('bestiary-search');
+    replacement.focus();
+    replacement.setSelectionRange(caret, caret);
+  };
+  $('bestiary-stage').onchange = () => {
+    const value = $<HTMLSelectElement>('bestiary-stage').value;
+    state.filter = value === 'all' ? 'all' : (Number(value) as 0 | 1 | 2);
+    if (state.filter !== 'all') state.stage = state.filter;
+    renderBestiary();
+  };
+  $('bestiary-wave').onchange = () => {
+    state.wave = Math.max(
+      1,
+      Math.min(100000, Number($<HTMLInputElement>('bestiary-wave').value) || 1),
+    );
+    renderBestiary();
+  };
+  $('bestiary-difficulty').onchange = () => {
+    state.difficulty = Number($<HTMLSelectElement>('bestiary-difficulty').value);
+    renderBestiary();
+  };
+  $('bestiary-mode').onchange = () => {
+    state.mode = $<HTMLSelectElement>('bestiary-mode').value as BestiaryOptions['mode'];
+    renderBestiary();
+  };
+}
 let codexQuery = '',
   codexGroup = 'all';
 function openCodex() {
@@ -2050,6 +2158,17 @@ $('account-btn').onclick = () => accountPanel.open();
 $('arsenal-btn').onclick = openArsenal;
 $('codex-btn').onclick = () => openCodex();
 $('stats-btn').onclick = openStats;
+$('bestiary-btn').onclick = () => openBestiary();
+$('threat-text').onclick = () => {
+  const run = current();
+  const preview = isV2(run) && hasEncounters(run) ? nextEncounter(run) : null;
+  const roster = preview?.roster ?? [];
+  openBestiary(
+    roster.find((id) => ENEMY_BY_ID[id].mechanic !== 'shared' || ENEMY_BY_ID[id].role === 'boss') ??
+      roster[0],
+    preview?.wave,
+  );
+};
 $('autocast-btn').onclick = openAutocast;
 $('rewards-btn').onclick = () => showRewards();
 $('pause-btn').onclick = togglePause;
@@ -2086,6 +2205,7 @@ document.addEventListener('keydown', (e) => {
   if (key === 'a') manager.visible('arsenal') ? manager.close('arsenal') : openArsenal();
   if (key === 'f') manager.visible('fusions') ? manager.close('fusions') : openFusions();
   if (key === 'c') manager.visible('codex') ? manager.close('codex') : openCodex();
+  if (key === 'b') manager.visible('bestiary') ? manager.close('bestiary') : openBestiary();
   if (['1', '2', '3'].includes(key)) {
     data.settings.speed = Number(key) as 1 | 2 | 3;
     scheduleSave();

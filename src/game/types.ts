@@ -6,6 +6,8 @@ export interface RunV3 extends RunV2 {
   rulesVersion: 3;
   /** Absent on recovered runs, whose original 30% repair remains unchanged. */
   shopVersion?: 2;
+  encounterVersion?: 2;
+  discoveries?: import('../content/enemies').BestiaryRecords;
   mode: RunMode;
   level: number;
   xp: number;
@@ -14,6 +16,7 @@ export interface RunV3 extends RunV2 {
   runeSnapshot: Record<RuneId, number>;
 }
 export interface RunOptions {
+  encounterVersion?: 1 | 2;
   shopVersion?: 1 | 2;
   mode?: RunMode;
   runes?: Partial<Record<RuneId, number>>;

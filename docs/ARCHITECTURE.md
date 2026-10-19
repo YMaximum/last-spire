@@ -86,5 +86,11 @@ healing procs, and contribute scrap/healing metrics. Live UI updates preserve
 button nodes and keyboard/hover state.
 
 This format requires the matching account API before a new frontend syncs cloud
-saves. Older clients cannot read schema 4; after migration, reload/update the client
+saves. Older clients cannot read newer schemas; after migration, reload/update the client
 instead of attempting a downgrade. Production publication remains a separate step.
+
+## Stage encounters and bestiary
+
+Save schema 5 adds `progression.bestiary`, with bounded encounter and defeat totals. New runs carry `encounterVersion: 2`, per-run discoveries and stable enemy archetype IDs. Absence of that flag preserves the shipped encounter rules through settlement. `src/content/enemies.ts` owns tactical descriptions, stage rosters and new encounter tuning; `src/game/encounters.ts` owns bounded casts, phases, recovery and barriers. Absolute simulation-time counters persist warnings and delayed echoes through resume. Rendering reads these counters without changing combat or RNG.
+
+Run discoveries are added to permanent records only by idempotent settlement. Browser migration stores a write-once original checkpoint separately for each guest/account scope. Local and cloud checkpoints use the same validator. Older wire formats cannot overwrite a newer stored checkpoint; future formats fail closed. The movable bestiary shows tactical information before discovery, and uses only local counts.

@@ -72,6 +72,7 @@ function legacyEnvelope(save: ReturnType<typeof emptySave>): string {
   const envelope = JSON.parse(exportGame(save));
   envelope.version = 3;
   delete envelope.progression.stages;
+  delete envelope.progression.bestiary;
   return JSON.stringify(envelope, null, 2);
 }
 describe('module moves preserve shipped save and simulation contracts', () => {
@@ -90,6 +91,7 @@ describe('module moves preserve shipped save and simulation contracts', () => {
             {
               mode: scenario.mode,
               shopVersion: 1,
+              encounterVersion: 1,
             },
           )
         : engine.createRun(

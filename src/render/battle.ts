@@ -4,6 +4,7 @@ import type { AreaEffect, Element, ProjectileV2, RunV2, SettingsV2, VisualV2 } f
 import { FUSIONS, FUSION_BY_ID, WEAPON_BY_ID, type FusionDefinition } from '../content/catalog';
 import { enableDamageNumbers, readDamageNumbers } from '../game/damage-feedback';
 import { drawDamageNumbers } from './damage-numbers';
+import { drawEncounterSprite, drawEncounterWarnings, hasEncounterSprite } from './encounters';
 
 const W = 1000,
   H = 800,
@@ -216,12 +217,18 @@ export class BattleRenderer {
     if (s.tower === 'monolith') this.monolith(c, s);
     else this.pixel.tower(c, s.tower, this.time, s.buffs.length > 0, false);
     const enemies = s.enemies.length > 1 ? [...s.enemies].sort((a, b) => a.y - b.y) : s.enemies;
-    for (const enemy of enemies) this.pixel.enemy(c, enemy, this.time, settings);
+    for (const enemy of enemies) {
+      if (hasEncounterSprite(enemy))
+        drawEncounterSprite(c, enemy, this.time, settings.reducedMotion);
+      else this.pixel.enemy(c, enemy, this.time, settings);
+    }
     if (s.shield > 0) this.shield(c, CX, CY - 15, 61, TOWERS[s.tower], clamp(s.shield / s.maxHp));
     for (const v of feedback) if (this.isForeground(v)) this.visual(c, v);
     this.damageLabels(c, s);
     // Enemy warnings stay visible even when a meteor or a large orb crosses them.
     for (const e of enemies) {
+      if (e.archetypeId) drawEncounterWarnings(c, s, e);
+      if (hasEncounterSprite(e)) continue;
       if (e.kind === 'boss') {
         c.globalAlpha = 0.95;
         circle(c, e.x, e.y, e.radius + 6, '#14201d', 4);

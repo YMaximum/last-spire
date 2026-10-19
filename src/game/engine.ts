@@ -5,6 +5,23 @@ import type { RunV3, RunOptions } from './types';
 import { MASTERY_THRESHOLDS } from './types';
 import { recordDamageNumber } from './damage-feedback';
 import { quoteRepairs } from './shop-healing';
+import {
+  ENEMY_BY_ID,
+  FINAL_BOSSES,
+  waveRoster,
+  nextEncounter,
+  formationName,
+  enemyStats,
+  enemyDamageType,
+  type EnemyArchetypeId,
+} from '../content/enemies';
+import {
+  stepEncounter,
+  interruptEncounter,
+  encounterDamage,
+  encounterRetaliation,
+  cleanEncounterCounters,
+} from './encounters';
 export type { RunV3, RunOptions, RunMode } from './types';
 import { CARDS, WEAPONS, SYNERGIES } from '../content/catalog';
 import type {
@@ -32,6 +49,12 @@ const ENCOUNTER_BALANCE = {
 };
 export const RARITIES: Rarity[] = ['normal', 'rare', 'epic', 'legendary', 'mythic'];
 export const isModern = (s: RunV2): s is RunV3 => s.rulesVersion === 3;
+export const hasEncounters = (
+  s: RunV2,
+): s is RunV3 & {
+  encounterVersion: 2;
+  discoveries: import('../content/enemies').BestiaryRecords;
+} => isModern(s) && s.encounterVersion === 2;
 export const finalWave = (s: RunV2) => (s.mode === 'quick' ? 50 : 100);
 export const bossWave = (s: RunV2, wave: number) =>
   s.mode === 'quick'
@@ -149,6 +172,7 @@ export function createRun(
   const s: RunV3 = {
     version: 2,
     rulesVersion: 3,
+    ...(options.encounterVersion === 1 ? {} : { encounterVersion: 2 as const, discoveries: {} }),
     ...(options.shopVersion === 1 ? {} : { shopVersion: 2 as const }),
     mode: options.mode || 'normal',
     level: 1,
@@ -799,6 +823,10 @@ export function rewardForRun(s: RunV2) {
   );
 }
 export function describeNextThreat(s: RunV2) {
+  if (hasEncounters(s)) {
+    const preview = nextEncounter(s);
+    return `Wave ${preview.wave} · ${formationName(preview.wave)} · ${preview.roster.map((id) => ENEMY_BY_ID[id].name).join(', ')}`;
+  }
   if (s.rulesVersion !== 3) return legacy.describeNextThreat(s);
   const n = s.wave + (s.phase === 'victory' ? 1 : 0);
   const bossIndex =
@@ -893,6 +921,10 @@ function push(e: EnemyV2, amount: number) {
 function kill(s: RunV2, e: EnemyV2, event: DamageEvent) {
   if (e.reward < 0) return;
   e.reward = -1;
+  if (hasEncounters(s) && e.archetypeId) {
+    const record = s.discoveries![e.archetypeId];
+    if (record) record.defeated = Math.min(record.encountered, record.defeated + 1);
+  }
   const budget = e.xpBudget || 0;
   if (budget > 0) grantXp(s, budget * (e.kind === 'splitter' ? 0.5 : 1), e.kind);
   s.kills++;
@@ -904,7 +936,7 @@ function kill(s: RunV2, e: EnemyV2, event: DamageEvent) {
   grantShield(s, ep(s, 'kill-shield'));
   if (s.kills % 5 === 0) {
     s.hp = Math.min(s.maxHp, s.hp + ep(s, 'kill-mend'));
-    if (synergyEffect(s, 'kill-bounty')) s.scrap += 3;
+    if (synergyEffect(s, 'kill-bounty') && (!hasEncounters(s) || e.bounty > 0)) s.scrap += 3;
   }
   if (e.kind === 'splitter') {
     const known = new Set(s.enemies.map((enemy) => enemy.id));
@@ -938,7 +970,8 @@ export function dealDamage(s: RunV2, e: EnemyV2, event: DamageEvent): number {
       amount *= (1 + ep(s, 'focus', event.weaponId)) * (synergyEffect(s, 'charge-focus') ? 1.2 : 1);
   }
   amount *= e.mark > 0 ? 1.22 : 1;
-  amount *= 1 - clamp(e.armor, 0, 0.65);
+  amount *= 1 - clamp(e.armor * (hasEncounters(s) && event.source === 'dot' ? 0.4 : 1), 0, 0.65);
+  if (hasEncounters(s)) amount = encounterDamage(s, e, amount, el);
   const dealt = Math.min(e.hp, amount);
   recordDamageNumber(s, e, dealt, event);
   e.hp -= amount;
@@ -995,6 +1028,11 @@ export function dealDamage(s: RunV2, e: EnemyV2, event: DamageEvent): number {
       }
     }
   }
+  if (hasEncounters(s))
+    encounterRetaliation(s, e, event, dealt, {
+      hurt: (amount, type, attacker) => takeDamage(s, amount, type, attacker),
+      summon: () => {},
+    });
   if (e.hp <= 0) {
     if (el === 'solar') grantShield(s, 1);
     kill(s, e, event);
@@ -1141,8 +1179,10 @@ export function spawnEnemy(
   x?: number,
   y?: number,
   bounty?: number,
+  archetypeId?: EnemyArchetypeId,
 ): EnemyV2 {
   if (s.rulesVersion !== 3) return legacy.spawnEnemy(s, kind, x, y, bounty);
+  const requestedKind = kind;
   if (s.enemies.length >= 96) return s.enemies[s.enemies.length - 1];
   let encounter =
     (s.seed ^
@@ -1239,8 +1279,66 @@ export function spawnEnemy(
     spawnWave: s.wave,
     xpBudget: bounty === 0 ? 0 : kind === 'boss' ? 25 : kind === 'elite' ? 8 : 1,
   };
+  if (hasEncounters(s)) {
+    let id = archetypeId;
+    if (!id) {
+      if (kind === 'boss') {
+        const endpoint = finalWave(s);
+        id =
+          s.wave === endpoint || (s.endless && s.wave > endpoint && s.wave % endpoint === 0)
+            ? FINAL_BOSSES[s.stage]
+            : 'guardian';
+      } else if (requestedKind !== undefined) id = kind as EnemyArchetypeId;
+      else {
+        const roster = waveRoster(s).filter(
+          (id) => !['boss', 'elite'].includes(ENEMY_BY_ID[id].role),
+        );
+        id = roster[Math.floor(draw() * roster.length)] ?? 'swarmer';
+      }
+    }
+    const definition = ENEMY_BY_ID[id],
+      stats = enemyStats(id, s);
+    e.archetypeId = id;
+    e.kind = definition.role;
+    Object.assign(e, {
+      hp: stats.hp,
+      maxHp: stats.hp,
+      damage: stats.damage,
+      speed: stats.speed,
+      armor: stats.armor,
+      radius: stats.radius,
+    });
+    e.damageType = enemyDamageType(id, s);
+    if (x === undefined && y === undefined && e.kind !== 'boss') {
+      const lane =
+        ((s.seed % 360) * Math.PI) / 180 +
+        (s.wave % 4 === 2
+          ? (s.spawned % 2) * Math.PI
+          : s.wave % 4 === 3
+            ? Math.floor(s.spawned / 4) * 1.6
+            : angle);
+      e.x = origin.x + Math.cos(lane + (draw() - 0.5) * 0.28) * 440;
+      e.y = origin.y + Math.sin(lane + (draw() - 0.5) * 0.28) * 340;
+    }
+    const discoveries = s.discoveries!;
+    const record = (discoveries[id] ??= { encountered: 0, defeated: 0 });
+    record.encountered = Math.min(1e12, record.encountered + 1);
+  }
   s.enemies.push(e);
   return e;
+}
+export function spawnEncounter(
+  s: RunV3,
+  id: EnemyArchetypeId,
+  x?: number,
+  y?: number,
+  bounty?: number,
+) {
+  if (!hasEncounters(s)) throw new Error('This expedition retains its original encounters.');
+  const stage = ENEMY_BY_ID[id].stage;
+  if (stage !== undefined && stage !== s.stage)
+    throw new Error('This actor belongs to another stage.');
+  return spawnEnemy(s, ENEMY_BY_ID[id].role, x, y, bounty, id);
 }
 function startWave(s: RunV2, wave: number) {
   s.wave = wave;
@@ -1924,7 +2022,20 @@ function stepEnemies(s: RunV2, dt: number) {
     e.mark = Math.max(0, e.mark - dt);
     e.chill = Math.max(0, e.chill - dt * 0.055);
     e.stun = Math.max(0, e.stun - dt);
-    if (e.stun > 0) continue;
+    if (e.stun > 0) {
+      if (hasEncounters(s)) interruptEncounter(s, e);
+      continue;
+    }
+    if (
+      hasEncounters(s) &&
+      stepEncounter(s, e, dt, {
+        hurt: (amount, type, attacker) => takeDamage(s, amount, type, attacker),
+        summon: (id, x, y) => {
+          spawnEncounter(s, id, x, y, 0);
+        },
+      })
+    )
+      continue;
     const d = Math.max(1, dist(e, origin)),
       resist = e.kind === 'boss' ? 0.35 : e.kind === 'elite' ? 0.65 : 1,
       speed =
@@ -1954,9 +2065,13 @@ function stepEnemies(s: RunV2, dt: number) {
         delete s.counters[key];
         e.attackCd = 3;
       } else if (!s.counters[key]) {
-        for (const other of s.enemies)
-          if (dist(other, e) < 100)
-            other.hp = Math.min(other.maxHp, other.hp + other.maxHp * 0.025);
+        const healingCasts = `enc-${e.id}-shared-heals`;
+        if (!hasEncounters(s) || (s.counters[healingCasts] || 0) < 6) {
+          for (const other of s.enemies)
+            if (dist(other, e) < 100)
+              other.hp = Math.min(other.maxHp, other.hp + other.maxHp * 0.025);
+          if (hasEncounters(s)) s.counters[healingCasts] = (s.counters[healingCasts] || 0) + 1;
+        }
         visual(s, 'ring', e.x, e.y, '#91d3a6', 100);
         if (s.waveTime >= 12 && d <= 360) {
           s.counters[key] = s.time + 0.8;
@@ -1968,7 +2083,10 @@ function stepEnemies(s: RunV2, dt: number) {
       const phase = Math.min(3, Math.floor((1 - e.hp / e.maxHp) * 4));
       if (phase > e.bossPhase) {
         e.bossPhase = phase;
-        for (let i = 0; i < 2; i++)
+        for (let i = 0; i < 2; i++) {
+          if (hasEncounters(s) && (s.counters[`enc-${e.id}-summons`] || 0) >= 6) break;
+          if (hasEncounters(s))
+            s.counters[`enc-${e.id}-summons`] = (s.counters[`enc-${e.id}-summons`] || 0) + 1;
           spawnEnemy(
             s,
             s.stage === 0 ? 'runner' : s.stage === 1 ? 'armored' : 'ranged',
@@ -1976,6 +2094,7 @@ function stepEnemies(s: RunV2, dt: number) {
             e.y,
             0,
           );
+        }
         visual(s, 'evolution', e.x, e.y, '#eaa67d', 80);
       }
       if (e.attackCd <= 0) {
@@ -1999,7 +2118,15 @@ function stepEnemies(s: RunV2, dt: number) {
             e.damageType,
             e,
           );
-          if (variant === 0 && s.enemies.length < 60) spawnEnemy(s, 'runner', e.x + 25, e.y, 0);
+          if (
+            variant === 0 &&
+            s.enemies.length < 60 &&
+            (!hasEncounters(s) || (s.counters[`enc-${e.id}-summons`] || 0) < 6)
+          ) {
+            if (hasEncounters(s))
+              s.counters[`enc-${e.id}-summons`] = (s.counters[`enc-${e.id}-summons`] || 0) + 1;
+            spawnEnemy(s, 'runner', e.x + 25, e.y, 0);
+          }
           if (variant === 1 && (s.counters[`boss-heals-${e.id}`] || 0) < 3) {
             e.hp = Math.min(e.maxHp, e.hp + e.maxHp * 0.012);
             s.counters[`boss-heals-${e.id}`] = (s.counters[`boss-heals-${e.id}`] || 0) + 1;
@@ -2104,6 +2231,7 @@ export function step(s: RunV2, dt = TICK): void {
     startWave(s, cleared + 1);
   }
   if (ready(s, 'cleanup', 15)) {
+    if (hasEncounters(s)) cleanEncounterCounters(s);
     const living = new Set(s.enemies.map((e) => e.id));
     for (const key of Object.keys(s.counters)) {
       if (key.startsWith('distance-')) {

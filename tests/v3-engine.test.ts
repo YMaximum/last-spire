@@ -179,7 +179,7 @@ describe('modern rules and XP budgets', () => {
       s.spawnTimer = 0;
       step(s);
       expect(s.enemies.some((e) => e.kind === 'boss')).toBe(true);
-      expect(describeNextThreat(s)).toContain('watch the marked strike zones');
+      expect(describeNextThreat(s)).toContain(wave === 50 ? 'The Elder Root' : `Wave ${wave + 1}`);
     }
     const s = fresh('quick');
     s.wave = 50;
@@ -423,13 +423,21 @@ it('bounds idle defensive attack timers instead of accumulating negative cooldow
   expect(s.weapons[0].cooldown).toBe(0);
 });
 
-
-it('support enemies telegraph an offensive pulse so pure reflection cannot stalemate',()=>{
- const s=createRun(defaultProfile(),'monolith',0,0,590);
- s.spawned=s.spawnTotal=99;s.waveTime=12;s.hp=s.maxHp=100000;
- const e=spawnEnemy(s,'support',650,400,0);e.hp=e.maxHp=80;e.speed=0;e.damage=8;
- let warned=false;
- for(let i=0;i<600 && s.enemies.some(x=>x.id===e.id);i++){step(s);warned ||= s.visuals.some(v=>v.kind==='hazard'&&v.x===650);}
- expect(warned).toBe(true);expect(s.enemies.some(x=>x.id===e.id)).toBe(false);
- expect(s.damageByWeapon[s.weapons[0].id]).toBeGreaterThan(0);
+it('support enemies telegraph an offensive pulse so pure reflection cannot stalemate', () => {
+  const s = createRun(defaultProfile(), 'monolith', 0, 0, 590);
+  s.spawned = s.spawnTotal = 99;
+  s.waveTime = 12;
+  s.hp = s.maxHp = 100000;
+  const e = spawnEnemy(s, 'support', 650, 400, 0);
+  e.hp = e.maxHp = 80;
+  e.speed = 0;
+  e.damage = 8;
+  let warned = false;
+  for (let i = 0; i < 600 && s.enemies.some((x) => x.id === e.id); i++) {
+    step(s);
+    warned ||= s.visuals.some((v) => v.kind === 'hazard' && v.x === 650);
+  }
+  expect(warned).toBe(true);
+  expect(s.enemies.some((x) => x.id === e.id)).toBe(false);
+  expect(s.damageByWeapon[s.weapons[0].id]).toBeGreaterThan(0);
 });

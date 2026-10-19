@@ -123,3 +123,7 @@ sudo last-spire-rollback
 API rollback uses a retained compatible code release with the **current** credentials, data directory and deletion journal. It never silently restores an older database. The first API release has no earlier API rollback target. Future protocol/database migrations need another reviewed host-contract change. Frontend rollback can return to a static-only release while retaining account data privately.
 
 Automatic daily/startup backups retain at most seven same-VPS snapshots. They cannot protect against total VPS or disk loss. Preserve private permissions and free-space reserves; do not automatically delete another project's data or erase deletion markers to make an operation succeed. Off-site backup remains a future opt-in improvement.
+
+## Encounter checkpoint compatibility
+
+The encounter expansion writes save schema 5. Install the matching checked account API before publishing its browser bundle. Local and cloud validators must agree on archetypes, discovery records and active encounter rules. Older clients cannot overwrite a newer cloud checkpoint; ask players to reload/update after migration. Retain the previous checked API and static artifacts for recovery, and preserve original migration backups. A static rollback is not permission to downgrade a migrated save.

@@ -11,6 +11,13 @@ import { CARDS, WEAPONS, TOWERS, FUSIONS, isFusedKind } from '../content/catalog
 import { rewardForRun } from '../game/engine';
 import type { RunV3 } from '../game/types';
 import {
+  freshStageProgress,
+  migrateStageProgress,
+  recordStageClear,
+  type StageProgress,
+  STAGE_COUNT,
+} from '../game/stage-progress';
+import {
   RUNE_CAPS,
   defaultRuneLoadout,
   defaultAutocastConfig,
@@ -41,15 +48,18 @@ export interface ModeRecord {
   seconds: number;
   credits: number;
 }
-export interface SaveV3 extends Omit<SaveV2, 'version'> {
-  version: 3;
+export interface GameSave extends Omit<SaveV2, 'version'> {
+  version: 4;
   progression: {
     runes: RuneLoadout;
     autocast: AutocastRules;
     active: ActiveRunConfig | null;
     records: ModeRecord[];
+    stages: StageProgress[];
   };
 }
+/** Compatibility type name for callers of the existing save API. */
+export type SaveV3 = GameSave;
 const DB = 'last-spire',
   STORE = 'save',
   ROOT = 'root',
@@ -169,13 +179,14 @@ export function emptySave(): SaveV3 {
   const base = emptyV2();
   return {
     ...base,
-    version: 3,
+    version: 4,
     settings: defaultSettings(),
     progression: {
       runes: defaultRuneLoadout(base.profile.upgrades),
       autocast: defaultAutocastConfig(),
       active: null,
       records: [],
+      stages: freshStageProgress(),
     },
   };
 }
@@ -183,6 +194,31 @@ function list(value: unknown, label: string, max: number): unknown[] {
   if (!Array.isArray(value) || value.length > max)
     invalid(`${label} must contain at most ${max} entries`);
   return value;
+}
+function parseStages(value: unknown): StageProgress[] {
+  const entries = list(value, 'stage progression', STAGE_COUNT);
+  if (entries.length !== STAGE_COUNT) invalid('each stage requires a progression record');
+  return entries.map((value, stage) => {
+    const entry = shape(value, `stage ${stage}`, [
+      'unlockedDifficulty',
+      'clearedDifficulties',
+      'legacyClear',
+    ]);
+    const unlockedDifficulty = numeric(entry.unlockedDifficulty, 'stage difficulty', 0, 5);
+    const clearedDifficulties = list(entry.clearedDifficulties, 'stage clears', 6).map((d) =>
+      numeric(d, 'cleared difficulty', 0, 5),
+    );
+    if (new Set(clearedDifficulties).size !== clearedDifficulties.length)
+      invalid('duplicate cleared difficulty');
+    if (clearedDifficulties.some((d) => Math.min(5, d + 1) > unlockedDifficulty))
+      invalid('clear exceeds stage access');
+    if (typeof entry.legacyClear !== 'boolean') invalid('legacy clear must be boolean');
+    return {
+      unlockedDifficulty,
+      clearedDifficulties: clearedDifficulties.sort((a, b) => a - b),
+      legacyClear: entry.legacyClear,
+    };
+  });
 }
 function equipment(value: unknown, time: number, ingredient = false): Obj {
   const w = shape(
@@ -304,7 +340,10 @@ function modernProjection(value: unknown): { original: RunV3; projection: Obj } 
   numeric(original.offerRng, 'offer RNG', 1, 0xffff_ffff);
   runeSnapshot(original.runeSnapshot, 'run rune snapshot');
   if (!TOWERS.some((t) => t.id === original.tower)) invalid('modern tower is unknown');
+  if (original.shopVersion !== undefined && original.shopVersion !== 2)
+    invalid('shop rules are unsupported');
   const projection = structuredClone(original);
+  delete projection.shopVersion;
   for (const field of [
     'rulesVersion',
     'mode',
@@ -418,11 +457,15 @@ export function parseGame(raw: string | unknown): SaveV3 {
     finiteTree(raw);
     const root = object(raw, 'save');
     const version = root.version;
-    if (![1, 2, 3].includes(version as number)) invalid('unsupported version');
+    if (![1, 2, 3, 4].includes(version as number))
+      invalid(
+        'This checkpoint requires a newer Last Spire client. Reload or update before continuing.',
+      );
+    const expanded = version === 3 || version === 4;
     const sourceSettings = object(root.settings, 'settings');
     const settings = { ...defaultSettings(), ...sourceSettings };
-    const profile = version === 3 ? structuredClone(object(root.profile, 'profile')) : root.profile;
-    if (version === 3) {
+    const profile = expanded ? structuredClone(object(root.profile, 'profile')) : root.profile;
+    if (expanded) {
       const ownedTowers = list((profile as Obj).unlocked, 'unlocked towers', 7);
       if (
         ownedTowers.some((t) => !TOWERS.some((def) => def.id === t)) ||
@@ -432,34 +475,44 @@ export function parseGame(raw: string | unknown): SaveV3 {
       (profile as Obj).unlocked = ownedTowers.filter((t) => t !== 'monolith');
     }
     const modern =
-      version === 3 && root.run && object(root.run, 'run').rulesVersion !== undefined
+      expanded && root.run && object(root.run, 'run').rulesVersion !== undefined
         ? modernProjection(root.run)
         : null;
     const base = parseV2(
-      version === 3
+      expanded
         ? { version: 2, profile, run: modern?.projection ?? root.run, settings }
         : { ...root, settings: version === 1 ? sourceSettings : settings },
     );
-    if (version === 3) {
+    if (expanded) {
       base.profile.unlocked = [
         ...(object(root.profile, 'profile').unlocked as SaveV2['profile']['unlocked']),
       ];
       if (modern) base.run = structuredClone(modern.original);
     }
-    if (version !== 3)
+    if (!expanded) {
+      const stages = migrateStageProgress(base.profile);
+      if (base.run?.cleared) recordStageClear(base.profile, stages, base.run);
       return {
         ...base,
-        version: 3,
+        version: 4,
         settings: { ...defaultSettings(), ...sourceSettings } as SettingsV2,
         progression: {
           runes: legacyRunes(base.profile.upgrades),
           autocast: defaultAutocastConfig(),
           active: null,
           records: [],
+          stages,
         },
       };
+    }
     shape(root, 'save', ['version', 'profile', 'run', 'settings', 'progression']);
-    const p = shape(root.progression, 'progression', ['runes', 'autocast', 'active', 'records']);
+    const p = shape(root.progression, 'progression', [
+      'runes',
+      'autocast',
+      'active',
+      'records',
+      ...(version === 4 ? ['stages'] : []),
+    ]);
     const runes = loadout(p.runes);
     const rules = autocast(p.autocast);
     let active: ActiveRunConfig | null = null;
@@ -519,7 +572,7 @@ export function parseGame(raw: string | unknown): SaveV3 {
       if (!['quick', 'normal', 'endless'].includes(r.mode as string))
         invalid('record mode is invalid');
       numeric(r.stage, 'record stage', 0, 2);
-      numeric(r.difficulty, 'record difficulty', 0, 5);
+      numeric(r.difficulty, 'record difficulty', 0, 10);
       numeric(r.wave, 'record wave', 1, Number.MAX_SAFE_INTEGER);
       numeric(r.seconds, 'record seconds', 0, Number.MAX_SAFE_INTEGER, false);
       numeric(r.credits, 'record credits', 0, Number.MAX_SAFE_INTEGER);
@@ -535,10 +588,13 @@ export function parseGame(raw: string | unknown): SaveV3 {
       vitality: runes.owned.vitality,
       fortune: runes.owned.fortune,
     };
+    const stages =
+      version === 4 ? parseStages(p.stages) : migrateStageProgress(base.profile, records);
+    if (base.run?.cleared) recordStageClear(base.profile, stages, base.run);
     const result: SaveV3 = {
       ...base,
-      version: 3,
-      progression: { runes, autocast: rules, active, records },
+      version: 4,
+      progression: { runes, autocast: rules, active, records, stages },
     };
     const json = JSON.stringify(result);
     if (new TextEncoder().encode(json).byteLength > MAX_BYTES) invalid('file exceeds 8 MB');
@@ -640,6 +696,13 @@ export function saveKey(scope: SaveScope = 'guest'): string {
   return scope;
 }
 async function backupLegacy(store: IDBObjectStore, raw: unknown, scope: SaveScope): Promise<void> {
+  const migrationKey = `backup-before-stage-progression:${saveKey(scope)}`;
+  if (
+    raw &&
+    [1, 2, 3].includes((raw as { version?: number }).version ?? 0) &&
+    (await request(store.get(migrationKey))) === undefined
+  )
+    store.put(raw, migrationKey);
   if (scope !== 'guest') return;
   if (
     raw &&
@@ -654,14 +717,15 @@ export async function readRawSave(scope: SaveScope = 'guest'): Promise<unknown> 
 }
 export async function readLegacyBackup(scope: SaveScope = 'guest'): Promise<unknown> {
   saveKey(scope);
-  if (scope !== 'guest') return undefined;
-  return transact(
-    'readonly',
-    async (store) =>
+  return transact('readonly', async (store) => {
+    const migrated = await request(store.get(`backup-before-stage-progression:${saveKey(scope)}`));
+    if (migrated !== undefined || scope !== 'guest') return migrated;
+    return (
       (await request(store.get(BACKUP))) ??
       (await request(store.get('backup-v1'))) ??
-      (await request(store.get('backup-before-v2'))),
-  );
+      (await request(store.get('backup-before-v2')))
+    );
+  });
 }
 export async function loadGame(scope: SaveScope = 'guest'): Promise<SaveV3> {
   const key = saveKey(scope);
@@ -685,16 +749,9 @@ function settleProfile(data: SaveV3, profile = data.profile): SaveV3 {
     next.runs += 1;
     next.bestWave = Math.max(next.bestWave, run.wave);
     next.totalKills += run.kills;
-    if (run.cleared) {
-      next.clears = [...new Set([...profile.clears, run.stage])].sort((a, b) => a - b);
-      next.stageUnlocked = Math.max(profile.stageUnlocked, Math.min(3, run.stage + 2));
-      next.difficultyUnlocked = Math.max(
-        profile.difficultyUnlocked,
-        Math.min(5, run.difficulty + 1),
-      );
-    }
   }
   const progression = structuredClone(data.progression);
+  recordStageClear(next, progression.stages, run);
   if (!duplicate && run.version === 2 && 'rulesVersion' in run && run.rulesVersion === 3) {
     const modern = run as RunV3;
     if (!progression.records.some((r) => r.runId === run.id))

@@ -55,13 +55,13 @@ import {
   rerollReward,
   closeShop,
   repair,
+  repairOptions,
   useSkill,
   continueEndless,
   retire,
   rewardForRun,
   previewCard,
   describeNextThreat,
-  REPAIR_COST,
   rewardRerollCost,
   availableFusions,
   previewFusion,
@@ -70,6 +70,9 @@ import {
 import { BattleRenderer } from '../render/battle';
 import { WindowManager } from './windows';
 import { launchMarkup } from './launch';
+import { fusionHintMarkup } from './fusion-hints';
+import { repairPanelMarkup, updateRepairPanel } from './shop-repairs';
+import { recordStageClear, difficultyName } from '../game/stage-progress';
 import { SimulationClock, resolveDecisionPause } from '../game/clock';
 import { PageLoop } from './page-loop';
 import {
@@ -410,6 +413,11 @@ function sound(note = 440) {
   } catch {}
 }
 function updateHud() {
+  const shopRun = current();
+  if (isV2(shopRun) && manager.has('rewards')) {
+    const panel = manager.element('rewards')!;
+    updateRepairPanel(panel, repairOptions(shopRun, lastRewardId), shopRun.hp, shopRun.maxHp);
+  }
   if (!preview) return;
   const s = current(),
     legacy = !isV2(s);
@@ -483,7 +491,7 @@ function updateHud() {
       ? 'Resume expedition'
       : 'Expedition setup';
   const readyFusions = playing && modern(s) ? availableFusions(s as RunV2).length : 0;
-  $('fusion-count').textContent = readyFusions ? `Fusions · ${readyFusions} ready` : 'Fusions';
+  $('fusion-count').textContent = readyFusions ? `Fusions · ${readyFusions}` : 'Fusions';
   $('fusion-btn').classList.toggle('fusion-ready', readyFusions > 0);
   $('fusion-btn').setAttribute('aria-label', `Fusion forge, ${readyFusions} ready`);
   $('arena').dataset.catchingUp = String(clock.catchingUp);
@@ -554,6 +562,13 @@ function openLaunch() {
     chosenStage = data.run.stage;
     chosenDifficulty = data.run.difficulty;
     chosenMode = modern(data.run)?.mode ?? 'normal';
+  }
+  if (!playing) {
+    const allowed = data.progression.stages[chosenStage].unlockedDifficulty;
+    if (chosenDifficulty > allowed) {
+      chosenDifficulty = allowed;
+      makePreview();
+    }
   }
   const expanded =
     manager.element('expedition')?.querySelector<HTMLDetailsElement>('.launch-runes')?.open ??
@@ -636,6 +651,14 @@ function openLaunch() {
   });
   $('begin-btn')?.addEventListener('click', () => {
     if (playing || contextChanging || blocked || entryScreen.visible) return;
+    if (
+      chosenStage >= data.profile.stageUnlocked ||
+      chosenDifficulty > data.progression.stages[chosenStage].unlockedDifficulty ||
+      !data.profile.unlocked.includes(chosenTower)
+    ) {
+      notify('Choose an unlocked tower, stage and difficulty.');
+      return;
+    }
     data.run = createRun(
       effectiveProfile(),
       chosenTower,
@@ -769,7 +792,7 @@ function offerMarkup(offer: CardOffer, shop: boolean) {
     if (c.scope === 'weapon' && s.weapons.length > 1)
       info.summary = 'Choose a target to compare exact changes. ' + info.summary;
   }
-  return `<button class="card rarity-${offer.rarity}" data-offer="${esc(offer.id)}" style="--rarity:${RARITY_COLORS[offer.rarity]}" ${shop && s.scrap < offer.price ? 'disabled' : ''}><span class="card-top"><span>${rarityLabel(offer.rarity)}</span><span>${c.weapon && isDefensiveKind(c.weapon) ? 'DEFENSIVE CORE' : c.group.toUpperCase()}</span></span><span class="ownership-badge">${ownership}</span>${ownedText ? `<span class="owned-comparison">${esc(ownedText)}</span>` : ''}<span class="card-art">${cardIcon(c.iconId, 72)}</span><h3>${esc(c.name)}</h3><span class="card-scope">${esc(scopeLabel(c))}</span><p>${esc(c.description)}</p>${cardRules(c) ? `<small class="card-rules">${esc(cardRules(c))}</small>` : ''}${info.summary ? `<span class="card-change">${esc(info.summary)}</span>` : ''}${info.awaken.length ? `<span class="card-synergy">✦ ${esc(info.awaken.join(' · '))}</span>` : ''}${info.lost.length ? `<span class="card-loss">Releases ${esc(info.lost.join(', '))}</span>` : ''}<span class="card-action">${shop ? `${offer.price} scrap` : 'Choose upgrade'} ${glyph('arrow')}</span></button>`;
+  return `<button class="card rarity-${offer.rarity}" data-offer="${esc(offer.id)}" style="--rarity:${RARITY_COLORS[offer.rarity]}" ${shop && s.scrap < offer.price ? 'disabled' : ''}><span class="card-top"><span>${rarityLabel(offer.rarity)}</span><span>${c.weapon && isDefensiveKind(c.weapon) ? 'DEFENSIVE CORE' : c.group.toUpperCase()}</span></span><span class="ownership-badge">${ownership}</span>${ownedText ? `<span class="owned-comparison">${esc(ownedText)}</span>` : ''}<span class="card-art">${cardIcon(c.iconId, 72)}</span><h3>${esc(c.name)}</h3><span class="card-scope">${esc(scopeLabel(c))}</span><p>${esc(c.description)}</p>${cardRules(c) ? `<small class="card-rules">${esc(cardRules(c))}</small>` : ''}${info.summary ? `<span class="card-change">${esc(info.summary)}</span>` : ''}${info.awaken.length ? `<span class="card-synergy">✦ ${esc(info.awaken.join(' · '))}</span>` : ''}${c.weapon && modern(s) ? fusionHintMarkup(c.weapon, s.version === 2 ? s.weapons : []) : ''}${info.lost.length ? `<span class="card-loss">Releases ${esc(info.lost.join(', '))}</span>` : ''}<span class="card-action">${shop ? `${offer.price} scrap` : 'Choose upgrade'} ${glyph('arrow')}</span></button>`;
 }
 function showRewards(id?: string) {
   const s = current();
@@ -816,7 +839,7 @@ function showRewards(id?: string) {
       height: 690,
       choice: true,
     },
-    `<div class="reward-toolbar"><label><input type="checkbox" id="choice-pause" ${data.settings.autoPauseChoices ? 'checked' : ''}> Pause while choosing</label>${s.pendingRewards.length > 1 ? `<select id="reward-queue" aria-label="Pending rewards">${s.pendingRewards.map((p) => `<option value="${esc(p.id)}" ${p.id === reward.id ? 'selected' : ''}>${p.kind === 'shop' ? `Wave ${p.wave} · Artificer` : p.level ? `Level ${p.level} · Upgrade` : `Wave ${p.wave} · Upgrade`}</option>`).join('')}</select>` : '<span>Upgrades accumulate. Your existing effects stay.</span>'}</div><div class="card-grid ${shop ? 'shop-cards' : ''}">${reward.offers.map((o) => offerMarkup(o, shop)).join('')}</div><div class="reward-footer"><button id="reward-reroll" class="outline-button">Reroll · ${rewardRerollCost(s, reward.id)} scrap · ${reward.rerolls} used</button>${shop ? `<button id="repair-shop" class="outline-button" ${reward.repairStock <= 0 || s.hp >= s.maxHp ? 'disabled' : ''}>Repair integrity · ${REPAIR_COST} scrap</button><button id="leave-shop" class="gold-button">Continue ${glyph('arrow')}</button>` : '<span class="quiet">Six shared sockets · support cards accumulate</span>'}</div>`,
+    `<div class="reward-toolbar"><label><input type="checkbox" id="choice-pause" ${data.settings.autoPauseChoices ? 'checked' : ''}> Pause while choosing</label>${s.pendingRewards.length > 1 ? `<select id="reward-queue" aria-label="Pending rewards">${s.pendingRewards.map((p) => `<option value="${esc(p.id)}" ${p.id === reward.id ? 'selected' : ''}>${p.kind === 'shop' ? `Wave ${p.wave} · Artificer` : p.level ? `Level ${p.level} · Upgrade` : `Wave ${p.wave} · Upgrade`}</option>`).join('')}</select>` : '<span>Upgrades accumulate. Your existing effects stay.</span>'}</div>${shop ? repairPanelMarkup(repairOptions(s, reward.id), s.hp, s.maxHp) : ''}<div class="card-grid ${shop ? 'shop-cards' : ''}">${reward.offers.map((o) => offerMarkup(o, shop)).join('')}</div><div class="reward-footer"><button id="reward-reroll" class="outline-button">Reroll · ${rewardRerollCost(s, reward.id)} scrap · ${reward.rerolls} used</button>${shop ? `<button id="leave-shop" class="gold-button">Continue ${glyph('arrow')}</button>` : '<span class="quiet">Six shared sockets · support cards accumulate</span>'}</div>`,
   );
   $('choice-pause').onchange = () => {
     data.settings.autoPauseChoices = $<HTMLInputElement>('choice-pause').checked;
@@ -856,14 +879,28 @@ function showRewards(id?: string) {
       showRewards(reward.id);
     } else notify('Not enough scrap or rerolls available.');
   };
-  $('repair-shop')?.addEventListener('click', async () => {
-    if (repair(s, reward.id)) {
-      clearTimeout(persistTimer);
-      await persist();
-      showRewards(reward.id);
-      updateHud();
-    } else notify('Repair unavailable. Check scrap and remaining stock.');
-  });
+  manager
+    .element('rewards')!
+    .querySelectorAll<HTMLButtonElement>('[data-repair-percent]')
+    .forEach((button) => {
+      button.onclick = async () => {
+        const percent = Number(button.dataset.repairPercent);
+        const hpBefore = s.hp;
+        const scrapBefore = s.scrap;
+        if (repair(s, reward.id, percent)) {
+          telemetry.event(s.id, s.time, 'shop-repair', {
+            percent,
+            health: s.hp - hpBefore,
+            scrap: scrapBefore - s.scrap,
+            wave: reward.wave,
+          });
+          clearTimeout(persistTimer);
+          await persist();
+          showRewards(reward.id);
+          updateHud();
+        } else notify('Repair unavailable. Check scrap, health and remaining stock.');
+      };
+    });
   $('leave-shop')?.addEventListener('click', () => {
     closeShop(s, reward.id);
     scheduleSave();
@@ -1830,12 +1867,7 @@ function openHelp() {
 function recordClear() {
   const s = data.run;
   if (!s?.cleared) return;
-  if (!data.profile.clears.includes(s.stage)) data.profile.clears.push(s.stage);
-  data.profile.stageUnlocked = Math.max(data.profile.stageUnlocked, Math.min(3, s.stage + 2));
-  data.profile.difficultyUnlocked = Math.max(
-    data.profile.difficultyUnlocked,
-    Math.min(5, s.difficulty + 1),
-  );
+  recordStageClear(data.profile, data.progression.stages, s);
 }
 function openVictory() {
   const s = data.run;
@@ -1850,7 +1882,7 @@ function openVictory() {
       height: 590,
       choice: true,
     },
-    `<div class="victory-mark">${glyph('tower')}</div><p class="lead">The guardian has fallen. Your stage clear is secured. Extract with your rewards, or carry this machine into the endless dark.</p><div class="result-stats"><div><b>${s.kills.toLocaleString()}</b><span>Enemies defeated</span></div><div><b>${Math.floor(isV2(s) ? rewardForRun(s) : creditReward(s))}</b><span>Projected credits</span></div></div><div class="result-actions"><button id="extract-btn" class="outline-button">Extract & collect</button><button id="endless-btn" class="gold-button">Enter endless ${glyph('arrow')}</button></div>`,
+    `<div class="victory-mark">${glyph('tower')}</div><p class="lead">The guardian has fallen. Your ${difficultyName(s.difficulty)} clear in ${STAGES[s.stage].name} is secured. ${s.difficulty < 5 ? `${difficultyName(s.difficulty + 1)} is unlocked for this stage.` : 'All Ascensions for this stage are unlocked.'} Extract with your rewards, or carry this machine into the endless dark.</p><div class="result-stats"><div><b>${s.kills.toLocaleString()}</b><span>Enemies defeated</span></div><div><b>${Math.floor(isV2(s) ? rewardForRun(s) : creditReward(s))}</b><span>Projected credits</span></div></div><div class="result-actions"><button id="extract-btn" class="outline-button">Extract & collect</button><button id="endless-btn" class="gold-button">Enter endless ${glyph('arrow')}</button></div>`,
   );
   $('extract-btn').onclick = () => {
     if (isV2(s)) retire(s);
@@ -1926,7 +1958,7 @@ function openResults(startSettlement = true) {
       height: 650,
       choice: true,
     },
-    `<div class="result-stats"><div><b>${s.wave}</b><span>Wave reached</span></div><div><b>${s.kills.toLocaleString()}</b><span>Defeated</span></div><div><b>+${isV2(s) ? rewardForRun(s) : s.earned}</b><span>${s.settled ? (storageFailed ? 'Credits kept in memory' : 'Credits secured') : 'Securing credits…'}</span></div></div><p class="lead">${synergies.length ? `Your awakened machinery: ${esc(synergies.join(' · '))}.` : 'A focused build, a defensive reaction, or a different weapon may change the next expedition.'}</p>${isV2(s) ? `<div class="ledger-grid"><div><small>Shop purchases</small><b>${s.stats.shopPurchases}</b></div><div><small>Scrap spent</small><b>${s.stats.spent}</b></div><div><small>Combat time</small><b>${Math.floor(s.time / 60)}m ${Math.floor(s.time % 60)}s</b></div><div><small>Passive synergies</small><b>${s.synergies.length}</b></div>${modern(s) ? `<div><small>Mastered fusions</small><b>${forged.length}</b></div><div><small>Tower level</small><b>${s.level}</b></div>` : ''}</div>` : ''}<p class="notice">${s.cleared ? 'Your stage and Ascension progress are unlocked.' : 'Credits can awaken another tower or improve your permanent runes.'}${storageFailed ? ' Export a backup before closing this tab.' : ''}</p>${nextTower ? `<p class="notice">Next awakening: ${nextTower.name} · ${nextTower.cost} credits. ${availableCredits >= nextTower.cost ? 'You can awaken it in the hangar.' : `${nextTower.cost - availableCredits} credits to go.`}</p>` : ''}<div class="result-actions"><button id="result-ledger" class="outline-button">Damage ledger</button><button id="result-export" class="outline-button">Export save</button><button id="return-spire" class="gold-button">Return to the spire ${glyph('arrow')}</button></div>`,
+    `<div class="result-stats"><div><b>${s.wave}</b><span>Wave reached</span></div><div><b>${s.kills.toLocaleString()}</b><span>Defeated</span></div><div><b>+${isV2(s) ? rewardForRun(s) : s.earned}</b><span>${s.settled ? (storageFailed ? 'Credits kept in memory' : 'Credits secured') : 'Securing credits…'}</span></div></div><p class="lead">${synergies.length ? `Your awakened machinery: ${esc(synergies.join(' · '))}.` : 'A focused build, a defensive reaction, or a different weapon may change the next expedition.'}</p>${isV2(s) ? `<div class="ledger-grid"><div><small>Shop purchases</small><b>${s.stats.shopPurchases}</b></div><div><small>Scrap spent</small><b>${s.stats.spent}</b></div><div><small>Combat time</small><b>${Math.floor(s.time / 60)}m ${Math.floor(s.time % 60)}s</b></div><div><small>Passive synergies</small><b>${s.synergies.length}</b></div>${modern(s) ? `<div><small>Mastered fusions</small><b>${forged.length}</b></div><div><small>Tower level</small><b>${s.level}</b></div>` : ''}</div>` : ''}<p class="notice">${s.cleared ? `${STAGES[s.stage].name} · ${difficultyName(s.difficulty)} clear secured. Other stages keep their own difficulty access.` : 'Credits can awaken another tower or improve your permanent runes.'}${storageFailed ? ' Export a backup before closing this tab.' : ''}</p>${nextTower ? `<p class="notice">Next awakening: ${nextTower.name} · ${nextTower.cost} credits. ${availableCredits >= nextTower.cost ? 'You can awaken it in the hangar.' : `${nextTower.cost - availableCredits} credits to go.`}</p>` : ''}<div class="result-actions"><button id="result-ledger" class="outline-button">Damage ledger</button><button id="result-export" class="outline-button">Export save</button><button id="return-spire" class="gold-button">Return to the spire ${glyph('arrow')}</button></div>`,
   );
   $('result-export').onclick = downloadCurrent;
   $('result-ledger').onclick = openStats;

@@ -210,6 +210,87 @@
   color: #beeacc;
   box-shadow: 0 0 16px #7bdeab25;
 }
+
+/* Labels never participate in hover layout: every target keeps its own slot. */
+.field-tools > button {
+  position: relative;
+  flex: 0 0 46px;
+  width: 46px;
+  justify-content: center;
+}
+.field-tools > button > span,
+.field-tools:hover > button > span,
+.field-tools:focus-within > button > span {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  width: max-content;
+  max-width: min(240px, 75vw);
+  padding: 7px 10px;
+  border: 1px solid #8c805b;
+  border-radius: 3px;
+  background: #15261f;
+  color: #ecdfbc;
+  font-size: 16px;
+  white-space: nowrap;
+  opacity: 0;
+  margin: 0;
+  pointer-events: none;
+  transition: opacity 120ms ease;
+  z-index: 2;
+}
+.field-tools > button:hover > span,
+.field-tools > button:focus-visible > span {
+  opacity: 1;
+}
+.field-tools > .launch-tool {
+  flex-basis: 190px;
+  width: 190px;
+}
+.field-tools > .fusion-tool {
+  flex-basis: 160px;
+  width: 160px;
+}
+.field-tools > .launch-tool > span,
+.field-tools > .fusion-tool > span,
+.field-tools:hover > .launch-tool > span,
+.field-tools:hover > .fusion-tool > span,
+.field-tools:focus-within > .launch-tool > span,
+.field-tools:focus-within > .fusion-tool > span {
+  position: static;
+  width: auto;
+  max-width: none;
+  padding: 0;
+  border: 0;
+  background: none;
+  opacity: 1;
+  margin: 0;
+}
+.card-fusion-hint {
+  display: grid;
+  gap: 5px;
+  border-top: 1px solid #a78c5555;
+  padding-top: 9px;
+  margin-top: 9px;
+  font-size: 14px;
+  line-height: 1.4;
+  color: #d8c38d;
+}
+.card-fusion-hint > b {
+  font-size: 14px;
+}
+.card-fusion-hint .fusion-partner {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+.card-fusion-hint small {
+  font-size: 14px;
+  color: #b9c9bb;
+}
+.fusion-partner small {
+  margin-left: 7px;
+}
 .fusion-offers {
   display: grid;
   gap: 14px;
@@ -322,5 +403,101 @@
   }
   .field-tools > .fusion-tool span {
     max-width: 140px;
+  }
+}
+
+.stage-progress {
+  margin: 22px 0;
+}
+.difficulty-records {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 8px;
+}
+.difficulty-record {
+  padding: 10px 8px;
+  border: 1px solid #5c6650;
+  border-radius: 4px;
+  display: grid;
+  gap: 5px;
+  font-size: 16px;
+}
+.difficulty-record small {
+  font-size: 14px;
+}
+.difficulty-record.cleared {
+  border-color: #bfa76b;
+  background: #c5ac6915;
+}
+.difficulty-record.cleared small {
+  color: #ead194;
+}
+.difficulty-record.locked {
+  color: #9aa49a;
+  border-style: dashed;
+}
+.stage-record-details summary {
+  cursor: pointer;
+  padding: 10px 0;
+}
+.stage-record-details p {
+  font-size: 16px;
+  line-height: 1.6;
+}
+.shop-repairs {
+  padding: 18px 0;
+  margin-top: 12px;
+  border-top: 1px solid #7c7c5444;
+}
+.shop-repairs h3 {
+  font-family: Georgia, serif;
+  font-size: 22px;
+}
+.shop-repairs p {
+  font-size: 16px;
+  line-height: 1.5;
+  margin: 10px 0 14px;
+}
+.repair-options {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+.repair-option {
+  display: grid;
+  justify-items: start;
+  align-content: start;
+  gap: 7px;
+  text-align: left;
+  padding: 14px;
+  white-space: normal;
+}
+.repair-option b {
+  font-size: 18px;
+  line-height: 1.35;
+}
+.repair-option strong {
+  color: #e2c77d;
+  font-size: 18px;
+}
+.repair-option span {
+  font-size: 16px;
+}
+.repair-option small {
+  font-size: 14px;
+  min-height: 1.5em;
+}
+.repair-option:disabled {
+  opacity: 0.65;
+}
+@media (max-width: 700px) {
+  .difficulty-records {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .repair-options {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .repair-option {
+    padding: 10px;
   }
 }

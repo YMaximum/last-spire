@@ -30,7 +30,13 @@ Optional Google sign-in and account-isolated cloud-save controls are available t
 
 The expedition screen puts tower selection, purchased/equipped runes, run mode, stage, and difficulty together. Its Start/Resume action stays visible while the setup scrolls. An existing expedition must be retired and its rewards secured before another can start. Rune purchases are separate from the levels selected for a run; the active expedition keeps its original loadout.
 
+Each stage has independent Normal–Ascension 5 access and difficulty-clear records. Quick and Normal victories, plus the campaign checkpoint in Endless, unlock only that stage's next difficulty. Older saves retain their previous global difficulty access on stages that were already open; stages opened afterward begin at Normal. Legacy clears whose difficulty was never recorded remain labeled as legacy clears.
+
+New expeditions offer four healing choices at milestone shops: **25% / 50% / 75% / 100% of maximum HP** for **28 / 56 / 84 / 112 scrap**. Choose one repair per shop; rerolling does not replenish stock. Repair upgrades increase healing, excess healing is lost, and the live quote shows the actual HP restored. Recovering an older active expedition retains its original single 30% repair.
+
 The **Fusions** button shows the number of ready recipes. When two equipped cores reach mastery six, their offer appears at the next cleared-wave boundary after pending upgrades and shops. Preview inheritance before forging, or choose **Later**; the ready recipe stays in the dedicated Fusion forge without repeating its automatic offer for those cores. **F** opens the forge.
+
+Weapon upgrade cards show their fusion partners and equipped partner mastery in a compact hint. Battlefield toolbar hit areas remain fixed when hovered or focused; information labels appear without moving neighboring buttons.
 
 Combat continues while the game tab remains open but unfocused. Hidden tabs skip battlefield rendering and use low-frequency simulation callbacks. If the browser suspends callbacks, the same document catches up in bounded fixed ticks when callbacks resume, stopping at the first decision or defeat. Decisions encountered while away pause even when foreground choice auto-pause is disabled. Manual pause is respected. Closing/reloading the page does not generate offline progress; a restored expedition waits for Resume. Browsers may throttle or freeze hidden pages, so continuous real-time execution cannot be guaranteed.
 

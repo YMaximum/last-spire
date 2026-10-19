@@ -11,3 +11,7 @@ For simulation or balance changes, include reproducible seeds and policy setting
 ## Compatibility and release notes
 
 Explain save/progression compatibility and any migration or rollback considerations. Write "No save changes" when applicable. Publishing is a separate manual step after review and merge.
+
+## Player patch notes
+
+Update `src/content/patch-notes.ts` for player-visible changes, or explain why no entry is needed. Include any effect on existing expeditions.

@@ -1,3 +1,5 @@
+import './patch-notes.css';
+import { openPatchNotes } from './patch-notes';
 import './evolution.css';
 import {
   chooseEvolution,
@@ -649,6 +651,7 @@ function openLaunch() {
     ),
   );
   const panel = manager.element('expedition')!;
+  panel.querySelector<HTMLButtonElement>('#launch-patch-notes')!.onclick = () => openPatchNotes(manager);
   panel.querySelector('.launch-scroll')!.scrollTop = scrollTop;
   panel.querySelector<HTMLDetailsElement>('.launch-runes')!.open = expanded;
   panel.querySelectorAll<HTMLButtonElement>('[data-launch-tower]').forEach((button) => {
@@ -761,7 +764,7 @@ function openMenu() {
       width: 410,
       height: 500,
     },
-    `<div class="menu-list">${!playing ? '<button id="menu-launch">Prepare expedition</button>' : ''}<button id="menu-arsenal">${glyph('tower')} Arsenal & synergies</button><button id="menu-evolution" class="outline-button full">${glyph('tower')} Tower evolution</button><button id="menu-codex">${glyph('book')} Field codex</button><button id="menu-hangar">${glyph('shield')} Tower hangar</button><button id="menu-settings">${glyph('gear')} Settings & saves</button><button id="menu-account">${glyph('shield')} Account & cloud saves</button><button id="menu-help">How to play</button>${playing ? '<button id="menu-retire" class="danger-text">Retire & collect rewards</button>' : ''}</div><p class="quiet">${playing ? 'Combat continues behind information windows. Use Space to pause.' : 'Original arcane machines. Endless possibilities.'}</p>`,
+    `<div class="menu-list">${!playing ? '<button id="menu-launch">Prepare expedition</button>' : ''}<button id="menu-arsenal">${glyph('tower')} Arsenal & synergies</button><button id="menu-evolution" class="outline-button full">${glyph('tower')} Tower evolution</button><button id="menu-codex">${glyph('book')} Field codex</button><button id="menu-hangar">${glyph('shield')} Tower hangar</button><button id="menu-settings">${glyph('gear')} Settings & saves</button><button id="menu-account">${glyph('shield')} Account & cloud saves</button><button id="menu-patch-notes">${glyph('book')} What’s new · patch notes</button><button id="menu-help">How to play</button>${playing ? '<button id="menu-retire" class="danger-text">Retire & collect rewards</button>' : ''}</div><p class="quiet">${playing ? 'Combat continues behind information windows. Use Space to pause.' : 'Original arcane machines. Endless possibilities.'}</p>`,
   );
   $('menu-launch')?.addEventListener('click', () => {
     manager.close('menu');
@@ -773,6 +776,7 @@ function openMenu() {
   $('menu-hangar').onclick = openHangar;
   $('menu-settings').onclick = openSettings;
   $('menu-account').onclick = () => accountPanel.open();
+  $('menu-patch-notes').onclick = () => openPatchNotes(manager);
   $('menu-help').onclick = openHelp;
   $('menu-retire')?.addEventListener('click', () => openRetire());
 }
@@ -1960,8 +1964,9 @@ function openSettings() {
       width: 610,
       height: 760,
     },
-    `<div class="settings-list"><label>Sound effects<input id="setting-sound" type="checkbox" ${data.settings.sound ? 'checked' : ''}></label><label>Floating damage numbers<input id="setting-damage-numbers" type="checkbox" ${data.settings.damageNumbers ? 'checked' : ''}></label><label>Reduced motion<input id="setting-motion" type="checkbox" ${data.settings.reducedMotion ? 'checked' : ''}></label><label>Camera shake<input id="setting-shake" type="checkbox" ${data.settings.shake ? 'checked' : ''}></label><label>Pause draft & shop windows<input id="setting-pause" type="checkbox" ${data.settings.autoPauseChoices ? 'checked' : ''}></label><label>Text & interface scale<select id="setting-scale">${[100, 115, 130, 150].map((v) => `<option value="${v}" ${data.settings.uiScale === v ? 'selected' : ''}>${v}%</option>`).join('')}</select></label><label>Weapon spectacle<select id="setting-intensity">${['subtle', 'balanced', 'spectacular'].map((v) => `<option value="${v}" ${v === data.settings.intensity ? 'selected' : ''}>${v[0].toUpperCase() + v.slice(1)}</option>`).join('')}</select></label><label>Effects quality<select id="setting-quality"><option value="high" ${data.settings.effects === 'high' ? 'selected' : ''}>High detail</option><option value="low" ${data.settings.effects === 'low' ? 'selected' : ''}>Battery friendly</option></select></label></div><div class="save-status ${storageFailed || blocked ? 'warning' : ''}">${blocked ? 'A saved checkpoint needs recovery. Automatic writes are stopped to protect it.' : storageFailed ? 'Storage is unavailable. Progress is kept in this tab: export before closing.' : 'Local saves are active. Combat checkpoints and queued choices are autosaved.'}</div><div class="save-actions"><button id="settings-account" class="outline-button">Account & cloud saves</button><button id="local-analytics" class="outline-button">Local gameplay data</button><button id="export-save" class="outline-button">Export current save</button><label class="file-button outline-button">Import save<input id="import-save" type="file" accept="application/json,.json"></label><button id="paste-import" class="outline-button">Paste a save</button><button id="export-backup" class="outline-button">Download migration backup</button></div><p class="quiet">Guest saves stay on your device. Optional account sync is managed in Account & cloud saves. Import reviews and replaces only the active save context. A recovered original expedition keeps its old rules until it ends.</p><div class="controls-reference"><h3>At your command</h3><p><kbd>Space</kbd> pause · <kbd>Q</kbd> signature · <kbd>E</kbd> secondary<br><kbd>A</kbd> arsenal · <kbd>C</kbd> codex · <kbd>1 / 2 / 3</kbd> speed<br><kbd>Esc</kbd> close the top window, then pause<br>Drag window headers, or focus a header and use <kbd>Alt + arrows</kbd>.</p></div><a class="outline-button full" href="/icon-contact-sheet.html" target="_blank" rel="noopener">Inspect the original card icon collection ↗</a>`,
+    `<div class="settings-list"><label>Sound effects<input id="setting-sound" type="checkbox" ${data.settings.sound ? 'checked' : ''}></label><label>Floating damage numbers<input id="setting-damage-numbers" type="checkbox" ${data.settings.damageNumbers ? 'checked' : ''}></label><label>Reduced motion<input id="setting-motion" type="checkbox" ${data.settings.reducedMotion ? 'checked' : ''}></label><label>Camera shake<input id="setting-shake" type="checkbox" ${data.settings.shake ? 'checked' : ''}></label><label>Pause draft & shop windows<input id="setting-pause" type="checkbox" ${data.settings.autoPauseChoices ? 'checked' : ''}></label><label>Text & interface scale<select id="setting-scale">${[100, 115, 130, 150].map((v) => `<option value="${v}" ${data.settings.uiScale === v ? 'selected' : ''}>${v}%</option>`).join('')}</select></label><label>Weapon spectacle<select id="setting-intensity">${['subtle', 'balanced', 'spectacular'].map((v) => `<option value="${v}" ${v === data.settings.intensity ? 'selected' : ''}>${v[0].toUpperCase() + v.slice(1)}</option>`).join('')}</select></label><label>Effects quality<select id="setting-quality"><option value="high" ${data.settings.effects === 'high' ? 'selected' : ''}>High detail</option><option value="low" ${data.settings.effects === 'low' ? 'selected' : ''}>Battery friendly</option></select></label></div><div class="save-status ${storageFailed || blocked ? 'warning' : ''}">${blocked ? 'A saved checkpoint needs recovery. Automatic writes are stopped to protect it.' : storageFailed ? 'Storage is unavailable. Progress is kept in this tab: export before closing.' : 'Local saves are active. Combat checkpoints and queued choices are autosaved.'}</div><div class="save-actions"><button id="settings-patch-notes" class="outline-button">What’s new</button><button id="settings-account" class="outline-button">Account & cloud saves</button><button id="local-analytics" class="outline-button">Local gameplay data</button><button id="export-save" class="outline-button">Export current save</button><label class="file-button outline-button">Import save<input id="import-save" type="file" accept="application/json,.json"></label><button id="paste-import" class="outline-button">Paste a save</button><button id="export-backup" class="outline-button">Download migration backup</button></div><p class="quiet">Guest saves stay on your device. Optional account sync is managed in Account & cloud saves. Import reviews and replaces only the active save context. A recovered original expedition keeps its old rules until it ends.</p><div class="controls-reference"><h3>At your command</h3><p><kbd>Space</kbd> pause · <kbd>Q</kbd> signature · <kbd>E</kbd> secondary<br><kbd>A</kbd> arsenal · <kbd>C</kbd> codex · <kbd>1 / 2 / 3</kbd> speed<br><kbd>Esc</kbd> close the top window, then pause<br>Drag window headers, or focus a header and use <kbd>Alt + arrows</kbd>.</p></div><a class="outline-button full" href="/icon-contact-sheet.html" target="_blank" rel="noopener">Inspect the original card icon collection ↗</a>`,
   );
+  $('settings-patch-notes').onclick = () => openPatchNotes(manager);
   const bindCheck = (
     id: string,
     key: 'sound' | 'reducedMotion' | 'shake' | 'autoPauseChoices' | 'damageNumbers',
@@ -2326,7 +2331,7 @@ document.addEventListener('keydown', (e) => {
   if (input.matches('input,select,textarea') || e.altKey || e.ctrlKey || e.metaKey) return;
   const key = e.key.toLowerCase();
   if (e.code === 'Space') {
-    if (input.closest('.spire-window button')) return;
+    if (input.closest('.spire-window button, .spire-window summary')) return;
     e.preventDefault();
     togglePause();
   }

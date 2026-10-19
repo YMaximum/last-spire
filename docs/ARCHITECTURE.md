@@ -48,3 +48,17 @@ for current gameplay balance. Run audits in small, serialized batches.
 
 Only `index.html` selects the shipped browser application. QA pages and synthetic
 checkpoints remain development-only and must not replace a player's save.
+
+## Expedition controls and document lifetime
+
+`src/game/clock.ts` owns bounded fixed-tick catch-up. `src/ui/page-loop.ts` owns one
+scheduled callback at a time: animation frames while visible, a timer while hidden.
+Visibility changes preserve elapsed open-document time; page exit clears the clock.
+No persisted wall timestamp or VPS-side combat simulation is used. Pause/decision
+boundaries discard time after the pause, and controls wait while catch-up is pending.
+
+Fusion-offer acknowledgements and the safe-wave marker use bounded, namespaced
+numeric entries in existing run counters. The unchanged browser and cloud validators
+retain those entries. They do not affect combat, reward generation or RNG. Existing
+rewards take priority; minimization or closing a reward window does not bypass the
+default pending-decision pause. Presentation settings remain device-local.

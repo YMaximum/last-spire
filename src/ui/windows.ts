@@ -54,6 +54,9 @@ export class WindowManager {
       [...this.panels.values()].some((p) => p.spec.choice && !p.layout.minimized)
     );
   }
+  pendingChoice() {
+    return [...this.panels.values()].some((p) => p.spec.choice);
+  }
   open(id: string, spec: WindowSpec, body: string) {
     const existing = this.panels.get(id);
     if (existing) {

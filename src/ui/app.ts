@@ -30,7 +30,13 @@ import { AccountPanel } from '../account/panel';
 import { EntryScreen } from '../account/entry';
 import { archiveSave, rememberedPlayer } from '../account/cache';
 import { STAGES, ELEMENT_COLORS, PATTERNS } from '../content/world';
-import { TOWERS, isDefensiveKind, FUSIONS, FUSION_BY_ID } from '../content/catalog';
+import {
+  TOWERS,
+  isDefensiveKind,
+  FUSIONS,
+  FUSION_BY_ID,
+  EXPANSION_FUSION_IDS,
+} from '../content/catalog';
 import type { RunV3, RunMode } from '../game/types';
 import { LocalTelemetry } from '../telemetry/local';
 import { FrameMeter } from '../render/performance';
@@ -760,6 +766,7 @@ function scopeLabel(c: CardDefinition) {
           : 'Entire tower';
 }
 function cardRules(c: CardDefinition) {
+  if (c.effect === 'crossfire' || c.effect === 'control-release') return '';
   if (c.group === 'skill')
     return 'Every skill cast activates this card. Equip it as your secondary to increase this card’s damage, healing, or shielding by 50%.';
   if (c.group === 'infusion')
@@ -815,7 +822,7 @@ function offerMarkup(offer: CardOffer, shop: boolean) {
     if (c.scope === 'weapon' && s.weapons.length > 1)
       info.summary = 'Choose a target to compare exact changes. ' + info.summary;
   }
-  return `<button class="card rarity-${offer.rarity}" data-offer="${esc(offer.id)}" style="--rarity:${RARITY_COLORS[offer.rarity]}" ${shop && s.scrap < offer.price ? 'disabled' : ''}><span class="card-top"><span>${rarityLabel(offer.rarity)}</span><span>${c.weapon && isDefensiveKind(c.weapon) ? 'DEFENSIVE CORE' : c.group.toUpperCase()}</span></span><span class="ownership-badge">${ownership}</span>${ownedText ? `<span class="owned-comparison">${esc(ownedText)}</span>` : ''}<span class="card-art">${cardIcon(c.iconId, 72)}</span><h3>${esc(c.name)}</h3><span class="card-scope">${esc(scopeLabel(c))}</span><p>${esc(c.description)}</p>${cardRules(c) ? `<small class="card-rules">${esc(cardRules(c))}</small>` : ''}${info.summary ? `<span class="card-change">${esc(info.summary)}</span>` : ''}${info.awaken.length ? `<span class="card-synergy">✦ ${esc(info.awaken.join(' · '))}</span>` : ''}${c.weapon && modern(s) ? fusionHintMarkup(c.weapon, s.version === 2 ? s.weapons : []) : ''}${info.lost.length ? `<span class="card-loss">Releases ${esc(info.lost.join(', '))}</span>` : ''}<span class="card-action">${shop ? `${offer.price} scrap` : 'Choose upgrade'} ${glyph('arrow')}</span></button>`;
+  return `<button class="card rarity-${offer.rarity}" data-offer="${esc(offer.id)}" style="--rarity:${RARITY_COLORS[offer.rarity]}" ${shop && s.scrap < offer.price ? 'disabled' : ''}><span class="card-top"><span>${rarityLabel(offer.rarity)}</span><span>${c.weapon && isDefensiveKind(c.weapon) ? 'DEFENSIVE CORE' : c.group.toUpperCase()}</span></span><span class="ownership-badge">${ownership}</span>${ownedText ? `<span class="owned-comparison">${esc(ownedText)}</span>` : ''}<span class="card-art">${cardIcon(c.iconId, 72)}</span><h3>${esc(c.name)}</h3><span class="card-scope">${esc(scopeLabel(c))}</span><p>${esc(c.description)}</p>${cardRules(c) ? `<small class="card-rules">${esc(cardRules(c))}</small>` : ''}${info.summary ? `<span class="card-change">${esc(info.summary)}</span>` : ''}${info.awaken.length ? `<span class="card-synergy">✦ ${esc(info.awaken.join(' · '))}</span>` : ''}${c.weapon && modern(s) ? fusionHintMarkup(c.weapon, s.version === 2 ? s.weapons : [], modern(s)?.arsenalVersion === 2) : ''}${info.lost.length ? `<span class="card-loss">Releases ${esc(info.lost.join(', '))}</span>` : ''}<span class="card-action">${shop ? `${offer.price} scrap` : 'Choose upgrade'} ${glyph('arrow')}</span></button>`;
 }
 function showRewards(id?: string) {
   const s = current();
@@ -1205,17 +1212,21 @@ function openFusions() {
     fusionPanel(s),
   );
 }
-function fusionPanel(input: RunV2 | RunState) {
+function fusionPanel(input: RunV2 | RunState, query = '') {
   const s = modern(input);
   if (!s)
     return '<p>Mastered fusions are available in new XP expeditions. This recovered run keeps its original rules.</p>';
   const ready = availableFusions(s as RunV2);
-  const recipes = [...FUSIONS].sort(
-    (a, b) =>
-      Number(ready.some((r) => r.recipeId === b.id)) -
-      Number(ready.some((r) => r.recipeId === a.id)),
-  );
-  return `<p class="notice">${ready.length ? `${ready.length} fusion${ready.length === 1 ? '' : 's'} ready to forge. Eligible recipes appear first.` : 'Master two compatible cores to unlock a fusion.'}</p><p>Two equipped ingredients at mastery 6 become one fused core, freeing a socket. Fusion is free. Compatible investments carry over; a fused core cannot fuse again.</p><div class="fusion-list">${recipes
+  const recipes = FUSIONS.filter(
+    (recipe) => s.arsenalVersion === 2 || !EXPANSION_FUSION_IDS.includes(recipe.id),
+  )
+    .filter((recipe) => fusionMatchesQuery(recipe, query))
+    .sort(
+      (a, b) =>
+        Number(ready.some((r) => r.recipeId === b.id)) -
+        Number(ready.some((r) => r.recipeId === a.id)),
+    );
+  return `${query ? `<p class="result-count">${recipes.length} matching fusion recipes</p>` : ''}<p class="notice">${ready.length ? `${ready.length} fusion${ready.length === 1 ? '' : 's'} ready to forge. Eligible recipes appear first.` : 'Master two compatible cores to unlock a fusion.'}</p><p>Two equipped ingredients at mastery 6 become one fused core, freeing a socket. Fusion is free. Compatible investments carry over; a fused core cannot fuse again.</p><div class="fusion-list">${recipes
     .map((recipe) => {
       const match = ready.find((f) => f.recipeId === recipe.id);
       return `<article class="fusion-recipe"><div class="fusion-heading">${cardIcon(recipe.iconId, 56)}<div><h3><button class="build-reference" data-entity-kind="fusion" data-entity-id="${recipe.id}">${recipe.name}</button></h3><p>${recipe.description}</p></div></div><div class="fusion-ingredients">${recipe.ingredients
@@ -1229,7 +1240,12 @@ function fusionPanel(input: RunV2 | RunState) {
     })
     .join(
       '',
-    )}</div><p class="quiet">Flame and Singularity have no authored fusion path in this set. They retain their full support-card and passive-synergy compatibility.</p>`;
+    )}</div><p class="quiet">Alternative recipes compete for their shared ingredients. All twenty recipes are available in new expeditions; recovered runs keep their original twelve.</p>`;
+}
+function fusionMatchesQuery(recipe: (typeof FUSIONS)[number], query: string) {
+  return `${recipe.name} ${recipe.description} ${recipe.ingredients.map((kind) => WEAPON_BY_ID[kind].name).join(' ')}`
+    .toLowerCase()
+    .includes(query.trim().toLowerCase());
 }
 function openFusionPreview(recipeId: string, a: string, b: string) {
   const s = modern(current());
@@ -1457,7 +1473,7 @@ function openCodex() {
     'codex',
     {
       title: 'The field codex.',
-      subtitle: '124 CARDS · 40 PASSIVE SYNERGIES · 12 FUSIONS',
+      subtitle: `${CARDS.length} CARDS · 40 PASSIVE SYNERGIES · ${FUSIONS.length} FUSIONS`,
       width: 650,
       height: 760,
     },
@@ -1483,9 +1499,9 @@ function renderCodexResults() {
   if (codexGroup === 'fusion') {
     const s = current();
     $('codex-results').innerHTML = modern(s)
-      ? fusionPanel(s)
-      : `<p>Twelve authored fusion recipes, each requiring two fully mastered equipped ingredients.</p>${FUSIONS.filter(
-          (f) => (f.name + ' ' + f.description).toLowerCase().includes(q),
+      ? fusionPanel(s, q)
+      : `<p>${FUSIONS.length} authored fusion recipes, each requiring two fully mastered equipped ingredients.</p>${FUSIONS.filter(
+          (f) => fusionMatchesQuery(f, q),
         )
           .map(
             (f) =>

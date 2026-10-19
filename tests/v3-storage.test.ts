@@ -21,7 +21,7 @@ import {
   type SaveV3,
 } from '../src/persistence/storage';
 import { snapshotRunes } from '../src/game/controls';
-import { NEW_CARDS, DEFENSIVE_KINDS, FUSIONS } from '../src/content/catalog';
+import { NEW_CARDS, DEFENSIVE_KINDS, FUSIONS, EXPANSION_FUSION_IDS } from '../src/content/catalog';
 import { createRun as createModernRun, rewardForRun as modernReward } from '../src/game/engine';
 import type { RunV3 } from '../src/game/types';
 
@@ -84,6 +84,7 @@ function fusionSave(index = 0): SaveV3 {
   const save = modernSave(),
     run = save.run as RunV3,
     recipe = FUSIONS[index];
+  if (EXPANSION_FUSION_IDS.includes(recipe.id)) run.arsenalVersion = 2;
   run.time = 1000;
   const original = run.weapons[0];
   const a = {
@@ -163,7 +164,7 @@ describe('v3 persistence and migration', () => {
     expect(await readRawSave()).toEqual(old);
     expect(await readLegacyBackup()).toEqual(old);
     await saveGame(next);
-    expect((await loadGame()).version).toBe(5);
+    expect((await loadGame()).version).toBe(6);
     expect(await readLegacyBackup()).toEqual(old);
   });
   it('preserves v1 long runs, explicit preferences and ownership above current purchase caps', async () => {

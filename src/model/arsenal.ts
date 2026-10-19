@@ -44,7 +44,15 @@ export type WeaponKind =
   | 'fused-dynamo'
   | 'fused-crucible'
   | 'fused-barbed'
-  | 'fused-thunder';
+  | 'fused-thunder'
+  | 'fused-pyroclasm'
+  | 'fused-tempest'
+  | 'fused-reliquary'
+  | 'fused-impact-well'
+  | 'fused-sanctuary'
+  | 'fused-hoarfrost'
+  | 'fused-parallax'
+  | 'fused-rimechoir';
 export type Rarity = 'normal' | 'rare' | 'epic' | 'legendary' | 'mythic';
 export type CardGroup =
   'weapon' | 'infusion' | 'modifier' | 'defense' | 'trigger' | 'skill' | 'utility';

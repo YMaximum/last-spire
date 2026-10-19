@@ -4,19 +4,19 @@ The browser entrypoint is `src/ui/app.ts`. Features extend the current modules;
 new releases do not get their own source directory. Save and run-rule versions
 remain explicit persisted contracts, independent of the directory layout.
 
-| Area | Responsibility |
-| --- | --- |
-| `src/game/` | Current fixed-tick simulation, run types, runes, autocast and combat feedback |
-| `src/content/` | World definitions, base card catalog and current equipment/fusions |
-| `src/model/` | Shared content, combat and serialized save models |
-| `src/render/` | Cached pixel-art arena, current battle rendering, damage labels and frame sampling |
-| `src/ui/` | Application shell, movable windows, build inspector, icons and styles |
-| `src/persistence/` | Current save validation, migration, storage and reward settlement |
-| `src/account/` | Optional sign-in, scoped device cache and cloud synchronization |
-| `src/telemetry/` | Opt-in browser-local gameplay observations |
-| `src/legacy/classic/` | Original run simulation, validator and retained original interface |
-| `src/legacy/runeforged/` | Pre-XP run simulation, validator and rendering compatibility |
-| `server/` | Account API, private SQLite storage, backups and deletion recovery |
+| Area                     | Responsibility                                                                     |
+| ------------------------ | ---------------------------------------------------------------------------------- |
+| `src/game/`              | Current fixed-tick simulation, run types, runes, autocast and combat feedback      |
+| `src/content/`           | World definitions, base card catalog and current equipment/fusions                 |
+| `src/model/`             | Shared content, combat and serialized save models                                  |
+| `src/render/`            | Cached pixel-art arena, current battle rendering, damage labels and frame sampling |
+| `src/ui/`                | Application shell, movable windows, build inspector, icons and styles              |
+| `src/persistence/`       | Current save validation, migration, storage and reward settlement                  |
+| `src/account/`           | Optional sign-in, scoped device cache and cloud synchronization                    |
+| `src/telemetry/`         | Opt-in browser-local gameplay observations                                         |
+| `src/legacy/classic/`    | Original run simulation, validator and retained original interface                 |
+| `src/legacy/runeforged/` | Pre-XP run simulation, validator and rendering compatibility                       |
+| `server/`                | Account API, private SQLite storage, backups and deletion recovery                 |
 
 ## Compatibility boundaries
 
@@ -94,3 +94,7 @@ instead of attempting a downgrade. Production publication remains a separate ste
 Save schema 5 adds `progression.bestiary`, with bounded encounter and defeat totals. New runs carry `encounterVersion: 2`, per-run discoveries and stable enemy archetype IDs. Absence of that flag preserves the shipped encounter rules through settlement. `src/content/enemies.ts` owns tactical descriptions, stage rosters and new encounter tuning; `src/game/encounters.ts` owns bounded casts, phases, recovery and barriers. Absolute simulation-time counters persist warnings and delayed echoes through resume. Rendering reads these counters without changing combat or RNG.
 
 Run discoveries are added to permanent records only by idempotent settlement. Browser migration stores a write-once original checkpoint separately for each guest/account scope. Local and cloud checkpoints use the same validator. Older wire formats cannot overwrite a newer stored checkpoint; future formats fail closed. The movable bestiary shows tactical information before discovery, and uses only local counts.
+
+## Expanded arsenal
+
+`src/content/arsenal-expansion.ts` defines the twelve support families, eight alternative fusion recipes and effective preview text. `src/game/arsenal.ts` owns their deterministic hooks through a small engine callback interface. It does not import rendering, storage or the application shell. The existing engine dispatches those hooks only for new `arsenalVersion: 2` expeditions. Recovered-run seeded contracts retain their original behavior. Save schema six, browser migrations and the shared cloud validator preserve that boundary. See [ARSENAL.md](ARSENAL.md) for the content, balance sample and coverage limits.

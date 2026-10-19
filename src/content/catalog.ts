@@ -1,3 +1,5 @@
+import { EXPANSION_CARDS, EXPANSION_FUSIONS } from './arsenal-expansion';
+export { EXPANSION_CARD_IDS, EXPANSION_FUSION_IDS } from './arsenal-expansion';
 import type { TowerDefinition } from '../model/shared';
 import type { CardDefinition, WeaponDefinition, WeaponKind } from '../model/arsenal';
 import { TOWERS as LEGACY_TOWERS } from './world';
@@ -20,6 +22,8 @@ const DEFENSIVE_FUSION_KINDS = [
   'fused-briar',
   'fused-dynamo',
   'fused-crucible',
+  'fused-parallax',
+  'fused-rimechoir',
 ] as const;
 export type DefensiveFusionKind = (typeof DEFENSIVE_FUSION_KINDS)[number];
 export function isDefensiveKind(kind: string): kind is DefensiveKind | DefensiveFusionKind {
@@ -174,6 +178,7 @@ export const FUSIONS: FusionDefinition[] = [
     description:
       'Absorbed shield damage empowers expanding offensive pulses. Protection charge is consumed once, and the discharge does not create recursive shield-to-pulse triggers.',
   },
+  ...EXPANSION_FUSIONS,
 ];
 export const FUSION_BY_ID: Record<string, FusionDefinition> = Object.fromEntries(
   FUSIONS.map((fusion) => [fusion.id, fusion]),
@@ -195,6 +200,14 @@ const fusionStats: Array<[number, number, number, number]> = [
   [32, 2, 320, 290],
   [38, 1.1, 340, 320],
   [52, 1.65, 350, 330],
+  [44, 1.6, 360, 180],
+  [46, 1.3, 360, 330],
+  [52, 1.8, 430, 500],
+  [60, 2.4, 440, 280],
+  [28, 1.6, 380, 330],
+  [32, 1.1, 370, 310],
+  [34, 1.8, 360, 300],
+  [36, 1.7, 330, 290],
 ];
 /** Display defaults; combat derives the fused budget from preserved ingredient investments. */
 export const FUSION_WEAPONS: WeaponDefinition[] = FUSIONS.map((fusion, index) => ({
@@ -503,7 +516,7 @@ export const NEW_CARDS: CardDefinition[] = cardEntries.map((card) => ({
   maxStacks: card.maxStacks || 12,
 }));
 
-export const CARDS: CardDefinition[] = [...BASE_CARDS, ...NEW_CARDS];
+export const CARDS: CardDefinition[] = [...BASE_CARDS, ...NEW_CARDS, ...EXPANSION_CARDS];
 export const CARD_BY_ID: Record<string, CardDefinition> = Object.fromEntries(
   CARDS.map((card) => [card.id, card]),
 );

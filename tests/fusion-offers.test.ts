@@ -88,7 +88,7 @@ describe('fusion offers at safe wave boundaries', () => {
     const cloud = saveFromSnapshot(snapshotFromSave(save), save.settings);
     expect(unseenFusions(cloud.run as typeof run)).toHaveLength(0);
     expect(availableFusions(cloud.run as typeof run)).toHaveLength(1);
-    expect(cloud.version).toBe(5);
+    expect(cloud.version).toBe(6);
   });
   it('drops the safe-boundary marker once combat advances', () => {
     const run = ready();

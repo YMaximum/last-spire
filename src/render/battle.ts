@@ -1014,6 +1014,203 @@ export class BattleRenderer {
           c.restore();
         }
         break;
+      case 'fusion-pyroclasm':
+        c.save();
+        c.scale(1, 0.62);
+        circle(c, 0, 0, 19, energy, 1.8);
+        c.restore();
+        for (let i = 0; i < 3; i++) {
+          const a = (i * TAU) / 3;
+          c.save();
+          c.rotate(a);
+          poly(
+            c,
+            [
+              [0, -23],
+              [5, -13],
+              [1, -7],
+              [-4, -14],
+            ],
+            energy,
+            brass,
+            1,
+          );
+          c.restore();
+        }
+        line(c, -6, -4, 5, 4, '#fff0c4', 1.2);
+        break;
+      case 'fusion-tempest':
+        for (const radius of [9, 17, 24]) {
+          circle(c, 0, 0, radius, radius === 17 ? energy : brass, 1.3);
+        }
+        for (let i = 0; i < 4; i++) {
+          const a = (i * TAU) / 4;
+          line(
+            c,
+            Math.cos(a) * 10,
+            Math.sin(a) * 10,
+            Math.cos(a) * 23,
+            Math.sin(a) * 23,
+            energy,
+            1.5,
+          );
+        }
+        gem(c, 6, energy, brass);
+        break;
+      case 'fusion-reliquary':
+        poly(
+          c,
+          [
+            [0, -23],
+            [16, -14],
+            [16, 8],
+            [0, 22],
+            [-16, 8],
+            [-16, -14],
+          ],
+          stone,
+          brass,
+          1.5,
+        );
+        line(c, -24, -7, 22, -7, energy, 2.2);
+        line(c, -24, -3, 22, -3, brass, 0.8);
+        poly(
+          c,
+          [
+            [22, -11],
+            [28, -5],
+            [22, 1],
+          ],
+          energy,
+          brass,
+          1,
+        );
+        line(c, -10, 10, 10, 10, energy, 1.4);
+        break;
+      case 'fusion-impact-well':
+        c.save();
+        c.rotate(-0.5);
+        poly(
+          c,
+          [
+            [-20, -8],
+            [9, -8],
+            [19, 0],
+            [9, 8],
+            [-20, 8],
+          ],
+          stone,
+          brass,
+          1.4,
+        );
+        poly(
+          c,
+          [
+            [-4, -6],
+            [3, -1],
+            [0, 6],
+            [-7, 1],
+          ],
+          energy,
+          '#fff0c4',
+          1,
+        );
+        c.restore();
+        circle(c, 0, 0, 21, energy, 1.1);
+        for (const sign of [-1, 1]) {
+          line(c, sign * 24, -7, sign * 13, -3, brass, 1.2);
+          line(c, sign * 24, 7, sign * 13, 3, brass, 1.2);
+        }
+        break;
+      case 'fusion-sanctuary':
+        circle(c, 0, 0, 8, '#fff0c4', 2);
+        for (let i = 0; i < 8; i++) {
+          const a = (i * TAU) / 8;
+          line(
+            c,
+            Math.cos(a) * 11,
+            Math.sin(a) * 11,
+            Math.cos(a) * 23,
+            Math.sin(a) * 23,
+            energy,
+            1.5,
+          );
+        }
+        for (const x of [-19, 19]) {
+          circle(c, x, 0, 4, energy, 1.3);
+          line(c, x, -4, x, 4, '#eaffda', 1);
+        }
+        break;
+      case 'fusion-hoarfrost':
+        c.save();
+        c.scale(1, 0.62);
+        circle(c, 0, 0, 22, brass, 1.3);
+        circle(c, 0, 0, 15, energy, 1.5);
+        c.restore();
+        for (let i = 0; i < 4; i++) {
+          c.save();
+          c.rotate((i * TAU) / 4);
+          poly(
+            c,
+            [
+              [0, -25],
+              [5, -16],
+              [0, -10],
+              [-5, -16],
+            ],
+            energy,
+            '#eaffff',
+            1,
+          );
+          c.restore();
+        }
+        gem(c, 5, '#eaffff', energy);
+        break;
+      case 'fusion-parallax':
+        c.save();
+        c.rotate(-0.45);
+        c.scale(1, 0.55);
+        circle(c, 0, 0, 23, brass, 1.3);
+        c.restore();
+        for (let i = 0; i < 6; i++) {
+          const a = (i * TAU) / 6;
+          const x = Math.cos(a) * 18,
+            y = Math.sin(a) * 18;
+          line(c, 0, 0, x, y, energy, 1);
+          poly(
+            c,
+            [
+              [x, y - 4],
+              [x + 4, y],
+              [x, y + 4],
+              [x - 4, y],
+            ],
+            stone,
+            i % 2 ? energy : brass,
+            1,
+          );
+        }
+        circle(c, 0, 0, 5, energy, 1.5);
+        break;
+      case 'fusion-rimechoir':
+        for (const x of [-15, 0, 15]) {
+          poly(
+            c,
+            [
+              [x - 7, -12],
+              [x + 7, -12],
+              [x + 5, 6],
+              [x, 14],
+              [x - 5, 6],
+            ],
+            stone,
+            brass,
+            1.3,
+          );
+          line(c, x - 3, -5, x + 3, -5, energy, 1.4);
+        }
+        for (const radius of [20, 25]) circle(c, 0, 0, radius, energy, 0.8);
+        break;
       case 'fusion-thunder':
         poly(
           c,
@@ -1156,6 +1353,122 @@ export class BattleRenderer {
           c.restore();
           line(c, -r * 2.2, -r * 0.8, -r * 0.5, 0, '#ffb879', 1.2);
           break;
+        case 'fusion-pyroclasm':
+          c.save();
+          c.scale(1.7, 0.55);
+          circle(c, -r, 0, r * 0.9, fusion.color, 1.2);
+          c.restore();
+          for (const side of [-1, 1]) {
+            poly(
+              c,
+              [
+                [-r * 1.5, side * r * 0.45],
+                [-r * 3, side * r],
+                [-r * 2.3, side * r * 0.3],
+              ],
+              '#ffb879',
+              fusion.color,
+              1,
+            );
+          }
+          break;
+        case 'fusion-tempest':
+          for (const radius of [r * 1.15, r * 1.7]) circle(c, -r * 0.5, 0, radius, fusion.color, 1);
+          this.lightning(c, -r * 2.5, -r, -r * 0.5, 0, '#fff0c4', p.seed, 1);
+          break;
+        case 'fusion-reliquary':
+          line(c, -r * 3.4, -r * 0.55, r * 0.8, -r * 0.55, fusion.color, 1.8);
+          line(c, -r * 3.4, r * 0.55, r * 0.8, r * 0.55, '#c9ad7c', 1);
+          poly(
+            c,
+            [
+              [r * 0.8, -r],
+              [r * 1.6, 0],
+              [r * 0.8, r],
+            ],
+            fusion.color,
+            '#fff0c4',
+            1,
+          );
+          break;
+        case 'fusion-impact-well':
+          c.save();
+          c.scale(1.7, 0.7);
+          circle(c, -r * 0.8, 0, r, fusion.color, 1.2);
+          c.restore();
+          for (const side of [-1, 1])
+            line(c, -r * 3, side * r, -r * 0.8, side * r * 0.3, '#d7c5ec', 1.2);
+          break;
+        case 'fusion-sanctuary':
+          for (const side of [-1, 1]) {
+            circle(c, -r * 1.7, side * r * 0.6, r * 0.42, fusion.color, 1.2);
+            line(
+              c,
+              -r * 1.7,
+              side * r * 0.6 - r * 0.25,
+              -r * 1.7,
+              side * r * 0.6 + r * 0.25,
+              '#eaffda',
+              1,
+            );
+          }
+          circle(c, -r * 0.4, 0, r * 1.1, '#fff0c4', 1);
+          break;
+        case 'fusion-hoarfrost':
+          c.save();
+          c.scale(1.6, 0.6);
+          circle(c, -r * 0.5, 0, r * 1.4, fusion.color, 1.3);
+          c.restore();
+          for (const side of [-1, 1])
+            poly(
+              c,
+              [
+                [-r, side * r * 0.3],
+                [-r * 2.6, side * r],
+                [-r * 2, side * r * 0.15],
+              ],
+              '#c9f7ff',
+              fusion.color,
+              1,
+            );
+          break;
+        case 'fusion-parallax':
+          c.save();
+          c.scale(1.8, 0.55);
+          circle(c, -r, 0, r * 1.3, '#c9ad7c', 1);
+          c.restore();
+          for (const side of [-1, 1]) {
+            poly(
+              c,
+              [
+                [-r * 2.5, side * r],
+                [-r * 1.8, side * r * 0.4],
+                [-r * 1.1, side * r],
+              ],
+              '#172622',
+              fusion.color,
+              1,
+            );
+          }
+          break;
+        case 'fusion-rimechoir':
+          for (const x of [-r * 1.8, -r * 0.8]) {
+            poly(
+              c,
+              [
+                [x - r * 0.35, -r * 0.7],
+                [x + r * 0.35, -r * 0.7],
+                [x + r * 0.25, r * 0.4],
+                [x, r * 0.7],
+                [x - r * 0.25, r * 0.4],
+              ],
+              '#172622',
+              fusion.color,
+              1,
+            );
+          }
+          circle(c, 0, 0, r * 1.4, fusion.color, 1);
+          break;
         case 'fusion-thunder':
           circle(c, 0, 0, r * 1.25, fusion.color, 1.4);
           circle(c, 0, 0, r * 1.6, '#c9ad7c', 0.7);
@@ -1180,6 +1493,59 @@ export class BattleRenderer {
       c.setLineDash([6, 10]);
       circle(c, area.x, area.y, area.radius * 0.76, fusion.color, 1);
       c.setLineDash([]);
+      switch (fusion.id) {
+        case 'fusion-pyroclasm':
+        case 'fusion-impact-well':
+          c.save();
+          c.translate(area.x, area.y);
+          c.rotate(this.motion ? this.time * 0.35 : 0);
+          c.scale(1, 0.48);
+          circle(c, 0, 0, area.radius * 0.58, fusion.color, 1.6);
+          c.restore();
+          break;
+        case 'fusion-tempest':
+        case 'fusion-rimechoir':
+          circle(c, area.x, area.y, area.radius * 0.52, '#eafcff', 1);
+          circle(c, area.x, area.y, area.radius * 0.38, fusion.color, 0.8);
+          break;
+        case 'fusion-reliquary':
+        case 'fusion-parallax':
+          c.save();
+          c.translate(area.x, area.y);
+          c.rotate(-0.45);
+          c.scale(1, 0.42);
+          circle(c, 0, 0, area.radius * 0.62, '#e8d9aa', 1.2);
+          c.restore();
+          line(
+            c,
+            area.x - area.radius * 0.55,
+            area.y,
+            area.x + area.radius * 0.55,
+            area.y,
+            fusion.color,
+            1,
+          );
+          break;
+        case 'fusion-sanctuary':
+          for (const sign of [-1, 1]) {
+            circle(c, area.x + sign * area.radius * 0.28, area.y, area.radius * 0.18, '#eaffda', 1);
+          }
+          break;
+        case 'fusion-hoarfrost':
+          for (let i = 0; i < 4; i++) {
+            const angle = (i * TAU) / 4 + (this.motion ? this.time * 0.12 : 0);
+            line(
+              c,
+              area.x + Math.cos(angle) * area.radius * 0.52,
+              area.y + Math.sin(angle) * area.radius * 0.52,
+              area.x + Math.cos(angle) * area.radius * 0.68,
+              area.y + Math.sin(angle) * area.radius * 0.68,
+              '#eafcff',
+              1.4,
+            );
+          }
+          break;
+      }
     }
     c.restore();
   }
@@ -1197,6 +1563,48 @@ export class BattleRenderer {
       c.globalAlpha = 0.55 + charge * 0.2;
       this.drawFusionMark(c, fusion, x, y, 13);
       if (this.detail) {
+        c.globalAlpha = 0.72;
+        switch (fusion.id) {
+          case 'fusion-pyroclasm':
+          case 'fusion-impact-well':
+            c.save();
+            c.translate(x, y);
+            c.rotate(this.motion ? this.time * 0.25 : 0);
+            c.scale(1, 0.45);
+            circle(c, 0, 0, 19, fusion.color, 1);
+            c.restore();
+            break;
+          case 'fusion-tempest':
+          case 'fusion-rimechoir':
+            circle(c, x, y, 19 + charge * 2, fusion.color, 1);
+            break;
+          case 'fusion-reliquary':
+          case 'fusion-parallax':
+            c.save();
+            c.translate(x, y);
+            c.rotate(-0.45);
+            c.scale(1, 0.48);
+            circle(c, 0, 0, 19, '#c9ad7c', 1);
+            c.restore();
+            break;
+          case 'fusion-sanctuary':
+            for (const side of [-1, 1]) circle(c, x + side * 17, y, 2.2, '#eaffda', 1);
+            break;
+          case 'fusion-hoarfrost':
+            for (let i = 0; i < 4; i++) {
+              const a = (i * TAU) / 4;
+              line(
+                c,
+                x + Math.cos(a) * 17,
+                y + Math.sin(a) * 17,
+                x + Math.cos(a) * 21,
+                y + Math.sin(a) * 21,
+                '#eafcff',
+                1.2,
+              );
+            }
+            break;
+        }
         c.globalAlpha = (0.12 + charge * 0.08) * Math.min(1, this.intensity);
         circle(c, CX, CY - 13, 69 + index * 3, fusion.color, 0.8);
       }
@@ -1388,6 +1796,201 @@ export class BattleRenderer {
     c.restore();
   }
 
+  private arsenalCardVisual(
+    c: Ctx,
+    kind: string,
+    x: number,
+    y: number,
+    radius: number,
+    color: string,
+    progress: number,
+  ) {
+    const phase = this.motion ? progress : 0.5;
+    const inset = Math.max(3, radius * 0.42);
+    const ring = radius * (0.58 + phase * 0.34);
+    switch (kind) {
+      case 'ars-growth':
+        this.glow(c, x, y, ring, color, 0.12);
+        circle(c, x, y, ring, color, 2);
+        circle(c, x, y, ring * 0.72, '#fff0c4', 1);
+        break;
+      case 'ars-rebound':
+        c.save();
+        c.translate(x, y);
+        c.rotate(phase * 0.35);
+        c.scale(1, 0.6);
+        circle(c, 0, 0, radius * 0.9, color, 1.7);
+        c.restore();
+        line(c, x - inset, y - inset * 0.4, x + inset, y - inset * 0.4, '#fff0c4', 1.7);
+        poly(
+          c,
+          [
+            [x + inset, y - inset],
+            [x + inset * 1.5, y - inset * 0.4],
+            [x + inset, y + inset * 0.2],
+          ],
+          color,
+          '#fff0c4',
+          0.8,
+        );
+        break;
+      case 'ars-return':
+        circle(c, x, y, ring, color, 1.7);
+        c.save();
+        c.translate(x, y);
+        c.rotate(Math.PI * 0.78);
+        line(c, -radius * 0.75, 0, radius * 0.45, 0, '#fff0c4', 1.6);
+        poly(
+          c,
+          [
+            [radius * 0.45, -4],
+            [radius * 0.8, 0],
+            [radius * 0.45, 4],
+          ],
+          color,
+          '#fff0c4',
+          1,
+        );
+        c.restore();
+        break;
+      case 'ars-shards':
+        for (let i = 0; i < 3; i++) {
+          c.save();
+          c.translate(x, y);
+          c.rotate((i * TAU) / 3 + (phase - 0.5) * 0.25);
+          poly(
+            c,
+            [
+              [inset, 0],
+              [inset * 1.75, -4],
+              [inset * 1.55, 0],
+              [inset * 1.75, 4],
+            ],
+            color,
+            '#fff0c4',
+            0.8,
+          );
+          c.restore();
+        }
+        circle(c, x, y, inset * 0.72, color, 1.2);
+        break;
+      case 'ars-erosion':
+        poly(
+          c,
+          [
+            [x, y - inset],
+            [x + inset, y - inset * 0.35],
+            [x + inset * 0.65, y + inset],
+            [x - inset * 0.65, y + inset],
+            [x - inset, y - inset * 0.35],
+          ],
+          '#182b27',
+          color,
+          1.5,
+        );
+        line(c, x - 2, y - inset * 0.7, x + 2, y - 1, '#fff0c4', 1.4);
+        line(c, x + 2, y - 1, x - 3, y + inset * 0.75, color, 1.4);
+        break;
+      case 'ars-crossfire':
+        c.save();
+        c.translate(x, y);
+        c.rotate(Math.PI / 4);
+        this.rune(c, 0, 0, inset * 0.78, color, 4, 0);
+        c.restore();
+        c.save();
+        c.translate(x, y);
+        c.rotate(-Math.PI / 4);
+        this.rune(c, 0, 0, inset * 0.78, '#fff0c4', 4, 0);
+        c.restore();
+        break;
+      case 'ars-absorb':
+        poly(
+          c,
+          [
+            [x, y - inset],
+            [x + inset * 0.8, y - inset * 0.55],
+            [x + inset * 0.65, y + inset * 0.35],
+            [x, y + inset],
+            [x - inset * 0.65, y + inset * 0.35],
+            [x - inset * 0.8, y - inset * 0.55],
+          ],
+          '#254b53',
+          color,
+          1.8,
+        );
+        circle(c, x, y, inset * 0.4, '#fff0c4', 1.2);
+        break;
+      case 'ars-mend':
+        c.save();
+        c.translate(x, y);
+        c.save();
+        c.scale(1, 0.55);
+        circle(c, 0, 0, ring * 0.72, color, 1.7);
+        c.restore();
+        line(c, -inset * 0.45, 0, inset * 0.45, 0, '#eaffda', 2);
+        line(c, 0, -inset * 0.45, 0, inset * 0.45, '#eaffda', 2);
+        c.restore();
+        break;
+      case 'ars-critical':
+        poly(
+          c,
+          [
+            [x, y - inset],
+            [x + inset * 0.55, y - inset * 0.3],
+            [x + inset * 0.35, y + inset * 0.65],
+            [x, y + inset],
+            [x - inset * 0.35, y + inset * 0.65],
+            [x - inset * 0.55, y - inset * 0.3],
+          ],
+          '#172622',
+          color,
+          1.8,
+        );
+        line(c, x, y - inset * 0.72, x, y + inset * 0.75, '#fff0c4', 1);
+        line(
+          c,
+          x - inset * 0.42,
+          y - inset * 0.22,
+          x + inset * 0.42,
+          y - inset * 0.22,
+          '#fff0c4',
+          1,
+        );
+        break;
+      case 'ars-briar':
+        circle(c, x, y, inset * 0.6, color, 1.3);
+        for (let i = 0; i < 6; i++) {
+          const a = (i * TAU) / 6;
+          const x1 = x + Math.cos(a) * inset * 0.48,
+            y1 = y + Math.sin(a) * inset * 0.48;
+          const x2 = x + Math.cos(a) * inset,
+            y2 = y + Math.sin(a) * inset;
+          line(c, x1, y1, x2, y2, color, 2);
+          line(c, x2, y2, x2 - Math.sin(a) * 3, y2 + Math.cos(a) * 3, '#fff0c4', 1);
+        }
+        break;
+      case 'ars-resonance':
+        for (const scale of [0.52, 0.76, 1]) circle(c, x, y, radius * scale, color, 1.4);
+        circle(c, x, y, radius * 0.25, '#fff0c4', 1);
+        break;
+      case 'ars-release':
+        circle(c, x, y, ring * 0.58, '#dffaff', 1.2);
+        for (let i = 0; i < 8; i++) {
+          const a = (i * TAU) / 8;
+          line(
+            c,
+            x + Math.cos(a) * inset * 0.55,
+            y + Math.sin(a) * inset * 0.55,
+            x + Math.cos(a) * inset,
+            y + Math.sin(a) * inset,
+            color,
+            1.7,
+          );
+        }
+        break;
+    }
+  }
+
   private isForeground(v: VisualV2) {
     return /^(text|synergy|hit|impact|reflect|thorns|retaliation|shield|shield-break|evolution)$/.test(
       v.kind,
@@ -1444,6 +2047,8 @@ export class BattleRenderer {
         v.seed ?? v.x + v.y,
         Math.max(1.5, r * 0.2),
       );
+    } else if (v.kind.startsWith('ars-')) {
+      this.arsenalCardVisual(c, v.kind, v.x, v.y, r, color, p);
     } else if (v.kind === 'hazard') {
       c.globalAlpha *= 0.12;
       c.beginPath();

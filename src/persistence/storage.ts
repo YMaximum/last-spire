@@ -37,6 +37,8 @@ import {
 
 import { ENEMY_BY_ID, type BestiaryRecords } from '../content/enemies';
 import { mergeDiscoveries } from '../game/bestiary';
+import { EVOLUTION_BY_ID } from '../content/evolutions';
+import type { EvolutionPathId } from '../model/evolution';
 export { SaveError };
 export type RunMode = 'quick' | 'normal' | 'endless';
 export interface ActiveRunConfig {
@@ -59,7 +61,7 @@ export interface ModeRecord {
   credits: number;
 }
 export interface GameSave extends Omit<SaveV2, 'version'> {
-  version: 6;
+  version: 7;
   progression: {
     runes: RuneLoadout;
     autocast: AutocastRules;
@@ -190,7 +192,7 @@ export function emptySave(): SaveV3 {
   const base = emptyV2();
   return {
     ...base,
-    version: 6,
+    version: 7,
     settings: defaultSettings(),
     progression: {
       runes: defaultRuneLoadout(base.profile.upgrades),
@@ -342,6 +344,54 @@ function equipment(value: unknown, time: number, ingredient = false): Obj {
   } else if (w.fusion !== undefined) invalid('ordinary core cannot contain fusion provenance');
   return w;
 }
+function validateEvolution(run: Obj): void {
+  if (run.evolution === undefined) return;
+  if (run.arsenalVersion !== 2 || run.rulesVersion !== 3)
+    invalid('evolution requires expanded arsenal and modern rules');
+  const state = shape(
+    run.evolution,
+    'evolution',
+    ['version', 'coreId', 'tier', 'pending'],
+    ['path'],
+  );
+  if (state.version !== 1) invalid('evolution version unsupported');
+  const coreId = identifier(state.coreId, 'evolution core ID');
+  const tier = numeric(state.tier, 'evolution tier', 0, 3);
+  const pending = numeric(state.pending, 'evolution pending tier', 0, 3);
+  if (pending !== 0 && pending !== tier + 1) invalid('evolution pending tier is out of order');
+  if (tier === 0) {
+    if ('path' in state) invalid('evolution path requires an unlocked tier');
+  } else {
+    const pathId = identifier(state.path, 'evolution path');
+    const path = EVOLUTION_BY_ID[pathId as EvolutionPathId];
+    if (!path || path.tower !== run.tower) invalid('evolution path does not belong to tower');
+  }
+  const milestones = run.mode === 'quick' ? [12, 25, 37] : [25, 50, 75];
+  const clearedWave = numeric(run.wave, 'evolution wave', 1, 1_000_000) - 1;
+  if (
+    (tier > 0 && clearedWave < milestones[tier - 1]) ||
+    (pending > 0 && clearedWave < milestones[pending - 1])
+  )
+    invalid('evolution tier requires its cleared wave milestone');
+  // A replaced core may be absent. Fusion descendants retain the original ID.
+  const owners = (run.weapons as Obj[]).filter(
+    (weapon) =>
+      weapon.id === coreId ||
+      (weapon.fusion as { ingredients: Obj[] } | undefined)?.ingredients.some(
+        (part) => part.id === coreId,
+      ),
+  );
+  if (owners.length > 1) invalid('evolution core has multiple equipped descendants');
+  if (owners.length) {
+    const owner = owners[0],
+      fusion = owner.fusion as { ingredients: Obj[] } | undefined;
+    const origin = fusion ? fusion.ingredients.find((part) => part.id === coreId) : owner;
+    const kind =
+      run.tower === 'monolith' ? 'core-mirror' : TOWERS.find((t) => t.id === run.tower)?.pattern;
+    if (!origin || origin.kind !== kind)
+      invalid('evolution lineage must originate from the starting core');
+  }
+}
 /** Project modern additions only for the established validator, then restore the validated original. */
 function modernProjection(value: unknown): { original: RunV3; projection: Obj } {
   const original = object(value, 'run');
@@ -383,6 +433,7 @@ function modernProjection(value: unknown): { original: RunV3; projection: Obj } 
   delete projection.discoveries;
   delete projection.shopVersion;
   delete projection.arsenalVersion;
+  delete projection.evolution;
   for (const field of [
     'rulesVersion',
     'mode',
@@ -435,6 +486,7 @@ function modernProjection(value: unknown): { original: RunV3; projection: Obj } 
   if ([...consumed].some((id) => ids.has(id)))
     invalid('consumed fusion ingredient is still equipped');
   if (!ids.size) invalid('run requires an arsenal core');
+  validateEvolution(original);
   const card = (item: unknown, offer: boolean): void => {
     const c = object(item, offer ? 'offer' : 'card');
     const def = CARDS.find((def) => def.id === c.cardId);
@@ -516,10 +568,12 @@ export function parseGame(raw: string | unknown): SaveV3 {
     finiteTree(raw);
     const root = object(raw, 'save');
     const version = root.version;
-    if (![1, 2, 3, 4, 5, 6].includes(version as number))
+    if (![1, 2, 3, 4, 5, 6, 7].includes(version as number))
       invalid(
         'This checkpoint requires a newer Last Spire client. Reload or update before continuing.',
       );
+    if ((version as number) < 7 && root.run && 'evolution' in object(root.run, 'run'))
+      invalid('evolution requires save schema seven');
     const expanded = (version as number) >= 3;
     const sourceSettings = object(root.settings, 'settings');
     const settings = { ...defaultSettings(), ...sourceSettings };
@@ -553,7 +607,7 @@ export function parseGame(raw: string | unknown): SaveV3 {
       if (base.run?.cleared) recordStageClear(base.profile, stages, base.run);
       return {
         ...base,
-        version: 6,
+        version: 7,
         settings: { ...defaultSettings(), ...sourceSettings } as SettingsV2,
         progression: {
           runes: legacyRunes(base.profile.upgrades),
@@ -656,7 +710,7 @@ export function parseGame(raw: string | unknown): SaveV3 {
     if (base.run?.cleared) recordStageClear(base.profile, stages, base.run);
     const result: SaveV3 = {
       ...base,
-      version: 6,
+      version: 7,
       progression: {
         runes,
         autocast: rules,
@@ -766,6 +820,13 @@ export function saveKey(scope: SaveScope = 'guest'): string {
   return scope;
 }
 async function backupLegacy(store: IDBObjectStore, raw: unknown, scope: SaveScope): Promise<void> {
+  const evolutionBackup = `backup-before-evolution:${saveKey(scope)}`;
+  if (
+    raw &&
+    [1, 2, 3, 4, 5, 6].includes((raw as { version?: number }).version ?? 0) &&
+    (await request(store.get(evolutionBackup))) === undefined
+  )
+    store.put(raw, evolutionBackup);
   const arsenalBackup = `backup-before-arsenal:${saveKey(scope)}`;
   if (
     raw &&
@@ -802,6 +863,8 @@ export async function readRawSave(scope: SaveScope = 'guest'): Promise<unknown> 
 export async function readLegacyBackup(scope: SaveScope = 'guest'): Promise<unknown> {
   saveKey(scope);
   return transact('readonly', async (store) => {
+    const evolution = await request(store.get(`backup-before-evolution:${saveKey(scope)}`));
+    if (evolution !== undefined) return evolution;
     const arsenal = await request(store.get(`backup-before-arsenal:${saveKey(scope)}`));
     if (arsenal !== undefined) return arsenal;
     const encountered = await request(store.get(`backup-before-encounters:${saveKey(scope)}`));

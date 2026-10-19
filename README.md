@@ -54,7 +54,7 @@ Settings → **Floating damage numbers** shows or hides damage inscriptions and 
 
 ## Content
 
-- Seven towers: Bastion, Pyre, Tempest, Glacier, Verdant, Null, and Monolith.
+- Seven towers: Bastion, Pyre, Tempest, Glacier, Verdant, Null, and Monolith. Each has two evolution paths and three cumulative milestone tiers, with evolved cores, signatures, and visible machinery.
 - Three environments, each supporting 50-wave Quick, 100-wave Normal, and direct Endless expeditions: Verdant Wilds, Ember Foundry, and Void Ruins; stage clears unlock the next environment.
 - **136 card families**: the original 100 plus eight defensive cores and twenty-eight support families. Sixteen weapons, eight defensive cores, six infusions, projectile modifiers, defenses, triggered buffs, skills, and utilities support offensive, defensive, and mixed builds.
 - **40 passive synergies and 20 mastered fusions**. Two equipped ingredients at mastery 6 become one stronger core, freeing a socket. Preview inheritance and capped conversions before forging. Fused cores cannot fuse again. Alternative recipes compete for shared ingredients; the forge and card hints explain each route.
@@ -71,7 +71,7 @@ Existing v1 saves are backed up before migration. Resumed original runs keep the
 
 Settings can export/import JSON, review pasted JSON, and download the migration backup. Invalid checkpoints stop automatic writes and expose recovery controls. If storage is unavailable, settlement can remain in memory and be exported before closing. Unsaved memory from a previously closed browser tab cannot be recovered.
 
-See [the expanded arsenal and validation baseline](docs/ARSENAL.md) for the new recipes, support families, save compatibility, and measured limitations.
+See [tower evolution and its current validation baseline](docs/EVOLUTION.md), plus [the expanded arsenal](docs/ARSENAL.md) for the new recipes, support families, save compatibility, and measured limitations.
 
 ## Validation and development
 

@@ -154,7 +154,10 @@ describe('stage encounter catalog and formation contracts', () => {
       a.spawned = b.spawned = i;
       expect(spawnEnemy(a)).toEqual(spawnEnemy(b));
     }
-    const old = createRun(emptySave().profile, 'bastion', 1, 0, 721, { encounterVersion: 1 });
+    const old = createRun(emptySave().profile, 'bastion', 1, 0, 721, {
+      encounterVersion: 1,
+      evolutionVersion: 0,
+    });
     expect(hasEncounters(old)).toBe(false);
     expect(spawnEnemy(old).archetypeId).toBeUndefined();
     expect(() => spawnEncounter(old, 'plated-crawler')).toThrow('original encounters');
@@ -354,13 +357,16 @@ describe('encounter save compatibility and discovery settlement', () => {
     expect((await loadGame()).progression.bestiary).toEqual(save.progression.bestiary);
   });
   it('migrates schema four without changing its active rules and makes a write-once backup', async () => {
-    const run = createRun(emptySave().profile, 'bastion', 0, 0, 7, { encounterVersion: 1 });
+    const run = createRun(emptySave().profile, 'bastion', 0, 0, 7, {
+      encounterVersion: 1,
+      evolutionVersion: 0,
+    });
     const save = checkpoint(run);
     const old = JSON.parse(exportGame(save));
     old.version = 4;
     delete old.progression.bestiary;
     const migrated = parseGame(old);
-    expect(migrated.version).toBe(6);
+    expect(migrated.version).toBe(7);
     expect(migrated.progression.bestiary).toEqual({});
     expect(migrated.run).toEqual(run);
     // Seed only an isolated account scope so this test cannot touch another profile.
@@ -389,7 +395,7 @@ describe('encounter save compatibility and discovery settlement', () => {
       (x: any) => (x.run.encounterVersion = 3),
       (x: any) => (x.progression.bestiary = { swarmer: { encountered: 1, defeated: 2 } }),
       (x: any) => (x.progression.bestiary = { unknown: { encountered: 1, defeated: 0 } }),
-      (x: any) => (x.version = 7),
+      (x: any) => (x.version = 8),
     ];
     for (const mutate of bads) {
       const x = structuredClone(base);

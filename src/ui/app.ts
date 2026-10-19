@@ -1,3 +1,13 @@
+import './evolution.css';
+import {
+  chooseEvolution,
+  evolutionOptions,
+  evolutionPath,
+  evolutionState,
+  evolutionOwner,
+} from '../game/evolution';
+import { evolutionPanelMarkup, evolutionPathMarkup } from './evolution-panel';
+import type { EvolutionPathId } from '../model/evolution';
 import { CatchupStatus } from './catchup-status';
 import './style.css';
 import './interface.css';
@@ -179,7 +189,7 @@ const observedOffers = new Set<string>();
 let selectedOffer: { rewardId: string; offerId: string; purchase: boolean } | null = null;
 const telemetry = new LocalTelemetry();
 const app = $('app');
-app.innerHTML = `<main id="battlefield"><canvas id="arena" aria-label="Last Spire battlefield"></canvas><div class="arena-shade"></div><header class="battle-hud"><button class="brand-button" id="menu-btn" aria-label="Expedition menu">${glyph('tower')}<span>LAST SPIRE<small>THE RUNEFORGED AGE</small></span>${glyph('menu')}</button><div class="wave-hud"><span id="stage-label">VERDANT WILDS</span><strong id="wave-label">Wave 01 <em>/ 100</em></strong><div id="wave-progress"><i></i></div></div><div class="resource-hud"><span title="Scrap is spent during this expedition">${glyph('diamond')}<b id="scrap-value">0</b><small>SCRAP</small></span><span title="Credits unlock towers between expeditions">${glyph('diamond')}<b id="credit-value">0</b><small>CREDITS</small></span><button id="settings-btn" class="square-button" aria-label="Settings">${glyph('gear')}</button></div></header><div class="threat-strip"><button id="threat-text" class="threat-reference" title="Inspect upcoming enemies in the bestiary">One spire. A thousand ways to fight.</button><button id="pause-indicator" class="hidden">PAUSED · RESUME</button></div><nav class="field-tools" aria-label="Battlefield panels"><button id="expedition-btn" class="launch-tool">${glyph('play')}<span>Start expedition</span></button><button id="fusion-btn" class="fusion-tool" title="Fusion forge (F)">${glyph('diamond')}<span id="fusion-count">Fusions</span></button><button id="arsenal-btn" title="Arsenal (A)">${glyph('tower')}<span>Arsenal</span></button><button id="codex-btn" title="Codex (C)">${glyph('book')}<span>Codex</span></button><button id="bestiary-btn" title="Bestiary (B)">${glyph('beast')}<span>Bestiary</span></button><button id="stats-btn" title="Combat statistics">${glyph('stats')}<span>Ledger</span></button><button id="autocast-btn" title="Conditional skill autocast">${glyph('bolt')}<span>Autocast</span></button><button id="account-btn" title="Account and cloud saves">${glyph('shield')}<span>Guest · Local</span></button><button id="rewards-btn" class="reward-tool hidden">${glyph('diamond')}<span id="reward-count">Choose upgrade</span></button></nav><div id="buff-strip" aria-label="Active buffs"></div><div id="event-toast" role="status" aria-live="polite"></div><div id="boss-warning" class="hidden"></div><footer class="combat-controls"><div class="integrity"><div><span>${glyph('heart')} SPIRE INTEGRITY</span><strong id="hp-value">—</strong></div><div class="hp-track"><i id="hp-fill"></i><i id="shield-fill"></i></div><span id="barrier-value">Barrier dormant</span></div><div class="ability-tray"><button class="ability" id="signature-btn"><span>${glyph('shield')}</span><div><small>SIGNATURE <kbd>Q</kbd></small><b id="signature-name">Bulwark</b></div><em id="signature-cd"></em><span id="signature-auto" class="auto-indicator" hidden>AUTO</span></button><button class="ability" id="secondary-btn"><span>${glyph('bolt')}</span><div><small>SECONDARY <kbd>E</kbd></small><b id="secondary-name">Mend</b></div><em id="secondary-cd"></em><span id="secondary-auto" class="auto-indicator" hidden>AUTO</span></button></div><div class="playback"><button class="square-button" id="pause-btn" aria-label="Pause combat">${glyph('pause')}</button><button id="speed-btn" title="Speed (1, 2, 3)">1×</button><button id="target-btn" title="Target priority">${glyph('target')}<span id="target-label">Nearest</span></button></div></footer><div id="xp-hud" hidden><span id="xp-label"></span><div class="xp-track"><i id="xp-fill"></i></div></div><div id="window-host"></div><div id="window-dock"></div><div id="catchup-notice" class="catchup-notice hidden" role="status" aria-live="polite">${glyph('tower')}<span id="catchup-message"></span></div><div id="loading-screen"><div class="loading-rune">${glyph('tower')}</div><h1>LAST SPIRE</h1><p>Waking the ancient machines…</p></div></main>`;
+app.innerHTML = `<main id="battlefield"><canvas id="arena" aria-label="Last Spire battlefield"></canvas><div class="arena-shade"></div><header class="battle-hud"><button class="brand-button" id="menu-btn" aria-label="Expedition menu">${glyph('tower')}<span>LAST SPIRE<small>THE RUNEFORGED AGE</small></span>${glyph('menu')}</button><div class="wave-hud"><span id="stage-label">VERDANT WILDS</span><strong id="wave-label">Wave 01 <em>/ 100</em></strong><div id="wave-progress"><i></i></div></div><div class="resource-hud"><span title="Scrap is spent during this expedition">${glyph('diamond')}<b id="scrap-value">0</b><small>SCRAP</small></span><span title="Credits unlock towers between expeditions">${glyph('diamond')}<b id="credit-value">0</b><small>CREDITS</small></span><button id="settings-btn" class="square-button" aria-label="Settings">${glyph('gear')}</button></div></header><div class="threat-strip"><button id="threat-text" class="threat-reference" title="Inspect upcoming enemies in the bestiary">One spire. A thousand ways to fight.</button><button id="pause-indicator" class="hidden">PAUSED · RESUME</button></div><nav class="field-tools" aria-label="Battlefield panels"><button id="expedition-btn" class="launch-tool">${glyph('play')}<span>Start expedition</span></button><button id="fusion-btn" class="fusion-tool" title="Fusion forge (F)">${glyph('diamond')}<span id="fusion-count">Fusions</span></button><button id="evolution-btn" title="Tower evolution" hidden>${glyph('tower')}<span>Evolution</span></button><button id="arsenal-btn" title="Arsenal (A)">${glyph('tower')}<span>Arsenal</span></button><button id="codex-btn" title="Codex (C)">${glyph('book')}<span>Codex</span></button><button id="bestiary-btn" title="Bestiary (B)">${glyph('beast')}<span>Bestiary</span></button><button id="stats-btn" title="Combat statistics">${glyph('stats')}<span>Ledger</span></button><button id="autocast-btn" title="Conditional skill autocast">${glyph('bolt')}<span>Autocast</span></button><button id="account-btn" title="Account and cloud saves">${glyph('shield')}<span>Guest · Local</span></button><button id="rewards-btn" class="reward-tool hidden">${glyph('diamond')}<span id="reward-count">Choose upgrade</span></button></nav><div id="buff-strip" aria-label="Active buffs"></div><div id="event-toast" role="status" aria-live="polite"></div><div id="boss-warning" class="hidden"></div><footer class="combat-controls"><div class="integrity"><div><span>${glyph('heart')} SPIRE INTEGRITY</span><strong id="hp-value">—</strong></div><div class="hp-track"><i id="hp-fill"></i><i id="shield-fill"></i></div><span id="barrier-value">Barrier dormant</span></div><div class="ability-tray"><button class="ability" id="signature-btn"><span>${glyph('shield')}</span><div><small>SIGNATURE <kbd>Q</kbd></small><b id="signature-name">Bulwark</b></div><em id="signature-cd"></em><span id="signature-auto" class="auto-indicator" hidden>AUTO</span></button><button class="ability" id="secondary-btn"><span>${glyph('bolt')}</span><div><small>SECONDARY <kbd>E</kbd></small><b id="secondary-name">Mend</b></div><em id="secondary-cd"></em><span id="secondary-auto" class="auto-indicator" hidden>AUTO</span></button></div><div class="playback"><button class="square-button" id="pause-btn" aria-label="Pause combat">${glyph('pause')}</button><button id="speed-btn" title="Speed (1, 2, 3)">1×</button><button id="target-btn" title="Target priority">${glyph('target')}<span id="target-label">Nearest</span></button></div></footer><div id="xp-hud" hidden><span id="xp-label"></span><div class="xp-track"><i id="xp-fill"></i></div></div><div id="window-host"></div><div id="window-dock"></div><div id="catchup-notice" class="catchup-notice hidden" role="status" aria-live="polite">${glyph('tower')}<span id="catchup-message"></span></div><div id="loading-screen"><div class="loading-rune">${glyph('tower')}</div><h1>LAST SPIRE</h1><p>Waking the ancient machines…</p></div></main>`;
 const manager = new WindowManager(
   $('window-host'),
   $('window-dock'),
@@ -461,7 +471,18 @@ function updateHud() {
   $('shield-fill').style.width = `${Math.min(100, (s.shield / s.maxHp) * 100)}%`;
   $('barrier-value').textContent =
     s.shield > 1 ? `${Math.ceil(s.shield)} barrier` : 'Barrier dormant';
-  $('signature-name').textContent = tower().skill;
+  $('signature-name').textContent =
+    isV2(s) && (evolutionState(s)?.tier || 0) >= 2
+      ? evolutionPath(s)!.signatureName
+      : tower().skill;
+  $('evolution-btn').hidden = !playing || !isV2(s) || !evolutionState(s);
+  $('evolution-btn').classList.toggle('evolution-ready', isV2(s) && !!evolutionState(s)?.pending);
+  $('evolution-btn').setAttribute(
+    'aria-label',
+    isV2(s) && evolutionState(s)?.pending
+      ? `Tower evolution, tier ${evolutionState(s)!.pending} ready`
+      : 'Tower evolution',
+  );
   $('secondary-name').textContent =
     s.secondary === 'repair'
       ? 'Mend'
@@ -476,7 +497,11 @@ function updateHud() {
     !playing || s.phase !== 'combat' || s.skillCd > 0;
   $<HTMLButtonElement>('secondary-btn').disabled =
     !playing || s.phase !== 'combat' || s.secondaryCd > 0;
-  $('signature-btn').title = tower().skillDescription;
+  $('signature-btn').title =
+    tower().skillDescription +
+    (isV2(s) && (evolutionState(s)?.tier || 0) >= 2
+      ? ` ${evolutionPath(s)!.tiers[1].description}`
+      : '');
   const auto =
     data.progression.active?.runId === s.id
       ? data.progression.active.autocast
@@ -736,13 +761,14 @@ function openMenu() {
       width: 410,
       height: 500,
     },
-    `<div class="menu-list">${!playing ? '<button id="menu-launch">Prepare expedition</button>' : ''}<button id="menu-arsenal">${glyph('tower')} Arsenal & synergies</button><button id="menu-codex">${glyph('book')} Field codex</button><button id="menu-hangar">${glyph('shield')} Tower hangar</button><button id="menu-settings">${glyph('gear')} Settings & saves</button><button id="menu-account">${glyph('shield')} Account & cloud saves</button><button id="menu-help">How to play</button>${playing ? '<button id="menu-retire" class="danger-text">Retire & collect rewards</button>' : ''}</div><p class="quiet">${playing ? 'Combat continues behind information windows. Use Space to pause.' : 'Original arcane machines. Endless possibilities.'}</p>`,
+    `<div class="menu-list">${!playing ? '<button id="menu-launch">Prepare expedition</button>' : ''}<button id="menu-arsenal">${glyph('tower')} Arsenal & synergies</button><button id="menu-evolution" class="outline-button full">${glyph('tower')} Tower evolution</button><button id="menu-codex">${glyph('book')} Field codex</button><button id="menu-hangar">${glyph('shield')} Tower hangar</button><button id="menu-settings">${glyph('gear')} Settings & saves</button><button id="menu-account">${glyph('shield')} Account & cloud saves</button><button id="menu-help">How to play</button>${playing ? '<button id="menu-retire" class="danger-text">Retire & collect rewards</button>' : ''}</div><p class="quiet">${playing ? 'Combat continues behind information windows. Use Space to pause.' : 'Original arcane machines. Endless possibilities.'}</p>`,
   );
   $('menu-launch')?.addEventListener('click', () => {
     manager.close('menu');
     openLaunch();
   });
   $('menu-arsenal').onclick = openArsenal;
+  $('menu-evolution').onclick = () => openEvolution();
   $('menu-codex').onclick = () => openCodex();
   $('menu-hangar').onclick = openHangar;
   $('menu-settings').onclick = openSettings;
@@ -1097,15 +1123,17 @@ function showLegacyRewards(s: RunState) {
 }
 let arsenalTab = 'weapons';
 let awayDecisionHold = false;
+let evolutionPresentedTier = 0;
+let evolutionPresentedRun = '';
 function queuedDecision(s: RunV2 | RunState) {
   return isV2(s)
-    ? s.pendingRewards.length > 0 || pendingFusionOffer(s)
+    ? s.pendingRewards.length > 0 || pendingFusionOffer(s) || !!evolutionState(s)?.pending
     : s.phase === 'draft' || s.phase === 'shop';
 }
 function decisionPaused(s: RunV2 | RunState, background = false, update = false) {
   const state = resolveDecisionPause({
     queued: queuedDecision(s),
-    fusion: isV2(s) && pendingFusionOffer(s),
+    fusion: isV2(s) && (pendingFusionOffer(s) || !!evolutionState(s)?.pending),
     choiceWindow: manager.pendingChoice(),
     windowPaused: manager.choicesPause(),
     autoPause: data.settings.autoPauseChoices,
@@ -1157,8 +1185,80 @@ function presentDecisions() {
   manager.close('rewards');
   lastRewardId = '';
   const currentRules = modern(s);
+  if (nextRunDecision(s) === 'evolution') {
+    manager.close('fusion-offer');
+    if (evolutionPresentedRun !== s.id || evolutionPresentedTier !== evolutionState(s)?.pending)
+      openEvolution();
+    return;
+  }
   if (currentRules && pendingFusionOffer(s) && !manager.has('fusion-offer'))
     openFusionOffer(currentRules);
+}
+function openEvolution() {
+  const s = current();
+  if (!isV2(s)) return;
+  if (evolutionState(s)?.pending && s.pendingRewards.length) {
+    showRewards();
+    notify('Resolve queued upgrades before evolving.');
+    return;
+  }
+  manager.close('fusion-offer');
+  evolutionPresentedTier = evolutionState(s)?.pending || 0;
+  evolutionPresentedRun = s.id;
+  manager.open(
+    'evolution',
+    {
+      title: 'Choose the spire’s next form.',
+      subtitle: evolutionState(s)?.pending
+        ? 'EVOLUTION READY · COMBAT PAUSED'
+        : 'TOWER LINEAGE · THREE CUMULATIVE TIERS',
+      width: 780,
+      height: 760,
+      choice: !!evolutionState(s)?.pending,
+    },
+    evolutionPanelMarkup(s),
+  );
+  manager
+    .element('evolution')!
+    .querySelectorAll<HTMLButtonElement>('[data-evolution-path]')
+    .forEach((button) => {
+      button.onclick = () => {
+        const path = evolutionOptions(s).find((p) => p.id === button.dataset.evolutionPath);
+        const state = evolutionState(s);
+        if (!path || !state?.pending || current() !== s || contextChanging) return;
+        manager.open(
+          'evolution',
+          {
+            title: `${path.name} · tier ${state.pending}`,
+            subtitle: 'REVIEW EVOLUTION · FREE',
+            width: 700,
+            height: 740,
+            choice: true,
+          },
+          `${evolutionPathMarkup(path, state.tier)}<p class="notice">${state.tier ? 'This tier adds to the upgrades already awakened.' : 'Choosing this path locks it for this expedition. Preview all three tiers above.'} Starting-core benefits follow compatible fusion; replacing that lineage suspends only its core-specific benefits.</p><button id="confirm-evolution" class="gold-button full">${state.tier ? 'Advance' : 'Choose'} ${path.name} · free</button><button id="cancel-evolution" class="outline-button full">Review paths</button>`,
+        );
+        $('cancel-evolution').onclick = openEvolution;
+        $('confirm-evolution').onclick = async () => {
+          if (
+            current() !== s ||
+            contextChanging ||
+            !chooseEvolution(s, path.id as EvolutionPathId)
+          ) {
+            notify('Resolve pending upgrades and review this evolution again.');
+            return;
+          }
+          $<HTMLButtonElement>('confirm-evolution').disabled = true;
+          telemetry.event(s.id, s.time, 'evolution', { path: path.id, tier: state.tier });
+          clearTimeout(persistTimer);
+          await persist();
+          manager.close('evolution');
+          inspector.update();
+          updateHud();
+          notify(`${path.name} · tier ${state.tier} awakened.`);
+        };
+      };
+    });
+  if (evolutionState(s)?.pending) scheduleSave();
 }
 function openFusionOffer(s: RunV3) {
   const offers = unseenFusions(s);
@@ -1310,7 +1410,7 @@ function openArsenal() {
       .map((w) => {
         const d = WEAPON_BY_ID[w.kind],
           stats = getWeaponStats(s, w);
-        return `<article class="weapon-inspector" style="--rarity:${RARITY_COLORS[w.rarity]}"><div class="weapon-heading">${cardIcon(equipmentIcon(w.kind), 52)}<div><small>${rarityLabel(w.rarity)}</small><h3>${d.name}</h3></div><span class="weapon-mastery">${w.masteryRank ? `Mastery ${w.masteryRank}/6` : `Investment ${w.mastery}`}</span></div><p>${esc(d.description)}</p><div class="infusions">${stats.elements.length ? stats.elements.map((e) => `<span style="--element:${ELEMENT_COLORS[e]}">${e}</span>`).join('') : '<span>Uninfused</span>'}</div><dl class="weapon-stats"><div><dt>Damage</dt><dd>${stats.damage.toFixed(1)}</dd></div><div><dt>Interval</dt><dd>${stats.cooldown.toFixed(2)}s</dd></div><div><dt>Projectiles</dt><dd>${stats.count}</dd></div><div><dt>Size</dt><dd>${stats.size.toFixed(1)}</dd></div><div><dt>Speed</dt><dd>${Math.round(stats.speed)}</dd></div><div><dt>Range</dt><dd>${Math.round(stats.range)}</dd></div><div><dt>Pulse</dt><dd>${stats.pulse > 0 ? `0.80s` : '—'}</dd></div><div><dt>Pierce / bounce</dt><dd>${stats.pierce} / ${stats.bounces}</dd></div></dl><p class="quiet">${stats.trail > 0 ? 'Damaging trail · ' : ''}${stats.homing > 0 ? 'Homing · ' : ''}${stats.returning ? 'Returns to spire · ' : ''}${stats.split > 0 ? `Splits ×${stats.split} · ` : ''}${w.lifetimeShots.toLocaleString()} lifetime attacks</p></article>`;
+        return `<article class="weapon-inspector" style="--rarity:${RARITY_COLORS[w.rarity]}"><div class="weapon-heading">${cardIcon(equipmentIcon(w.kind), 52)}<div><small>${rarityLabel(w.rarity)}</small><h3>${d.name}</h3>${evolutionOwner(s)?.id === w.id && evolutionState(s)?.tier ? `<small>${evolutionPath(s)!.coreName} · evolved lineage ${evolutionState(s)!.tier}/3</small>` : ''}</div><span class="weapon-mastery">${w.masteryRank ? `Mastery ${w.masteryRank}/6` : `Investment ${w.mastery}`}</span></div><p>${esc(d.description)}</p><div class="infusions">${stats.elements.length ? stats.elements.map((e) => `<span style="--element:${ELEMENT_COLORS[e]}">${e}</span>`).join('') : '<span>Uninfused</span>'}</div><dl class="weapon-stats"><div><dt>Damage</dt><dd>${stats.damage.toFixed(1)}</dd></div><div><dt>Interval</dt><dd>${stats.cooldown.toFixed(2)}s</dd></div><div><dt>Projectiles</dt><dd>${stats.count}</dd></div><div><dt>Size</dt><dd>${stats.size.toFixed(1)}</dd></div><div><dt>Speed</dt><dd>${Math.round(stats.speed)}</dd></div><div><dt>Range</dt><dd>${Math.round(stats.range)}</dd></div><div><dt>Pulse</dt><dd>${stats.pulse > 0 ? `0.80s` : '—'}</dd></div><div><dt>Pierce / bounce</dt><dd>${stats.pierce} / ${stats.bounces}</dd></div></dl><p class="quiet">${stats.trail > 0 ? 'Damaging trail · ' : ''}${stats.homing > 0 ? 'Homing · ' : ''}${stats.returning ? 'Returns to spire · ' : ''}${stats.split > 0 ? `Splits ×${stats.split} · ` : ''}${w.lifetimeShots.toLocaleString()} lifetime attacks</p></article>`;
       })
       .join(
         '',
@@ -1534,8 +1634,11 @@ function statsBody() {
   );
   const line = (label: string, value: string) =>
     `<div class="stat-line"><span>${label}</span><b>${value}</b></div>`;
+  const evolution = isV2(s) ? evolutionPath(s) : undefined;
   let towerStats = line('Health', `${Math.ceil(s.hp)} / ${Math.ceil(s.maxHp)}`);
   if (isV2(s)) {
+    if (evolution)
+      towerStats += line('Evolution', `${evolution.name} · tier ${evolutionState(s)!.tier}/3`);
     const st = getTowerStats(s);
     towerStats +=
       line('Shield', `${st.shield.toFixed(0)} / ${st.maxShield.toFixed(0)}`) +
@@ -1587,6 +1690,9 @@ function statsBody() {
               ? (WEAPON_BY_ID[s.weapons.find((w) => w.id === id)?.kind as keyof typeof WEAPON_BY_ID]
                   ?.name ??
                   WEAPONS.find((w) => w.id === id)?.name ??
+                  (evolution && id === `evolution-${evolution.id}`
+                    ? `${evolution.name} · evolution`
+                    : undefined) ??
                   (id.startsWith('weapon-') ? 'Replaced core' : id))
               : id,
           ),
@@ -2073,7 +2179,13 @@ function openResults(startSettlement = true) {
   const passiveSynergies = isV2(s)
     ? SYNERGIES.filter((y) => s.synergies.includes(y.id)).map((y) => y.name)
     : s.synergies;
-  const synergies = [...passiveSynergies, ...forged];
+  const synergies = [
+    ...passiveSynergies,
+    ...forged,
+    ...(isV2(s) && evolutionPath(s)
+      ? [`${evolutionPath(s)!.name} · evolution ${evolutionState(s)!.tier}/3`]
+      : []),
+  ];
   manager.open(
     'results',
     {
@@ -2188,6 +2300,7 @@ $('threat-text').onclick = () => {
 };
 $('autocast-btn').onclick = openAutocast;
 $('rewards-btn').onclick = () => showRewards();
+$('evolution-btn').onclick = () => openEvolution();
 $('pause-btn').onclick = togglePause;
 $('pause-indicator').onclick = () => {
   if (paused) togglePause();
@@ -2325,13 +2438,27 @@ function frame(now: number) {
         if (s.cleared) recordClear();
         if (s.phase === 'victory') {
           selectedOffer = null;
-          for (const id of ['rewards', 'attune', 'fusion-offer', 'fusion-preview', 'retire'])
+          for (const id of [
+            'rewards',
+            'attune',
+            'fusion-offer',
+            'fusion-preview',
+            'evolution',
+            'retire',
+          ])
             manager.close(id);
           openVictory();
         }
         if (s.phase === 'ended') {
           selectedOffer = null;
-          for (const id of ['rewards', 'attune', 'fusion-offer', 'fusion-preview', 'retire'])
+          for (const id of [
+            'rewards',
+            'attune',
+            'fusion-offer',
+            'fusion-preview',
+            'evolution',
+            'retire',
+          ])
             manager.close(id);
           manager.close('victory');
           if (isV2(s)) void telemetry.finish(s);

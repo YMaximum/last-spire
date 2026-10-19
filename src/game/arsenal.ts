@@ -154,7 +154,9 @@ export function arsenalDamage(s: RunV2, enemy: EnemyV2, event: DamageEvent, h: A
       s.counters['ars-charge-root'] === event.rootId &&
       s.counters['ars-charge-target'] === enemy.id
     ) {
-      const parts = s.weapons.find((w) => w.id === event.weaponId)?.infusions.length || 1;
+      const parts = (s as RunV3).evolution
+        ? event.partCount || 1
+        : s.weapons.find((w) => w.id === event.weaponId)?.infusions.length || 1;
       amount += (s.counters['ars-charge-bonus'] || 0) / parts;
     }
   }

@@ -6,6 +6,24 @@ import { MASTERY_THRESHOLDS } from './types';
 import { recordDamageNumber } from './damage-feedback';
 import { quoteRepairs } from './shop-healing';
 import { expansionEffectPreview } from '../content/arsenal-expansion';
+import {
+  cleanEvolutionCounters,
+  evolvedCore,
+  evolutionAbsorb,
+  evolutionBonuses,
+  evolutionControlEnd,
+  evolutionDamage,
+  evolutionDeath,
+  evolutionFieldPower,
+  evolutionHealing,
+  evolutionOwner,
+  evolutionPath,
+  evolutionSkill,
+  evolutionState,
+  queueEvolution,
+  restoreEvolutionCore,
+  type EvolutionHooks,
+} from './evolution';
 import { EXPANSION_CARD_IDS, EXPANSION_FUSION_IDS } from '../content/catalog';
 import {
   hasArsenal,
@@ -172,6 +190,10 @@ const arsenalHooks: ArsenalHooks = {
     fragment.damage = damage;
   },
 };
+const evolutionHooks: EvolutionHooks = {
+  ...arsenalHooks,
+  heal: (s, amount) => healTower(s, amount),
+};
 function buff(s: RunV2, stat: string) {
   return Math.min(
     2,
@@ -319,6 +341,8 @@ export function createRun(
     infusions: [t.element],
     angle: 0,
   });
+  if (options.evolutionVersion !== 0 && s.arsenalVersion === 2)
+    s.evolution = { version: 1, coreId: s.weapons[0].id, tier: 0, pending: 0 };
   s.synergies = activeSynergies(s);
   return s;
 }
@@ -418,6 +442,15 @@ export function getWeaponStats(s: RunV2, w: WeaponInstance): WeaponStats {
     if (view.recipeId === 'fusion-lance' && w.kind === 'bolt')
       b.pierce = Math.min(15, b.pierce + 2);
   }
+  const evolution = evolutionBonuses(s);
+  b.damage *= 1 + (evolution.globalDamage || 0);
+  if (evolvedCore(s, w)) {
+    b.damage *= 1 + (evolution.coreDamage || 0);
+    b.cooldown = Math.max(0.12, b.cooldown / (1 + (evolution.coreRate || 0)));
+    b.range *= 1 + (evolution.coreRange || 0);
+    b.pierce = Math.min(15, b.pierce + (evolution.corePierce || 0));
+    b.count = Math.min(16, b.count + (evolution.coreCount || 0));
+  }
   return b;
 }
 function promote(r: Rarity, mastery: number): Rarity {
@@ -502,6 +535,7 @@ export function acquireCard(s: RunV2, offer: CardOffer, targetId?: string): bool
     s.hp += gain;
   }
   if (d.group === 'skill' && d.effect.startsWith('secondary-')) s.secondary = d.effect.slice(10);
+  restoreEvolutionCore(s);
   const previous = s.synergies;
   s.synergies = activeSynergies(s);
   for (const id of s.synergies.filter((id) => !previous.includes(id))) {
@@ -554,6 +588,15 @@ export function previewCard(
   )
     lost.push(
       `${weapon(old.kind).name}: mastery ${old.mastery}, ${old.infusions.join(', ') || 'no infusions'}`,
+    );
+  if (
+    old &&
+    evolutionOwner(s)?.id === old.id &&
+    !copy.weapons.some((w) => w.id === old.id) &&
+    evolutionState(s)?.tier
+  )
+    lost.push(
+      `${evolutionPath(s)!.coreName}: core-specific evolution is lost until the starting core is reacquired; tower and signature benefits remain.`,
     );
   let summary = '';
   if (!ok)
@@ -919,7 +962,7 @@ export function describeNextThreat(s: RunV2) {
           : 'Mixed advance: prioritize the nearest threats.';
 }
 function shieldCap(s: RunV2) {
-  return s.maxHp * 0.45 + ep(s, 'shield');
+  return s.maxHp * (0.45 + (evolutionBonuses(s).shieldCapacity || 0)) + ep(s, 'shield');
 }
 function grantShield(s: RunV2, n: number) {
   const previous = s.shield;
@@ -1030,8 +1073,10 @@ function kill(s: RunV2, e: EnemyV2, event: DamageEvent) {
 export function dealDamage(s: RunV2, e: EnemyV2, event: DamageEvent): number {
   if (s.rulesVersion !== 3) return legacy.dealDamage(s, e, event);
   if (e.hp <= 0 || event.damage <= 0 || event.depth > MAX_DEPTH) return 0;
-  let amount = arsenalDamage(s, e, event, arsenalHooks),
+  event = { ...event, damage: arsenalDamage(s, e, event, arsenalHooks) };
+  let amount = evolutionDamage(s, e, event, evolutionHooks),
     el = event.element;
+  if (e.hp <= 0) return 0;
   if (event.source === 'primary') {
     if (el !== 'physical') amount *= 1 + ep(s, 'conductivity', event.weaponId);
     if (el === 'fire' && s.tower === 'pyre') amount *= 1.2;
@@ -1112,6 +1157,7 @@ export function dealDamage(s: RunV2, e: EnemyV2, event: DamageEvent): number {
   if (e.hp <= 0) {
     if (el === 'solar') grantShield(s, 1);
     kill(s, e, event);
+    evolutionDeath(s, e, event, evolutionHooks);
   }
   return dealt;
 }
@@ -1131,6 +1177,7 @@ function hit(s: RunV2, e: EnemyV2, p: ProjectileV2, damage = p.damage) {
   for (const el of parts)
     dealDamage(s, e, {
       rootId: p.id,
+      partCount: parts.length,
       source: p.depth ? 'proc' : 'primary',
       depth: p.depth,
       weaponId: p.weaponId,
@@ -1182,6 +1229,7 @@ export function takeDamage(
   s.stats.damageTaken += amount - absorbed;
   s.counters.protectionAbsorbed = (s.counters.protectionAbsorbed || 0) + absorbed;
   arsenalAbsorb(s, absorbed, arsenalHooks);
+  evolutionAbsorb(s, absorbed, evolutionHooks);
   reactCores(s, amount, absorbed, attacker, element);
   if (ep(s, 'hurt-charge') && ready(s, 'hurt-charge', 0.6))
     addBuff(s, 'hurt-charge', 'damage', Math.min(0.5, ep(s, 'hurt-charge')), 4);
@@ -1948,12 +1996,14 @@ function stepAreas(s: RunV2, dt: number) {
       for (const element of elements)
         dealDamage(s, e, {
           rootId,
+          partCount: elements.length,
           source: a.depth === 0 ? 'primary' : 'proc',
           depth: a.depth,
           weaponId: a.weaponId,
           damage:
             (a.damage *
               arsenalFieldMultiplier(s, e, a, arsenalHooks) *
+              evolutionFieldPower(s, a.element) *
               (a.kind === 'fire' && synergyEffect(s, 'fire-field-power') ? 1.4 : 1)) /
             elements.length,
           element,
@@ -1972,9 +2022,15 @@ function stepAreas(s: RunV2, dt: number) {
 }
 export function useSkill(s: RunV2, which: 'signature' | 'secondary'): boolean {
   if (s.rulesVersion !== 3) return legacy.useSkill(s, which);
-  if (s.phase !== 'combat' || (which === 'signature' ? s.skillCd : s.secondaryCd) > 0) return false;
+  if (
+    s.phase !== 'combat' ||
+    evolutionState(s)?.pending ||
+    (which === 'signature' ? s.skillCd : s.secondaryCd) > 0
+  )
+    return false;
   s.stats.skillsUsed++;
-  if (which === 'signature') s.skillCd = 30 / (1 + ep(s, 'skill-cooldown'));
+  if (which === 'signature')
+    s.skillCd = 30 / (1 + ep(s, 'skill-cooldown') + (evolutionBonuses(s).skillCooldown || 0));
   else s.secondaryCd = 38 / (1 + ep(s, 'skill-cooldown'));
   const spell = which === 'signature' ? s.tower : s.secondary;
   if (spell === 'monolith') {
@@ -2096,6 +2152,7 @@ export function useSkill(s: RunV2, which: 'signature' | 'secondary'): boolean {
       projectile(s, w, st, (i * Math.PI) / 6, 'chakram', origin.x, origin.y, 1);
   }
   visual(s, 'ring', origin.x, origin.y, tower(s).color, 240);
+  if (which === 'signature') evolutionSkill(s, evolutionHooks);
   return true;
 }
 function stepEnemies(s: RunV2, dt: number) {
@@ -2132,6 +2189,7 @@ function stepEnemies(s: RunV2, dt: number) {
     e.chill = Math.max(0, e.chill - dt * 0.055);
     e.stun = Math.max(0, e.stun - dt);
     arsenalControlEnd(s, e, previousStun, previousChill, arsenalHooks);
+    evolutionControlEnd(s, e, previousStun, previousChill, evolutionHooks);
     if (e.hp <= 0) continue;
     if (e.stun > 0) {
       if (hasEncounters(s)) interruptEncounter(s, e);
@@ -2263,7 +2321,7 @@ function stepEnemies(s: RunV2, dt: number) {
 }
 export function step(s: RunV2, dt = TICK): void {
   if (s.rulesVersion !== 3) return legacy.step(s, dt);
-  if (s.phase !== 'combat' || !Number.isFinite(dt) || dt <= 0) return;
+  if (s.phase !== 'combat' || evolutionState(s)?.pending || !Number.isFinite(dt) || dt <= 0) return;
   if (dt > TICK * 1.01) {
     for (let left = Math.min(dt, 1); left > 1e-8; left -= TICK) step(s, Math.min(TICK, left));
     return;
@@ -2330,6 +2388,7 @@ export function step(s: RunV2, dt = TICK): void {
   }
   if (s.spawned >= s.spawnTotal && !s.enemies.length && s.waveTime >= 18) {
     const cleared = s.wave;
+    queueEvolution(s, cleared);
     if (cleared === finalWave(s)) {
       s.cleared = true;
       if (!s.endless) {
@@ -2344,6 +2403,7 @@ export function step(s: RunV2, dt = TICK): void {
   if (ready(s, 'cleanup', 15)) {
     if (hasEncounters(s)) cleanEncounterCounters(s);
     cleanupArsenal(s);
+    cleanEvolutionCounters(s);
     const living = new Set(s.enemies.map((e) => e.id));
     for (const key of Object.keys(s.counters)) {
       if (key.startsWith('distance-')) {
@@ -2457,7 +2517,9 @@ function coreStrike(
   for (const el of parts) {
     dealDamage(s, enemy, {
       rootId: sharedRoot ?? s.nextId++,
+      partCount: parts.length,
       source: 'retaliation',
+      coreKind: w.kind,
       depth: hasArsenal(s) && !echo && w.kind !== 'core-echo' ? 2 : 1,
       weaponId: w.id,
       damage: damage / parts.length,
@@ -2653,6 +2715,7 @@ function healTower(s: RunV2, amount: number, allowDischarge = true) {
     overheal = Math.max(0, amount - healed);
   s.hp = Math.min(s.maxHp, s.hp + amount);
   arsenalHealing(s, healed, arsenalHooks);
+  evolutionHealing(s, healed, evolutionHooks);
   s.counters.totalHealing = (s.counters.totalHealing || 0) + healed;
   s.counters.protectionHealing = (s.counters.protectionHealing || 0) + healed;
   for (const w of defensiveViews(s))
@@ -2738,11 +2801,13 @@ function stepDefensiveCores(s: RunV2, dt: number) {
 /** Effective defenses used by damage resolution, regeneration, and the live statistics panel. */
 export function getDefenseStats(s: RunV2) {
   const p = (effect: string) => ep(s, effect);
+  const evolution = evolutionBonuses(s);
   const modern = isModern(s),
     active = s.enemies.some((e) => e.hp > 0 && dist(e, origin) < 460);
   const cores = modern ? defensiveViews(s) : [];
   const reduction =
     p('armor') +
+    Math.max(0, evolution.mitigation || 0) +
     (s.tower === 'bastion' ? 0.1 : s.tower === 'monolith' ? 0.2 : 0) +
     (s.hp < s.maxHp * 0.3 ? p('emergency') : 0) +
     (cores.some((w) => w.kind === 'core-gravitic') ? 0.08 : 0);
@@ -2757,7 +2822,12 @@ export function getDefenseStats(s: RunV2) {
           0,
           0.8,
         );
-        return [element, 1 - (1 - resisted) * (s.tower === 'null' ? 1.12 : 1)];
+        return [
+          element,
+          1 -
+            (1 - resisted) * (s.tower === 'null' ? 1.12 : 1) +
+            Math.min(0, evolution.mitigation || 0),
+        ];
       },
     ),
   ) as Record<Element | 'physical', number>;
@@ -2775,8 +2845,14 @@ export function getDefenseStats(s: RunV2) {
   return {
     maxShield: shieldCap(s),
     mitigation,
-    healthRegen: p('regen') * (synergyEffect(s, 'health-renewal') ? 1.6 : 1) + mending,
-    shieldRegen: p('shield-regen') * (synergyEffect(s, 'shield-renewal') ? 1.5 : 1) + capacitor,
+    healthRegen:
+      p('regen') * (synergyEffect(s, 'health-renewal') ? 1.6 : 1) +
+      mending +
+      (evolution.healthRegen || 0),
+    shieldRegen:
+      p('shield-regen') * (synergyEffect(s, 'shield-renewal') ? 1.5 : 1) +
+      capacitor +
+      (evolution.shieldRegen || 0),
     reflectMultiplier:
       p('reflect') * (synergyEffect(s, 'solar-reflect') ? 2 : 1) +
       mirrors.length * (0.8 + Math.min(1, p('reflect'))),
@@ -3095,6 +3171,11 @@ export function previewFusion(
     ingredients: [weapon(input.first.kind).name, weapon(input.second.kind).name],
     summary: `Consumes two mastered cores; creates one ${result.output.rarity} core and frees one socket. Inherited cadence ${stats.cooldown.toFixed(2)}s; range ${Math.round(stats.range)}. Shared global bonuses apply once per hit.`,
     inherited: [
+      ...(evolutionOwner(s) && [a, b].includes(evolutionOwner(s)!.id)
+        ? [
+            `Starting-core lineage remains in ${input.recipe.name}; ${evolutionPath(s)?.coreName || 'future evolution'} benefits follow its original component once.`,
+          ]
+        : []),
       `${result.output.infusions.join(', ') || 'Physical'} payload; additional elements share direct damage.`,
       `Both ingredient investments and compatible targeted cards remain. Direct damage history combines under the fused core; shared status buckets remain separate; ingredient provenance remains.`,
       ...(result.output.fusion!.overflowPower

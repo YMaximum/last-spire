@@ -5,6 +5,7 @@ import { defaultProfile } from '../src/legacy/classic/storage';
 import type { CardOffer, RunV2 } from '../src/model/arsenal';
 import { emptySave, exportGame } from '../src/persistence/storage';
 import { defaultAutocastConfig } from '../src/game/controls';
+import { chooseEvolution, evolutionOptions, evolutionState } from '../src/game/evolution';
 import type { RunMode } from '../src/game/types';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
@@ -89,7 +90,7 @@ for (const tower of TOWERS.filter(
             stage,
             Number(value('difficulty', '0')),
             seed * 1299709,
-            { mode },
+            { mode, evolutionVersion: value('evolution', 'alternating') === 'off' ? 0 : 1 },
           );
           let decision =
             (Math.imul(seed, 3157) ^
@@ -175,6 +176,21 @@ for (const tower of TOWERS.filter(
             s.phase === 'combat' &&
             s.time < Number(value('seconds', mode === 'endless' ? '300' : '5400'))
           ) {
+            if (evolutionState(s)?.pending) {
+              const paths = evolutionOptions(s);
+              const index =
+                value('evolution', 'alternating') === 'first'
+                  ? 0
+                  : value('evolution', 'alternating') === 'second'
+                    ? paths.length - 1
+                    : paths.length === 1
+                      ? 0
+                      : value('evolution', 'alternating') === 'random'
+                        ? Math.floor(random() * paths.length)
+                        : (seed + 1) % paths.length;
+              if (!chooseEvolution(s, paths[index].id))
+                throw Error('Evolution decision could not resolve');
+            }
             engine.step(s);
             if (s.wave % 10 === 0 && checkpointWave !== s.wave) {
               checkpointWave = s.wave;
@@ -239,6 +255,8 @@ for (const tower of TOWERS.filter(
           }
           checkpoint();
           const result = {
+            evolution: evolutionState(s)?.path,
+            evolutionTier: evolutionState(s)?.tier,
             peakSaveBytes,
             tower: tower.id,
             stage,

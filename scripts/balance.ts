@@ -1,5 +1,5 @@
 /** Deterministic play-policy comparison. No privileged build grants or modified combat ticks. */
-import { TOWERS, STAGES } from '../src/content';
+import { TOWERS, STAGES } from '../src/content/world';
 import {
   buyUpgrade,
   continueRun,
@@ -10,9 +10,9 @@ import {
   step,
   TICK,
   useSkill,
-} from '../src/engine';
-import { defaultProfile } from '../src/storage';
-import type { Element, RunState, Upgrade } from '../src/types';
+} from '../src/legacy/classic/engine';
+import { defaultProfile } from '../src/legacy/classic/storage';
+import type { Element, RunState, Upgrade } from '../src/model/shared';
 
 const argv = (globalThis as unknown as { process?: { argv: string[] } }).process?.argv ?? [];
 const option = (name: string, fallback: number) => {

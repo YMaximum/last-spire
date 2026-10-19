@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { FrameMeter } from '../src/v3/performance';
+import { FrameMeter } from '../src/render/performance';
 
 describe('foreground performance measurements', () => {
   it.each([30, 60, 120])('measures %i FPS independently of simulation speed', (fps) => {

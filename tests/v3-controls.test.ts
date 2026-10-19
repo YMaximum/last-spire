@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { defaultProfile } from '../src/storage';
-import { acquireCard, createRun, getWeaponStats, spawnEnemy, step, TICK } from '../src/v2/engine';
+import { defaultProfile } from '../src/legacy/classic/storage';
+import { acquireCard, createRun, getWeaponStats, spawnEnemy, step, TICK } from '../src/legacy/runeforged/engine';
 import {
   defaultAutocastConfig,
   defaultRuneLoadout,
@@ -13,7 +13,7 @@ import {
   runePrice,
   snapshotRunes,
   tickAutocast,
-} from '../src/v3/controls';
+} from '../src/game/controls';
 
 const fresh = () => {
   const s = createRun(defaultProfile(), 'bastion', 0, 0, 1283);

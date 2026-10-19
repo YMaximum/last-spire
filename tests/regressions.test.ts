@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { createRun, creditReward, retire, step, TICK } from '../src/engine';
-import { defaultProfile, exportSave, parseSave } from '../src/storage';
-import { defaultSettings } from '../src/storage';
+import { createRun, creditReward, retire, step, TICK } from '../src/legacy/classic/engine';
+import { defaultProfile, exportSave, parseSave } from '../src/legacy/classic/storage';
+import { defaultSettings } from '../src/legacy/classic/storage';
 describe('launch regressions', () => {
   it('does not grant credits for instantly retiring an untouched run', () => {
     const s = createRun(defaultProfile(), 'bastion', 0, 0, 58);

@@ -1,6 +1,6 @@
-import { ArenaRenderer } from '../render';
-import type { Enemy, RunState as LegacyRun, Settings, TowerId } from '../types';
-import type { AreaEffect, Element, ProjectileV2, RunV2, SettingsV2, VisualV2 } from './types';
+import { ArenaRenderer } from '../../render/arena';
+import type { Enemy, RunState as LegacyRun, Settings, TowerId } from '../../model/shared';
+import type { AreaEffect, Element, ProjectileV2, RunV2, SettingsV2, VisualV2 } from '../../model/arsenal';
 
 const W = 1000, H = 800, CX = 500, CY = 400, TAU = Math.PI * 2;
 const COLORS: Record<Element, string> = {

@@ -67,12 +67,10 @@ npm run check:public
 npm run check:dependencies
 npm run build
 npm run check:secrets
-npm run balance -- --seeds=5
-npm run balance -- --seeds=3 --stage=1
-npm run balance -- --seeds=3 --stage=2
+node --import tsx scripts/audit-v3.ts --tower=bastion --stage=0 --mode=normal --policy=competent --seeds=1
 ```
 
-Optional balance filters: `--tower=pyre`, `--difficulty=5`, `--policy=competent`, `--policy=random`, and `--limit=5400`. The policies use the same fixed-tick simulation, actual offered cards, and shop economy as the browser. They are proxies for play skill, not measured human win rates.
+The current-rule audit supports `--tower=pyre`, `--stage=1`, `--difficulty=5`, `--mode=quick`, `--policy=random`, and `--seconds=5400`. It uses the current fixed-tick simulation, actual offered cards, and shop economy. Policies are proxies for play skill, not measured human win rates. The older `npm run balance` and `npm run balance:legacy` commands exercise legacy rules; do not use their results to claim current balance. Keep audits to small, serialized batches.
 
 For isolated browser regression scenes:
 
@@ -83,7 +81,7 @@ npm run dev -- --port 5175 --strictPort
 
 Visit `http://localhost:5175/qa.html`. Its explicit checkpoint controls work only on port 5175 and do not touch progress on port 5173. They provide a mixed-effects scene and v1/v2 results with 15,001-shot counters. This development page and generated checkpoints are excluded from the production bundle.
 
-`src/v3/` owns the current catalog, simulation, renderer, build inspector, controls, local analytics, and persistence. `src/v2/main.ts` assembles the browser interface; its window manager remains shared. Original v1/v2 simulation modules remain for recovered-run compatibility. Raw audits and local development notes are kept outside the public source tree.
+The browser entrypoint is `src/ui/app.ts`. Current combat lives in `src/game/`, content in `src/content/`, graphics in `src/render/`, and save handling in `src/persistence/`. Recovered-run engines and validators live in `src/legacy/`. See [Source architecture](docs/ARCHITECTURE.md) for ownership and compatibility boundaries. Raw audits and local development notes stay outside the public source tree.
 
 Purchased rune levels can be freely dialed down before each run. Autocast runes unlock per-skill presets and advanced conditions. New runs use XP and normalized six-rank equipment mastery; recovered older runs retain their original combat rules.
 

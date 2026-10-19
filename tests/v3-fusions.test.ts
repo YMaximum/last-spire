@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { defaultProfile } from '../src/storage';
-import { FUSIONS } from '../src/v3/catalog';
+import { defaultProfile } from '../src/legacy/classic/storage';
+import { FUSIONS } from '../src/content/catalog';
 import {
   acquireCard,
   advanceMastery,
@@ -15,8 +15,8 @@ import {
   step,
   takeDamage,
   TICK,
-} from '../src/v3/engine';
-import type { RunV3, WeaponInstance } from '../src/v3/types';
+} from '../src/game/engine';
+import type { RunV3, WeaponInstance } from '../src/game/types';
 function pair(recipeId: string) {
   const recipe = FUSIONS.find((f) => f.id === recipeId)!;
   const s = createRun(defaultProfile(), 'bastion', 0, 0, 938);

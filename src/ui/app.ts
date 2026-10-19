@@ -1,6 +1,6 @@
 import './style.css';
-import '../v3/interface.css';
-import { BuildInspector, entityMarkup, type EntityRef } from '../v3/inspector';
+import './interface.css';
+import { BuildInspector, entityMarkup, type EntityRef } from './inspector';
 import {
   defaultAutocastConfig,
   normalizeAutocastConfig,
@@ -12,17 +12,17 @@ import {
   tickAutocast,
   type RuneId,
   type AutocastRules,
-} from '../v3/controls';
-import type { SaveV3, SaveScope } from '../v3/storage';
+} from '../game/controls';
+import type { SaveV3, SaveScope } from '../persistence/storage';
 import { AccountSync } from '../account/sync';
 import { AccountPanel } from '../account/panel';
 import { EntryScreen } from '../account/entry';
 import { archiveSave, rememberedPlayer } from '../account/cache';
-import { STAGES, ELEMENT_COLORS, PATTERNS } from '../content';
-import { TOWERS, isDefensiveKind, FUSIONS, FUSION_BY_ID } from '../v3/catalog';
-import type { RunV3, RunMode } from '../v3/types';
-import { LocalTelemetry } from '../v3/telemetry';
-import { FrameMeter } from '../v3/performance';
+import { STAGES, ELEMENT_COLORS, PATTERNS } from '../content/world';
+import { TOWERS, isDefensiveKind, FUSIONS, FUSION_BY_ID } from '../content/catalog';
+import type { RunV3, RunMode } from '../game/types';
+import { LocalTelemetry } from '../telemetry/local';
+import { FrameMeter } from '../render/performance';
 import {
   step as legacyStep,
   selectDraft,
@@ -32,7 +32,7 @@ import {
   useSkill as legacySkill,
   retire as legacyRetire,
   creditReward,
-} from '../engine';
+} from '../legacy/classic/engine';
 import {
   CARDS,
   CARD_BY_ID,
@@ -42,8 +42,8 @@ import {
   RARITIES,
   RARITY_COLORS,
   rarityLabel,
-} from '../v3/catalog';
-import { cardIcon } from '../v3/icons';
+} from '../content/catalog';
+import { cardIcon } from './icons';
 import {
   createRun,
   step,
@@ -65,8 +65,8 @@ import {
   availableFusions,
   previewFusion,
   fuseCores,
-} from '../v3/engine';
-import { BattleRenderer } from '../v3/render';
+} from '../game/engine';
+import { BattleRenderer } from '../render/battle';
 import { WindowManager } from './windows';
 import {
   emptySave,
@@ -80,7 +80,7 @@ import {
   readLegacyBackup,
   readRawSave,
   SaveError,
-} from '../v3/storage';
+} from '../persistence/storage';
 import type {
   RunV2,
   CardDefinition,
@@ -89,8 +89,8 @@ import type {
   SettingsV2,
   WeaponInstance,
   TowerId,
-} from './types';
-import type { RunState, Upgrade } from '../types';
+} from '../model/arsenal';
+import type { RunState, Upgrade } from '../model/shared';
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 const esc = (v: unknown) =>
   String(v).replace(

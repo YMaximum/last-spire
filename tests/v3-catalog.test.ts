@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { CARDS, CARD_BY_ID, NEW_CARDS, WEAPONS, WEAPON_BY_ID, DEFENSIVE_CORES, DEFENSIVE_KINDS, SYNERGIES, TOWERS, isDefensiveKind, FUSIONS, FUSION_BY_ID, FUSION_WEAPONS, isFusedKind } from '../src/v3/catalog';
-import { CARDS as BASE_CARDS, SYNERGIES as BASE_SYNERGIES } from '../src/v2/catalog';
-import { cardIcon } from '../src/v3/icons';
+import { CARDS, CARD_BY_ID, NEW_CARDS, WEAPONS, WEAPON_BY_ID, DEFENSIVE_CORES, DEFENSIVE_KINDS, SYNERGIES, TOWERS, isDefensiveKind, FUSIONS, FUSION_BY_ID, FUSION_WEAPONS, isFusedKind } from '../src/content/catalog';
+import { CARDS as BASE_CARDS, SYNERGIES as BASE_SYNERGIES } from '../src/content/base-catalog';
+import { cardIcon } from '../src/ui/icons';
 
 describe('defensive arsenal content', () => {
   it('extends the existing catalog with exactly eight socketed cores and sixteen unique supports', () => {

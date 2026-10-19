@@ -1,0 +1,50 @@
+# Source architecture
+
+The browser entrypoint is `src/ui/app.ts`. Features extend the current modules;
+new releases do not get their own source directory. Save and run-rule versions
+remain explicit persisted contracts, independent of the directory layout.
+
+| Area | Responsibility |
+| --- | --- |
+| `src/game/` | Current fixed-tick simulation, run types, runes, autocast and combat feedback |
+| `src/content/` | World definitions, base card catalog and current equipment/fusions |
+| `src/model/` | Shared content, combat and serialized save models |
+| `src/render/` | Cached pixel-art arena, current battle rendering, damage labels and frame sampling |
+| `src/ui/` | Application shell, movable windows, build inspector, icons and styles |
+| `src/persistence/` | Current save validation, migration, storage and reward settlement |
+| `src/account/` | Optional sign-in, scoped device cache and cloud synchronization |
+| `src/telemetry/` | Opt-in browser-local gameplay observations |
+| `src/legacy/classic/` | Original run simulation, validator and retained original interface |
+| `src/legacy/runeforged/` | Pre-XP run simulation, validator and rendering compatibility |
+| `server/` | Account API, private SQLite storage, backups and deletion recovery |
+
+## Compatibility boundaries
+
+The current simulation delegates recovered pre-XP runs to the runeforged engine.
+The application dispatches original runs to the classic engine. The current save
+validator reads all supported generations and preserves their rules until settlement.
+The base catalog, models and pixel-art renderer are shared foundations, not copies
+of a separate application for every release.
+
+Do not change serialized identifiers, RNG order, combat numbers, save keys or
+settlement behavior as part of moving modules. Change simulation rules and save
+formats deliberately in a separate reviewed feature change. Account snapshots
+use the same validator as browser saves, so compatibility work includes the API.
+
+`tests/module-compatibility.test.ts` compares five synthetic seeded checkpoint and
+resume hashes against merged main before the module moves. It covers classic,
+pre-XP and current rules, all three run modes, multiple stages and a lifetime shot
+counter above 1,000. Keep legacy regression suites when extending current rules.
+Current-rule hashes can change with intentional gameplay changes; legacy hashes
+must stay stable while those saved rules remain supported.
+
+## Development tools
+
+Tests named `v2-*` and `v3-*` refer to persisted rules and compatibility contracts;
+they do not imply parallel application trees. `scripts/audit-v3.ts` exercises the
+current XP/mastery engine. The older `scripts/balance.ts` and
+`scripts/balance-v2.ts` remain legacy policy tools; their results are not evidence
+for current gameplay balance. Run audits in small, serialized batches.
+
+Only `index.html` selects the shipped browser application. QA pages and synthetic
+checkpoints remain development-only and must not replace a player's save.

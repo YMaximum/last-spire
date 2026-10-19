@@ -1,8 +1,8 @@
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { defaultProfile } from '../src/storage';
-import { acquireCard, advanceMastery, createRun } from '../src/v3/engine';
-import { BuildInspector } from '../src/v3/inspector';
+import { defaultProfile } from '../src/legacy/classic/storage';
+import { acquireCard, advanceMastery, createRun } from '../src/game/engine';
+import { BuildInspector } from '../src/ui/inspector';
 
 let inspector: BuildInspector | undefined;
 afterEach(() => {

@@ -19,7 +19,9 @@
 ## Architecture and saves
 
 - Extend the current game through feature modules. Do not create another version-numbered source tree for an update.
+- Follow `docs/ARCHITECTURE.md`: the browser entrypoint is `src/ui/app.ts`, current combat is in `src/game/`, and recovered-run handlers are in `src/legacy/`. Shared models and content are foundations, not another game version.
 - Track software releases with Git tags/releases; version save schemas separately. Isolate legacy compatibility when consolidating existing code.
+- Keep module moves behavior-preserving. Validate pre-move seeded save/resume contracts; change balance, run rules, and save formats in separately reviewed feature changes.
 - Preserve resumable runs, credits, unlocks, clears, RNG state, and unsettled rewards. Settlement must stay idempotent. Test migrations before changing saves.
 - Keep simulation deterministic and independent of rendering. Cosmetic settings must not alter damage, timing, RNG, or entity limits.
 - Maintain Last Spire's original arcane machinery identity. References inform usability, not copied layouts or artwork.

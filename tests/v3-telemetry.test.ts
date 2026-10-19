@@ -1,13 +1,13 @@
 import 'fake-indexeddb/auto';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { createRun } from '../src/v2/engine';
-import { defaultProfile } from '../src/storage';
+import { createRun } from '../src/legacy/runeforged/engine';
+import { defaultProfile } from '../src/legacy/classic/storage';
 import {
   LocalTelemetry,
   MAX_TELEMETRY_EVENTS,
   MAX_TELEMETRY_SAMPLES,
   MAX_TELEMETRY_PAYLOAD_BYTES,
-} from '../src/v3/telemetry';
+} from '../src/telemetry/local';
 
 const meta = { build: '3.0.0-test', mode: 'normal', runes: { power: 0, experience: 1 } };
 beforeEach(async () => {

@@ -1,9 +1,9 @@
 import 'fake-indexeddb/auto';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { createRun, rewardForRun } from '../src/v2/engine';
-import { emptySave as emptyV2 } from '../src/v2/storage';
-import { defaultProfile, defaultSettings as legacySettings } from '../src/storage';
-import { createRun as legacyRun } from '../src/engine';
+import { createRun, rewardForRun } from '../src/legacy/runeforged/engine';
+import { emptySave as emptyV2 } from '../src/legacy/runeforged/storage';
+import { defaultProfile, defaultSettings as legacySettings } from '../src/legacy/classic/storage';
+import { createRun as legacyRun } from '../src/legacy/classic/engine';
 import {
   emptySave,
   defaultSettings,
@@ -19,11 +19,11 @@ import {
   legacySave,
   SaveError,
   type SaveV3,
-} from '../src/v3/storage';
-import { snapshotRunes } from '../src/v3/controls';
-import { NEW_CARDS, DEFENSIVE_KINDS, FUSIONS } from '../src/v3/catalog';
-import { createRun as createModernRun, rewardForRun as modernReward } from '../src/v3/engine';
-import type { RunV3 } from '../src/v3/types';
+} from '../src/persistence/storage';
+import { snapshotRunes } from '../src/game/controls';
+import { NEW_CARDS, DEFENSIVE_KINDS, FUSIONS } from '../src/content/catalog';
+import { createRun as createModernRun, rewardForRun as modernReward } from '../src/game/engine';
+import type { RunV3 } from '../src/game/types';
 
 async function reset() {
   await new Promise<void>((resolve, reject) => {

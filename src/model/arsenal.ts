@@ -6,7 +6,7 @@ import type {
   RunState as LegacyRun,
   Settings as LegacySettings,
   Targeting,
-} from '../types';
+} from './shared';
 export type { Element, TowerId, Profile, Targeting };
 export type WeaponKind =
   | 'bolt'

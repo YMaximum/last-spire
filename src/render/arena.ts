@@ -7,7 +7,7 @@ import type {
   Settings,
   TowerId,
   Visual,
-} from './types';
+} from '../model/shared';
 
 const W = 1000,
   H = 800,

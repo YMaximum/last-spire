@@ -6,7 +6,7 @@ import type {
   SynergyDefinition,
   TowerDefinition,
   TowerId,
-} from './types';
+} from '../model/shared';
 
 export const PATTERNS: { id: Pattern; name: string; description: string }[] = [
   { id: 'bolt', name: 'Bolt', description: 'A fast, focused shot that favors a single target.' },

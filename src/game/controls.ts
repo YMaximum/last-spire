@@ -1,6 +1,6 @@
-import type { Profile, RunV2, WeaponStats } from '../v2/types';
+import type { Profile, RunV2, WeaponStats } from '../model/arsenal';
 import { effectPower, getWeaponStats, getDefenseStats, useSkill } from './engine';
-import { CARDS, SYNERGIES } from './catalog';
+import { CARDS, SYNERGIES } from '../content/catalog';
 
 export const RUNE_IDS = [
   'power',

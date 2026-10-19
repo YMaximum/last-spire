@@ -1,14 +1,14 @@
 /** Development-only visual coverage; no storage API calls or player data. */
-import { createRun, dealDamage, spawnEnemy } from '../src/v3/engine';
-import { defaultProfile } from '../src/storage';
-import { defaultSettings } from '../src/v3/storage';
-import { BattleRenderer } from '../src/v3/render';
-import { DAMAGE_STYLES } from '../src/v3/damage-numbers';
+import { createRun, dealDamage, spawnEnemy } from '../src/game/engine';
+import { defaultProfile } from '../src/legacy/classic/storage';
+import { defaultSettings } from '../src/persistence/storage';
+import { BattleRenderer } from '../src/render/battle';
+import { DAMAGE_STYLES } from '../src/render/damage-numbers';
 import {
   enableDamageNumbers,
   readDamageNumbers,
   type DamageElement,
-} from '../src/v3/damage-feedback';
+} from '../src/game/damage-feedback';
 
 const run = createRun(defaultProfile(), 'bastion', 0, 0, 415);
 run.weapons = [];

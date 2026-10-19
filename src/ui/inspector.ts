@@ -1,4 +1,4 @@
-import type { RunV2, WeaponInstance } from '../v2/types';
+import type { RunV2, WeaponInstance } from '../model/arsenal';
 import {
   CARDS,
   CARD_BY_ID,
@@ -7,8 +7,8 @@ import {
   FUSIONS,
   FUSION_BY_ID,
   rarityLabel,
-} from './catalog';
-import { activeSynergies, getWeaponStats } from './engine';
+} from '../content/catalog';
+import { activeSynergies, getWeaponStats } from '../game/engine';
 import { cardIcon } from './icons';
 import './inspector.css';
 

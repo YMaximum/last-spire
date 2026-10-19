@@ -8,8 +8,8 @@ import {
   WEAPONS,
   WEAPON_BY_ID,
   rarityLabel,
-} from '../src/v2/catalog';
-import { cardIcon, iconMarkup } from '../src/v2/icons';
+} from '../src/content/base-catalog';
+import { cardIcon, iconMarkup } from '../src/ui/base-icons';
 
 describe('v2 original catalog', () => {
   it('provides exactly 100 unique cards in the seven required groups', () => {

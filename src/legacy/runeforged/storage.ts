@@ -2,11 +2,11 @@ import {
   defaultProfile,
   defaultSettings as legacySettings,
   parseSave as parseLegacy,
-} from '../storage';
-import { CARDS, WEAPONS } from './catalog';
+} from '../classic/storage';
+import { CARDS, WEAPONS } from '../../content/base-catalog';
 import { rewardForRun } from './engine';
-import type { Profile, RunV2, SaveV2, SettingsV2 } from './types';
-import type { SaveData, Settings as LegacySettings } from '../types';
+import type { Profile, RunV2, SaveV2, SettingsV2 } from '../../model/arsenal';
+import type { SaveData, Settings as LegacySettings } from '../../model/shared';
 
 const DB = 'last-spire',
   STORE = 'save',

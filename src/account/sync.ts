@@ -6,7 +6,7 @@ import {
   readRawSave,
   type SaveScope,
   type SaveV3,
-} from '../v3/storage';
+} from '../persistence/storage';
 import { snapshotFromSave, saveFromSnapshot, type CloudSnapshot } from './snapshot';
 import { AccountApi, SyncError, type CloudCheckpoint, type Lease } from './api';
 import {

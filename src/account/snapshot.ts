@@ -1,4 +1,4 @@
-import { defaultSettings, parseGame, type SaveV3 } from '../v3/storage';
+import { defaultSettings, parseGame, type SaveV3 } from '../persistence/storage';
 
 /** Cloud data deliberately excludes device-specific audio, graphics and window settings. */
 export type CloudSnapshot = Omit<SaveV3, 'settings'>;

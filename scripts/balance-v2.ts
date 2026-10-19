@@ -7,11 +7,11 @@ import {
   useSkill,
   repair,
   getWeaponStats,
-} from '../src/v2/engine';
-import { CARDS } from '../src/v2/catalog';
-import { TOWERS } from '../src/content';
-import type { CardOffer, RunV2 } from '../src/v2/types';
-import type { Profile } from '../src/types';
+} from '../src/legacy/runeforged/engine';
+import { CARDS } from '../src/content/base-catalog';
+import { TOWERS } from '../src/content/world';
+import type { CardOffer, RunV2 } from '../src/model/arsenal';
+import type { Profile } from '../src/model/shared';
 declare const process: { argv: string[]; stderr: { write(s: string): void } };
 const profile: Profile = {
   version: 1,

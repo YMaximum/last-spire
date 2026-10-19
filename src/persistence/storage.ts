@@ -3,13 +3,13 @@ import {
   emptySave as emptyV2,
   parseGame as parseV2,
   SaveError,
-} from '../v2/storage';
-import type { SaveV2, SettingsV2 } from '../v2/types';
-import type { SaveData } from '../types';
-import { CARDS as LEGACY_CARDS, WEAPONS as LEGACY_WEAPONS } from '../v2/catalog';
-import { CARDS, WEAPONS, TOWERS, FUSIONS, isFusedKind } from './catalog';
-import { rewardForRun } from './engine';
-import type { RunV3 } from './types';
+} from '../legacy/runeforged/storage';
+import type { SaveV2, SettingsV2 } from '../model/arsenal';
+import type { SaveData } from '../model/shared';
+import { CARDS as LEGACY_CARDS, WEAPONS as LEGACY_WEAPONS } from '../content/base-catalog';
+import { CARDS, WEAPONS, TOWERS, FUSIONS, isFusedKind } from '../content/catalog';
+import { rewardForRun } from '../game/engine';
+import type { RunV3 } from '../game/types';
 import {
   RUNE_CAPS,
   defaultRuneLoadout,
@@ -18,7 +18,7 @@ import {
   type RuneId,
   type RuneLoadout,
   type AutocastRules,
-} from './controls';
+} from '../game/controls';
 
 export { SaveError };
 export type RunMode = 'quick' | 'normal' | 'endless';

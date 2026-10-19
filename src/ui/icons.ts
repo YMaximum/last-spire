@@ -1,5 +1,5 @@
-import { cardIcon as legacyCardIcon } from '../v2/icons';
-import { NEW_CARDS, FUSIONS } from './catalog';
+import { cardIcon as legacyCardIcon } from './base-icons';
+import { NEW_CARDS, FUSIONS } from '../content/catalog';
 
 /** Original engraved machinery silhouettes. Geometry, not recoloring, identifies each family. */
 const SHAPES: Record<string, string> = {

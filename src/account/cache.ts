@@ -1,4 +1,4 @@
-import { parseGame, type SaveV3 } from '../v3/storage';
+import { parseGame, type SaveV3 } from '../persistence/storage';
 import { validateSnapshot, type CloudSnapshot } from './snapshot';
 
 export interface Player {

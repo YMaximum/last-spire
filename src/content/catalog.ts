@@ -1,8 +1,8 @@
-import type { TowerDefinition } from '../types';
-import type { CardDefinition, WeaponDefinition, WeaponKind } from '../v2/types';
-import { TOWERS as LEGACY_TOWERS } from '../content';
-import { CARDS as BASE_CARDS, WEAPONS as BASE_WEAPONS } from '../v2/catalog';
-export { RARITIES, RARITY_COLORS, rarityLabel, SYNERGIES } from '../v2/catalog';
+import type { TowerDefinition } from '../model/shared';
+import type { CardDefinition, WeaponDefinition, WeaponKind } from '../model/arsenal';
+import { TOWERS as LEGACY_TOWERS } from './world';
+import { CARDS as BASE_CARDS, WEAPONS as BASE_WEAPONS } from './base-catalog';
+export { RARITIES, RARITY_COLORS, rarityLabel, SYNERGIES } from './base-catalog';
 
 export const DEFENSIVE_KINDS = [
   'core-mirror',

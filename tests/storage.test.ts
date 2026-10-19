@@ -1,6 +1,6 @@
 import 'fake-indexeddb/auto';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { createRun, shopChoices, step } from '../src/engine';
+import { createRun, shopChoices, step } from '../src/legacy/classic/engine';
 import {
   defaultProfile,
   defaultSettings,
@@ -11,8 +11,8 @@ import {
   saveGame,
   settleInMemory,
   settleRun,
-} from '../src/storage';
-import type { RunState, SaveData } from '../src/types';
+} from '../src/legacy/classic/storage';
+import type { RunState, SaveData } from '../src/model/shared';
 
 function makeRun(overrides: Partial<RunState> = {}): RunState {
   return {

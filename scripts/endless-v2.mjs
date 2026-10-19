@@ -1,9 +1,9 @@
 import { writeFileSync } from 'node:fs';
 import { performance } from 'node:perf_hooks';
-import { defaultProfile } from '../src/storage.ts';
-import { CARDS } from '../src/v2/catalog.ts';
-import { createRun, acquireCard, step, useSkill } from '../src/v2/engine.ts';
-import { emptySave, exportGame } from '../src/v2/storage.ts';
+import { defaultProfile } from '../src/legacy/classic/storage.ts';
+import { CARDS } from '../src/content/base-catalog.ts';
+import { createRun, acquireCard, step, useSkill } from '../src/legacy/runeforged/engine.ts';
+import { emptySave, exportGame } from '../src/legacy/runeforged/storage.ts';
 const s = createRun(defaultProfile(), 'bastion', 2, 0, 84731);
 s.endless = s.cleared = true;
 s.wave = 101;

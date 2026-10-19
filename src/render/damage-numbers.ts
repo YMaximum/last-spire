@@ -1,4 +1,4 @@
-import { damageNumberLifetime, type DamageElement, type DamageNumber } from './damage-feedback';
+import { damageNumberLifetime, type DamageElement, type DamageNumber } from '../game/damage-feedback';
 
 export const DAMAGE_STYLES = {
   physical: { color: '#f2e6cb', accent: '#bca981', sigil: 'blade' },

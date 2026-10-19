@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { defaultProfile } from '../src/storage';
+import { defaultProfile } from '../src/legacy/classic/storage';
 import {
   createRun,
   acquireCard,
@@ -15,8 +15,8 @@ import {
   buyOffer,
   rerollReward,
   repair,
-} from '../src/v2/engine';
-import type { RunV2 } from '../src/v2/types';
+} from '../src/legacy/runeforged/engine';
+import type { RunV2 } from '../src/model/arsenal';
 const fresh = () => {
   const s = createRun(defaultProfile(), 'bastion', 0, 0, 129);
   s.spawnTotal = 999;

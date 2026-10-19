@@ -4,6 +4,8 @@ export type * from '../model/arsenal';
 export type RunMode = 'quick' | 'normal' | 'endless';
 export interface RunV3 extends RunV2 {
   rulesVersion: 3;
+  /** Absent on recovered runs, whose original 30% repair remains unchanged. */
+  shopVersion?: 2;
   mode: RunMode;
   level: number;
   xp: number;
@@ -12,6 +14,7 @@ export interface RunV3 extends RunV2 {
   runeSnapshot: Record<RuneId, number>;
 }
 export interface RunOptions {
+  shopVersion?: 1 | 2;
   mode?: RunMode;
   runes?: Partial<Record<RuneId, number>>;
 }

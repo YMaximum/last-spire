@@ -181,6 +181,53 @@ describe('persistent account checkpoints', () => {
   ) {
     return store.write(userId, store.generation, revision, lease, writeId, snapshot);
   }
+  it('rejects an older client overwriting independent stage records, while keeping retries idempotent', () => {
+    const actor = login();
+    const lease = store.acquireLease(actor.player.id, store.generation, 0, false);
+    const save = activeSave();
+    save.progression.stages[0] = {
+      unlockedDifficulty: 3,
+      clearedDifficulties: [0, 1, 2],
+      legacyClear: false,
+    };
+    const snapshot = snapshotFromSave(save);
+    const writeId = randomUUID();
+    const saved = write(actor.player.id, 0, lease.leaseToken, snapshot, writeId);
+    const { stages: _, ...oldProgression } = snapshot.progression;
+    const oldClient = { ...snapshot, version: 3, progression: oldProgression };
+    expect(() =>
+      store.write(actor.player.id, store.generation, 1, lease.leaseToken, randomUUID(), oldClient),
+    ).toThrow('update_required');
+    expect(write(actor.player.id, 0, lease.leaseToken, snapshot, writeId)).toEqual(saved);
+    expect(store.read(actor.player.id).snapshot?.progression.stages[0]).toEqual(
+      save.progression.stages[0],
+    );
+    expect(store.read(actor.player.id).revision).toBe(1);
+  });
+  it('migrates stored old cloud checkpoints on read and retains the original in revision history on write', () => {
+    const actor = login();
+    const lease = store.acquireLease(actor.player.id, store.generation, 0, false);
+    const save = activeSave();
+    delete (save.run as NonNullable<typeof save.run> & { shopVersion?: number }).shopVersion;
+    save.profile.stageUnlocked = 2;
+    save.profile.difficultyUnlocked = 3;
+    const snapshot = snapshotFromSave(save);
+    const { stages: _, ...progression } = snapshot.progression;
+    const old = { ...snapshot, version: 3, progression };
+    write(actor.player.id, 0, lease.leaseToken, snapshot);
+    store.db
+      .prepare('UPDATE saves SET payload=? WHERE userId=?')
+      .run(JSON.stringify(old), actor.player.id);
+    const migrated = store.read(actor.player.id).snapshot!;
+    expect(migrated.version).toBe(4);
+    expect(migrated.progression.stages.map((s) => s.unlockedDifficulty)).toEqual([3, 3, 0]);
+    expect(migrated.run).toEqual(old.run);
+    write(actor.player.id, 1, lease.leaseToken, migrated);
+    const history = store.db
+      .prepare('SELECT payload FROM history WHERE userId=? AND revision=1')
+      .get(actor.player.id)!;
+    expect(JSON.parse(String(history.payload))).toEqual(old);
+  });
   it('hashes session secrets, rotates login credentials, consumes nonce once and expires sessions', () => {
     const pre = store.bootstrap();
     expect(store.session(pre.raw)?.hash).toBe(hash(pre.raw));

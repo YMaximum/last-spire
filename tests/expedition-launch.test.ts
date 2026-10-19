@@ -30,6 +30,29 @@ function render(patch: Partial<LaunchState> = {}) {
 }
 
 describe('integrated expedition setup', () => {
+  it('uses selected-stage access instead of the legacy global difficulty and shows exact clears', () => {
+    const save = emptySave();
+    save.profile.stageUnlocked = 3;
+    save.profile.difficultyUnlocked = 5;
+    save.progression.stages[0] = {
+      unlockedDifficulty: 3,
+      clearedDifficulties: [0, 2],
+      legacyClear: false,
+    };
+    render({ save, stage: 1 });
+    let options = [...document.querySelectorAll<HTMLOptionElement>('#difficulty-select option')];
+    expect(options.map((o) => o.disabled)).toEqual([false, true, true, true, true, true]);
+    expect(
+      document.querySelector('[aria-label="Stage completion records"]')?.textContent,
+    ).toContain('Ember Foundry records');
+    render({ save, stage: 0 });
+    options = [...document.querySelectorAll<HTMLOptionElement>('#difficulty-select option')];
+    expect(options.map((o) => o.disabled)).toEqual([false, false, false, false, true, true]);
+    expect(document.querySelectorAll('.difficulty-record.cleared')).toHaveLength(2);
+    expect(document.querySelector('.stage-record-details')?.textContent).toContain(
+      'Cleared: Normal, Ascension 2',
+    );
+  });
   it('shows tower selection, runes and settings together with a pinned start action', () => {
     render();
     expect(document.querySelectorAll('[data-launch-tower]')).toHaveLength(7);

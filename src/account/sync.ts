@@ -71,6 +71,8 @@ export async function compareCheckpoint(
   return 'conflict';
 }
 const messages: Record<string, string> = {
+  update_required:
+    'This cloud checkpoint uses a newer save format. Update or reload Last Spire before syncing. Your local checkpoint is kept.',
   offline:
     'Cloud saves could not be reached. Local progress is kept; reconnect and review before syncing.',
   service_unavailable:

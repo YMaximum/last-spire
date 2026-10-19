@@ -66,6 +66,14 @@ const cases = [
 const hash = (value: string) => createHash('sha256').update(value).digest('hex');
 const step = (run: RunState | RunV2) => (run.version === 1 ? classic.step(run) : current.step(run));
 
+// Preserve the original envelope hashes while upgrading the save wrapper.
+// Only stage metadata and the schema number differ; all prior run/RNG bytes match.
+function legacyEnvelope(save: ReturnType<typeof emptySave>): string {
+  const envelope = JSON.parse(exportGame(save));
+  envelope.version = 3;
+  delete envelope.progression.stages;
+  return JSON.stringify(envelope, null, 2);
+}
 describe('module moves preserve shipped save and simulation contracts', () => {
   it.each(cases)('$rules / $tower / $mode matches pre-refactor checkpoints', (scenario) => {
     const profile = defaultProfile();
@@ -81,6 +89,7 @@ describe('module moves preserve shipped save and simulation contracts', () => {
             scenario.seed,
             {
               mode: scenario.mode,
+              shopVersion: 1,
             },
           )
         : engine.createRun(
@@ -105,7 +114,7 @@ describe('module moves preserve shipped save and simulation contracts', () => {
         autocast: structuredClone(save.progression.autocast),
       };
     }
-    const checkpoint = exportGame(save);
+    const checkpoint = legacyEnvelope(save);
     expect(hash(checkpoint)).toBe(scenario.checkpoint);
 
     const restored = parseGame(checkpoint).run!;
@@ -114,6 +123,6 @@ describe('module moves preserve shipped save and simulation contracts', () => {
       step(restored);
     }
     expect(restored).toEqual(run);
-    expect(hash(exportGame(save))).toBe(scenario.resumed);
+    expect(hash(legacyEnvelope(save))).toBe(scenario.resumed);
   });
 });

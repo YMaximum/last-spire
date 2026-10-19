@@ -4,6 +4,7 @@ import { TOWERS, isDefensiveKind, isFusedKind, FUSIONS, FUSION_BY_ID } from '../
 import type { RunV3, RunOptions } from './types';
 import { MASTERY_THRESHOLDS } from './types';
 import { recordDamageNumber } from './damage-feedback';
+import { quoteRepairs } from './shop-healing';
 export type { RunV3, RunOptions, RunMode } from './types';
 import { CARDS, WEAPONS, SYNERGIES } from '../content/catalog';
 import type {
@@ -148,6 +149,7 @@ export function createRun(
   const s: RunV3 = {
     version: 2,
     rulesVersion: 3,
+    ...(options.shopVersion === 1 ? {} : { shopVersion: 2 as const }),
     mode: options.mode || 'normal',
     level: 1,
     xp: 0,
@@ -739,7 +741,33 @@ export function closeShop(s: RunV2, id: string) {
   if (s.rulesVersion !== 3) return legacy.closeShop(s, id);
   s.pendingRewards = s.pendingRewards.filter((r) => r.id !== id || r.kind !== 'shop');
 }
-export function repair(s: RunV2, id: string) {
+export function repairOptions(s: RunV2, id: string) {
+  const reward = s.pendingRewards.find((r) => r.id === id && r.kind === 'shop');
+  if (!reward) return [];
+  return quoteRepairs({
+    modern: s.rulesVersion === 3 && (s as RunV3).shopVersion === 2,
+    hp: s.hp,
+    maxHp: s.maxHp,
+    scrap: s.scrap,
+    stock: reward.repairStock,
+    bonus: ep(s, 'repair'),
+  });
+}
+export function repair(s: RunV2, id: string, percent?: number) {
+  if (s.rulesVersion === 3 && (s as RunV3).shopVersion === 2) {
+    if (s.phase !== 'combat') return false;
+    const option = repairOptions(s, id).find((o) => o.percent === (percent ?? 25));
+    if (!option || option.disabledReason) return false;
+    const reward = s.pendingRewards.find((r) => r.id === id)!;
+    s.scrap -= option.cost;
+    s.stats.spent += option.cost;
+    s.stats.shopPurchases++;
+    reward.repairStock--;
+    s.hp = Math.min(s.maxHp, s.hp + option.amount);
+    s.counters.shopHealing = (s.counters.shopHealing || 0) + option.amount;
+    return true;
+  }
+  if (percent !== undefined && percent !== 30) return false;
   if (s.rulesVersion !== 3) return legacy.repair(s, id);
   if (s.phase !== 'combat') return false;
   const r = s.pendingRewards.find((r) => r.id === id),

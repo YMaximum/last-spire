@@ -366,6 +366,13 @@ export class AccountStore {
         );
         return { revision: row.revision, updatedAt: row.updatedAt };
       }
+      if (row.payload !== null) {
+        // Compare the submitted wire version, before validation migrates it.
+        // A stale client must not flatten independent stage progress into its old global field.
+        const storedVersion = JSON.parse(row.payload).version;
+        const submittedVersion = (value as { version: number }).version;
+        requireApi(submittedVersion >= storedVersion, 409, 'update_required');
+      }
       requireApi(
         row.revision === baseRevision && row.revision < Number.MAX_SAFE_INTEGER,
         409,

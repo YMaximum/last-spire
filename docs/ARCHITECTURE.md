@@ -62,3 +62,29 @@ numeric entries in existing run counters. The unchanged browser and cloud valida
 retain those entries. They do not affect combat, reward generation or RNG. Existing
 rewards take priority; minimization or closing a reward window does not bypass the
 default pending-decision pause. Presentation settings remain device-local.
+
+## Stage progression and shop compatibility
+
+Save schema 4 adds `progression.stages`: independent access, exact difficulty clears,
+and a legacy-clear marker for each stable stage ID. Schema 1–3 checkpoints migrate
+without changing active combat/RNG. Access is grandfathered only onto previously
+opened stages. Immediate clear handling and transactional settlement share
+`src/game/stage-progress.ts`; duplicate settlement cannot advance another stage.
+
+Before a browser checkpoint is migrated, its original is backed up once per guest
+or account context in the same IndexedDB transaction. The Settings migration-backup
+export supports both contexts. Cloud reads validate/migrate the same format; the
+first subsequent write retains the old payload in existing revision history.
+An older wire schema cannot overwrite a newer stored cloud checkpoint. Future
+unknown schemas fail closed and request an updated client.
+
+New runs carry `shopVersion: 2`, separate from combat rules. Absent markers retain
+the original one-option repair; modern shop healing offers share the existing one
+repair stock. `src/game/shop-healing.ts` owns prices and quotes. Purchases validate
+health, stock, phase, option and funds before mutation, do not activate combat
+healing procs, and contribute scrap/healing metrics. Live UI updates preserve
+button nodes and keyboard/hover state.
+
+This format requires the matching account API before a new frontend syncs cloud
+saves. Older clients cannot read schema 4; after migration, reload/update the client
+instead of attempting a downgrade. Production publication remains a separate step.

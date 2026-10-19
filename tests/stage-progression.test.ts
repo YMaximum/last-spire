@@ -27,7 +27,10 @@ import type { RunMode } from '../src/game/types';
 
 function checkpoint(mode: RunMode = 'normal', stage = 0, difficulty = 0) {
   const save = emptySave();
-  const run = createRun(save.profile, 'bastion', stage, difficulty, 701, { mode });
+  const run = createRun(save.profile, 'bastion', stage, difficulty, 701, {
+    mode,
+    evolutionVersion: 0,
+  });
   save.run = run;
   save.progression.active = {
     runId: run.id,
@@ -152,7 +155,7 @@ describe('independent stage difficulty access', () => {
       old.profile.clears = [0];
       old.profile.credits = 357;
       const migrated = parseGame(old);
-      expect(migrated.version).toBe(6);
+      expect(migrated.version).toBe(7);
       expect(migrated.profile).toEqual(old.profile);
       expect(migrated.progression.stages.map((s) => s.unlockedDifficulty)).toEqual([4, 4, 0]);
       expect(migrated.progression.stages[0]).toMatchObject({
@@ -190,7 +193,7 @@ describe('independent stage difficulty access', () => {
       expect(await readLegacyBackup(scope)).toEqual(old);
       expect(await readRawSave(scope)).toEqual(old);
       await saveGame(migrated, false, scope);
-      expect((await loadGame(scope)).version).toBe(6);
+      expect((await loadGame(scope)).version).toBe(7);
       expect(await readLegacyBackup(scope)).toEqual(old);
       expect((await loadGame(scope)).run).toEqual(old.run);
       expect(
@@ -204,7 +207,7 @@ describe('independent stage difficulty access', () => {
     const save = emptySave();
     await saveGame(save);
     for (const bad of [
-      { ...save, version: 7 },
+      { ...save, version: 8 },
       { ...save, progression: { ...save.progression, stages: [] } },
       {
         ...save,

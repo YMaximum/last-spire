@@ -1,3 +1,4 @@
+import { chooseEvolution, queueEvolution } from '../src/game/evolution';
 /** Bounded synthetic soak, not an organically acquired build or a browser FPS test. */
 import { performance } from 'node:perf_hooks';
 import { writeFileSync } from 'node:fs';
@@ -16,7 +17,11 @@ import { emptySave, exportGame, parseGame } from '../src/persistence/storage';
 
 const save = emptySave();
 save.profile.tutorialDone = true;
-const run = createRun(save.profile, 'monolith', 2, 0, 84731, { mode: 'endless' });
+const evolved = !process.argv.includes('--evolution=off');
+const run = createRun(save.profile, 'monolith', 2, 0, 84731, {
+  mode: 'endless',
+  evolutionVersion: evolved ? 1 : 0,
+});
 run.weapons = [];
 run.wave = 161;
 run.maxHp = run.hp = 1e8;
@@ -39,6 +44,11 @@ for (const card of CARDS.filter((c) => c.group !== 'weapon'))
   for (let i = 0; i < card.maxStacks; i++)
     if (card.scope === 'weapon') for (const core of run.weapons) pick(card.id, core.id);
     else pick(card.id);
+if (evolved)
+  for (let i = 0; i < 3; i++) {
+    queueEvolution(run, run.wave - 1);
+    if (!chooseEvolution(run, 'ironbriar')) throw new Error('Could not evolve stress build');
+  }
 for (let i = 0; i < 96; i++) {
   const angle = (i * Math.PI * 2) / 96,
     radius = 80 + (i % 5) * 35;
@@ -84,6 +94,8 @@ step(resumed);
 if (JSON.stringify(run) !== JSON.stringify(resumed)) throw new Error('Stress resume diverged');
 if (peakProjectiles > 4096) throw new Error('Projectile limit exceeded');
 const result = {
+  evolution: run.evolution?.path,
+  evolutionTier: run.evolution?.tier,
   seed: 84731,
   startWave: 161,
   ticks,

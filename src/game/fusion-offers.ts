@@ -1,5 +1,6 @@
 import { availableFusions, isModern } from './engine';
 import type { RunV2 } from './types';
+import { evolutionState } from './evolution';
 
 export type FusionOffer = ReturnType<typeof availableFusions>[number];
 const BOUNDARY = 'ui.fusion.boundary';
@@ -38,9 +39,10 @@ export function pendingFusionOffer(run: RunV2): boolean {
   );
 }
 
-export function nextRunDecision(run: RunV2): 'reward' | 'fusion' | null {
+export function nextRunDecision(run: RunV2): 'reward' | 'evolution' | 'fusion' | null {
   if (run.phase !== 'combat') return null;
   if (run.pendingRewards.length) return 'reward';
+  if (evolutionState(run)?.pending) return 'evolution';
   return pendingFusionOffer(run) ? 'fusion' : null;
 }
 

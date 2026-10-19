@@ -30,7 +30,7 @@ import {
 } from '../src/game/arsenal';
 
 function fresh() {
-  const s = createRun(defaultProfile(), 'bastion', 0, 0, 90210);
+  const s = createRun(defaultProfile(), 'bastion', 0, 0, 90210, { evolutionVersion: 0 });
   s.enemies = [];
   s.projectiles = [];
   s.areas = [];

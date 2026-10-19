@@ -98,3 +98,7 @@ Run discoveries are added to permanent records only by idempotent settlement. Br
 ## Expanded arsenal
 
 `src/content/arsenal-expansion.ts` defines the twelve support families, eight alternative fusion recipes and effective preview text. `src/game/arsenal.ts` owns their deterministic hooks through a small engine callback interface. It does not import rendering, storage or the application shell. The existing engine dispatches those hooks only for new `arsenalVersion: 2` expeditions. Recovered-run seeded contracts retain their original behavior. Save schema six, browser migrations and the shared cloud validator preserve that boundary. See [ARSENAL.md](ARSENAL.md) for the content, balance sample and coverage limits.
+
+## Tower evolution
+
+`src/content/evolutions.ts` defines fourteen paths and forty-two incremental tiers. `src/model/evolution.ts` is their typed persistence contract. `src/game/evolution.ts` owns deterministic decisions, lineage lookup and bounded combat hooks, using engine callbacks without importing rendering or storage. `src/ui/evolution-panel.ts` and its stylesheet own path previews; the normal movable-window manager handles their lifetime. The simulation freezes on saved pending evolution independently of window visibility. An original core ID survives fusion through existing ingredient provenance, without another equipment schema or source tree. Schema seven and the shared account validator preserve recovered runs without grafting new combat onto them. See [EVOLUTION.md](EVOLUTION.md) for the measured baseline and publication order.

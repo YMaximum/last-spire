@@ -92,7 +92,8 @@ describe('module moves preserve shipped save and simulation contracts', () => {
               mode: scenario.mode,
               shopVersion: 1,
               encounterVersion: 1,
-              arsenalVersion: 1,
+            arsenalVersion: 1,
+            evolutionVersion: 0,
             },
           )
         : engine.createRun(

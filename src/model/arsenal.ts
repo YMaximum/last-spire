@@ -202,6 +202,9 @@ export interface TimedBuff {
   stacks: number;
 }
 export interface DamageEvent {
+  /** Actual emission snapshot, independent of later infusion upgrades. Not persisted. */
+  partCount?: number;
+  coreKind?: WeaponKind;
   critical?: boolean;
   rootId: number;
   source: 'primary' | 'proc' | 'retaliation' | 'dot';

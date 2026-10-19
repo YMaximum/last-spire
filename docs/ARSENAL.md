@@ -50,14 +50,14 @@ npm run build
 npm run check:public
 npm run check:dependencies
 npm run check:secrets
-npm run balance -- --tower=all --stage=0,1,2 --mode=normal --policy=competent,random --seeds=1 --seed-start=71 --seconds=5400 --output=/tmp/arsenal-normal.json
-npm run balance -- --tower=bastion,monolith --stage=0,1,2 --mode=quick --policy=competent,random --seeds=1 --seed-start=71 --seconds=2700 --output=/tmp/arsenal-quick.json
-node --import tsx scripts/arsenal-stress.ts --output=/tmp/arsenal-stress.json
+npm run balance -- --tower=all --stage=0,1,2 --mode=normal --policy=competent,random --evolution=off --seeds=1 --seed-start=71 --seconds=5400 --output=/tmp/arsenal-normal.json
+npm run balance -- --tower=bastion,monolith --stage=0,1,2 --mode=quick --policy=competent,random --evolution=off --seeds=1 --seed-start=71 --seconds=2700 --output=/tmp/arsenal-quick.json
+node --import tsx scripts/arsenal-stress.ts --evolution=off --output=/tmp/arsenal-stress.json
 ```
 
 The 976-test suite includes all twelve new support mechanics and eight fusion attacks, infusion budget sharing, charge consumption, control-expiration deaths, projectile age, recursion/cooldown limits, previews, original icon coverage, save/resume, scoped migration backups, cloud downgrade protection and idempotent settlement. Seeded compatibility fixtures preserve recovered rules.
 
-The current audit exercises shipped combat, actual XP offers, shop purchases, skills, mastery, fusion, save validation and settlement. It supersedes the old default balance harness. Historical harnesses remain explicitly named `balance:runeforged` and `balance:legacy`. Evolution is a subsequent milestone and is not simulated here.
+The current audit exercises shipped combat, actual XP offers, shop purchases, skills, mastery, fusion, save validation and settlement. It supersedes the old default balance harness. Historical harnesses remain explicitly named `balance:runeforged` and `balance:legacy`. These historical arsenal-only samples disable evolution; the current evolution baseline is documented in EVOLUTION.md.
 
 | Sample                                                    | Build-focused policy | Random policy | Mean successful build-focused combat |
 | --------------------------------------------------------- | -------------------- | ------------- | ------------------------------------ |

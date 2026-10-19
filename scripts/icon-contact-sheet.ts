@@ -1,3 +1,5 @@
+import { EVOLUTION_PATHS } from '../src/content/evolutions';
+import { evolutionIcon } from '../src/ui/evolution-icons';
 /** Rebuild the bundled review sheet from the same SVGs used by the game. */
 import { writeFileSync } from 'node:fs';
 import { CARDS, FUSIONS, EXPANSION_CARD_IDS, EXPANSION_FUSION_IDS } from '../src/content/catalog';
@@ -19,7 +21,9 @@ const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta n
   EXPANSION_FUSION_IDS.includes(f.id),
 )
   .map((f) => row(f.iconId, f.name))
-  .join('')}</section><h2>Rarity frames</h2><div class="rarities">${[
+  .join(
+    '',
+  )}</section><h2>Fourteen tower evolution lineages</h2><section>${EVOLUTION_PATHS.map((path) => `<article><h3>${esc(path.name)}</h3><div class="marks">${[24, 40, 64].map((size) => `<figure>${evolutionIcon(path.id, size)}<figcaption>${size}px</figcaption></figure>`).join('')}</div><small>${path.tiers.map((tier) => esc(tier.name)).join(' → ')}</small></article>`).join('')}</section><h2>Rarity frames</h2><div class="rarities">${[
   ['Normal', '#c2c4ad'],
   ['Rare', '#77c7c0'],
   ['Epic', '#b39bd4'],

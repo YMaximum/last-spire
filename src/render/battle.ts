@@ -5,6 +5,8 @@ import { FUSIONS, FUSION_BY_ID, WEAPON_BY_ID, type FusionDefinition } from '../c
 import { enableDamageNumbers, readDamageNumbers } from '../game/damage-feedback';
 import { drawDamageNumbers } from './damage-numbers';
 import { drawEncounterSprite, drawEncounterWarnings, hasEncounterSprite } from './encounters';
+import { EVOLUTION_BY_ID } from '../content/evolutions';
+import type { EvolutionState } from '../model/evolution';
 
 const W = 1000,
   H = 800,
@@ -216,6 +218,7 @@ export class BattleRenderer {
     this.fusionCrests(c, s);
     if (s.tower === 'monolith') this.monolith(c, s);
     else this.pixel.tower(c, s.tower, this.time, s.buffs.length > 0, false);
+    this.evolvedTower(c, s);
     const enemies = s.enemies.length > 1 ? [...s.enemies].sort((a, b) => a.y - b.y) : s.enemies;
     for (const enemy of enemies) {
       if (hasEncounterSprite(enemy))
@@ -1992,7 +1995,7 @@ export class BattleRenderer {
   }
 
   private isForeground(v: VisualV2) {
-    return /^(text|synergy|hit|impact|reflect|thorns|retaliation|shield|shield-break|evolution)$/.test(
+    return /^(text|synergy|hit|impact|reflect|thorns|retaliation|shield|shield-break|evolution|evolve-tier)$/.test(
       v.kind,
     );
   }
@@ -2008,7 +2011,33 @@ export class BattleRenderer {
       color = v.color || '#d9e7c6';
     c.save();
     c.globalAlpha = Math.min(1, f * 2);
-    if (v.kind === 'text' || v.kind === 'synergy') {
+    if (v.kind === 'evolve-tier') {
+      const radius = r * (this.motion ? 0.55 + p * 0.65 : 0.9);
+      this.rune(c, v.x, v.y, radius, color, 14, this.time * 0.12);
+      for (const direction of [-1, 1]) {
+        const x = v.x + direction * radius * 0.65;
+        poly(
+          c,
+          [
+            [x, v.y - 27],
+            [x + direction * 7, v.y - 13],
+            [x, v.y + 2],
+            [x - direction * 4, v.y - 13],
+          ],
+          '#163238',
+          color,
+          2,
+        );
+      }
+      c.font = '600 13px ui-monospace, monospace';
+      c.textAlign = 'center';
+      c.lineWidth = 4;
+      c.strokeStyle = '#081c22';
+      c.fillStyle = color;
+      const y = v.y - radius - 14 - (this.motion ? p * 10 : 0);
+      c.strokeText(v.text || 'Evolution', v.x, y);
+      c.fillText(v.text || 'Evolution', v.x, y);
+    } else if (v.kind === 'text' || v.kind === 'synergy') {
       c.font = `${v.kind === 'synergy' ? 600 : 500} ${v.kind === 'synergy' ? 14 : 11}px ui-monospace, monospace`;
       c.textAlign = 'center';
       c.textBaseline = 'middle';
@@ -2232,6 +2261,502 @@ export class BattleRenderer {
     c.translate(CX, CY + 18);
     c.scale(1, 0.38);
     this.rune(c, 0, 0, 77 + Math.min(s.synergies.length, 5) * 4, '#d9c58e', 12, this.time * 0.08);
+    c.restore();
+  }
+
+  /** Presentation only: the original tower remains beneath its evolving machinery. */
+  private evolvedTower(c: Ctx, s: RunV2 & { evolution?: EvolutionState }) {
+    const state = s.evolution;
+    if (!state?.path || state.tier < 1 || !Object.hasOwn(EVOLUTION_BY_ID, state.path)) return;
+    const path = EVOLUTION_BY_ID[state.path];
+    if (path.tower !== s.tower) return;
+    const tier = state.tier;
+    const brass = '#bda574',
+      dark = '#102a2f',
+      color = path.color;
+    c.save();
+    c.translate(CX, CY - 21);
+    // Solid uprights, rivets and a new core housing remain legible at low detail.
+    for (const side of [-1, 1]) {
+      poly(
+        c,
+        [
+          [side * 18, -32],
+          [side * 30, -24],
+          [side * 30, 42],
+          [side * 20, 42],
+        ],
+        dark,
+        brass,
+        2,
+      );
+      line(c, side * 25, -19, side * 25, 33, color, 2);
+      for (const y of [-24, 36]) circle(c, side * 25, y, 2, '#f4dca3', 1.5);
+    }
+    poly(
+      c,
+      [
+        [-17, -21],
+        [0, -30],
+        [17, -21],
+        [17, 21],
+        [0, 29],
+        [-17, 21],
+      ],
+      dark,
+      brass,
+      2,
+    );
+    if (this.detail) {
+      this.glow(c, 0, 0, 23, color, 0.12 * this.intensity);
+      for (const x of [-11, -6, 6, 11]) line(c, x, 18, x, 22, brass, 1);
+    }
+    // Tier one is a compact mechanism; the signature tier unfolds its apparatus.
+    c.save();
+    const scale = tier === 1 ? 0.48 : 1;
+    c.scale(scale, scale);
+    const spoke = (x: number, y: number, radius = 6) => {
+      line(c, 0, 0, x, y, brass, 2);
+      circle(c, x, y, radius, color, 2.5);
+      circle(c, x, y, Math.max(2, radius - 3), brass, 1);
+    };
+    switch (state.path) {
+      case 'citadel':
+        poly(
+          c,
+          [
+            [-31, -25],
+            [31, -25],
+            [31, 13],
+            [0, 39],
+            [-31, 13],
+          ],
+          dark,
+          brass,
+          3,
+        );
+        poly(
+          c,
+          [
+            [-21, -14],
+            [21, -14],
+            [21, 10],
+            [0, 28],
+            [-21, 10],
+          ],
+          '#213c3c',
+          color,
+          2,
+        );
+        for (let i = 0; i < tier + 1; i++) line(c, -12, -7 + i * 7, 12, -7 + i * 7, color, 3);
+        break;
+      case 'vanguard':
+        poly(
+          c,
+          [
+            [0, -38],
+            [17, -5],
+            [0, 29],
+            [-17, -5],
+          ],
+          dark,
+          color,
+          3,
+        );
+        for (const side of [-1, 1]) {
+          line(c, side * 18, -5, side * 46, -5, brass, 4);
+          line(c, side * 46, -18, side * 46, 8, color, 3);
+          poly(
+            c,
+            [
+              [side * 23, -5],
+              [side * 35, -12],
+              [side * 35, 2],
+            ],
+            color,
+          );
+        }
+        break;
+      case 'furnace':
+        poly(
+          c,
+          [
+            [-28, -25],
+            [28, -25],
+            [28, 32],
+            [-28, 32],
+          ],
+          dark,
+          brass,
+          3,
+        );
+        for (const side of [-1, 1]) {
+          poly(
+            c,
+            [
+              [side * 24, -18],
+              [side * 43, -18],
+              [side * 43, -43],
+              [side * 34, -43],
+              [side * 34, -28],
+              [side * 24, -28],
+            ],
+            dark,
+            brass,
+            2,
+          );
+          line(c, side * 36, 24, side * 54, 24, color, 4);
+        }
+        poly(
+          c,
+          [
+            [-16, 20],
+            [-16, 1],
+            [-7, -16],
+            [0, -3],
+            [10, -20],
+            [17, 3],
+            [13, 20],
+          ],
+          '#8b4c31',
+          color,
+          2,
+        );
+        break;
+      case 'crownflare':
+        poly(
+          c,
+          [
+            [-36, -25],
+            [-22, -14],
+            [0, -43],
+            [22, -14],
+            [36, -25],
+            [28, 20],
+            [-28, 20],
+          ],
+          dark,
+          brass,
+          3,
+        );
+        for (const x of [-18, 0, 18])
+          poly(
+            c,
+            [
+              [x, -15],
+              [x + 6, 1],
+              [x, 14],
+              [x - 6, 1],
+            ],
+            color,
+            '#ffe0a0',
+            1,
+          );
+        line(c, -29, 27, 29, 27, color, 4);
+        break;
+      case 'stormweaver':
+        for (const x of [-42, 42]) for (const y of [-29, 26]) spoke(x, y);
+        for (const side of [-1, 1]) line(c, side * 42, -23, side * 42, 20, color, 2);
+        poly(
+          c,
+          [
+            [4, -29],
+            [-14, 4],
+            [0, 4],
+            [-5, 29],
+            [18, -9],
+            [4, -9],
+          ],
+          color,
+          brass,
+          1.5,
+        );
+        break;
+      case 'thunderhead':
+        poly(
+          c,
+          [
+            [-35, -10],
+            [-26, -34],
+            [26, -34],
+            [35, -10],
+          ],
+          dark,
+          brass,
+          3,
+        );
+        for (const y of [-26, -19, -12]) line(c, -25, y, 25, y, color, 2);
+        poly(
+          c,
+          [
+            [-4, -5],
+            [-20, 17],
+            [-4, 17],
+            [-10, 38],
+            [20, 7],
+            [3, 7],
+            [10, -5],
+          ],
+          color,
+          brass,
+          1.5,
+        );
+        break;
+      case 'winterhold':
+        for (const side of [-1, 1]) {
+          poly(
+            c,
+            [
+              [side * 29, -35],
+              [side * 49, -18],
+              [side * 49, 31],
+              [side * 29, 31],
+            ],
+            dark,
+            color,
+            3,
+          );
+          line(c, side * 33, -16, side * 44, -6, brass, 2);
+        }
+        poly(
+          c,
+          [
+            [-11, -41],
+            [11, -41],
+            [17, 32],
+            [-17, 32],
+          ],
+          '#254953',
+          brass,
+          2,
+        );
+        line(c, 0, -31, 0, 22, color, 4);
+        break;
+      case 'shatterspire':
+        poly(
+          c,
+          [
+            [0, -48],
+            [17, -20],
+            [5, -4],
+            [20, 35],
+            [-14, 16],
+            [-5, -6],
+            [-17, -26],
+          ],
+          '#294653',
+          color,
+          3,
+        );
+        for (const side of [-1, 1])
+          poly(
+            c,
+            [
+              [side * 29, 32],
+              [side * 48, -24],
+              [side * 30, -7],
+            ],
+            dark,
+            color,
+            2,
+          );
+        line(c, 0, -33, 7, -20, brass, 2);
+        line(c, 7, -20, -4, 3, brass, 2);
+        break;
+      case 'rootwarden':
+        for (const side of [-1, 1]) {
+          poly(
+            c,
+            [
+              [side * 8, 31],
+              [side * 14, -6],
+              [side * 43, -27],
+              [side * 35, -2],
+              [side * 21, 3],
+              [side * 19, 31],
+            ],
+            '#263e31',
+            brass,
+            2,
+          );
+          poly(
+            c,
+            [
+              [side * 22, 18],
+              [side * 48, 10],
+              [side * 39, 28],
+            ],
+            '#38593b',
+            color,
+            2,
+          );
+        }
+        line(c, 0, -18, 0, 13, color, 6);
+        line(c, -15, -3, 15, -3, color, 6);
+        break;
+      case 'blightbloom':
+        for (let i = 0; i < 5; i++) {
+          const a = (i * TAU) / 5 - Math.PI / 2;
+          const x = Math.cos(a) * 23,
+            y = Math.sin(a) * 23;
+          poly(
+            c,
+            [
+              [0, 0],
+              [x - 13, y - 10],
+              [x * 1.7, y * 1.7],
+              [x + 13, y + 10],
+            ],
+            '#304338',
+            brass,
+            2,
+          );
+        }
+        circle(c, 0, 0, 12, color, 5);
+        for (const side of [-1, 1]) line(c, side * 18, 36, side * 45, 36, color, 3);
+        break;
+      case 'event-horizon':
+        for (const side of [-1, 1])
+          poly(
+            c,
+            [
+              [side * 20, -39],
+              [side * 37, -27],
+              [side * 37, 25],
+              [side * 20, 38],
+              [side * 27, 20],
+              [side * 27, -20],
+            ],
+            dark,
+            brass,
+            3,
+          );
+        circle(c, 0, 0, 24, color, 3);
+        circle(c, 0, 0, 14, '#080f1b', 12);
+        for (const side of [-1, 1]) line(c, side * 18, 0, side * 44, 0, color, 3);
+        break;
+      case 'rift-engine':
+        poly(
+          c,
+          [
+            [-44, -18],
+            [24, -18],
+            [49, 0],
+            [24, 18],
+            [-44, 18],
+          ],
+          dark,
+          brass,
+          3,
+        );
+        line(c, -40, 0, 47, 0, color, 5);
+        for (const x of [-24, -9, 6, 21]) line(c, x, -24, x + 12, 24, brass, 3);
+        poly(
+          c,
+          [
+            [0, -41],
+            [11, -22],
+            [-11, -22],
+          ],
+          color,
+          brass,
+          1.5,
+        );
+        break;
+      case 'mirror-regent':
+        for (const [x, y] of [
+          [0, -30],
+          [-42, 21],
+          [42, 21],
+        ]) {
+          line(c, 0, 4, x, y, color, 2);
+          poly(
+            c,
+            [
+              [x, y - 20],
+              [x + 12, y],
+              [x, y + 20],
+              [x - 12, y],
+            ],
+            '#31464c',
+            brass,
+            2,
+          );
+          line(c, x - 5, y - 8, x + 5, y + 7, color, 3);
+        }
+        line(c, -31, 21, 31, 21, color, 2);
+        break;
+      case 'ironbriar':
+        poly(
+          c,
+          [
+            [-18, -29],
+            [18, -29],
+            [31, 0],
+            [18, 30],
+            [-18, 30],
+            [-31, 0],
+          ],
+          '#293d34',
+          brass,
+          4,
+        );
+        for (const side of [-1, 1]) {
+          poly(
+            c,
+            [
+              [side * 21, -21],
+              [side * 48, -35],
+              [side * 33, -7],
+            ],
+            dark,
+            color,
+            2,
+          );
+          poly(
+            c,
+            [
+              [side * 28, 7],
+              [side * 50, 27],
+              [side * 16, 23],
+            ],
+            dark,
+            color,
+            2,
+          );
+        }
+        gem(c, 13, color, brass);
+        break;
+    }
+    c.restore();
+    if (tier >= 3) {
+      // A completed crown physically joins both sides of the signature apparatus.
+      poly(
+        c,
+        [
+          [-39, -48],
+          [-29, -65],
+          [-14, -52],
+          [0, -73],
+          [14, -52],
+          [29, -65],
+          [39, -48],
+          [31, -39],
+          [-31, -39],
+        ],
+        dark,
+        brass,
+        2.5,
+      );
+      for (const x of [-26, 0, 26]) {
+        line(c, x, -47, x, -56 - (x === 0 ? 8 : 0), color, 3);
+        line(c, x, -39, x, -30, color, 2);
+      }
+      if (this.detail) {
+        c.globalAlpha = 0.6 + (this.motion ? Math.sin(this.time * 2) * 0.12 : 0);
+        line(c, -33, -43, 33, -43, color, 1.5);
+      }
+    }
     c.restore();
   }
   private coreBars(c: Ctx, s: RunV2) {

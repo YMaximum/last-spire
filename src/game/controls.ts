@@ -125,7 +125,7 @@ export function normalizeAutocastConfig(value: unknown): AutocastRules {
   return rules;
 }
 const living = (s: RunV2) => s.enemies.filter((e) => e.hp > 0);
-const shieldCapacity = (s: RunV2) => s.maxHp * 0.45 + effectPower(s, 'shield');
+const shieldCapacity = (s: RunV2) => getDefenseStats(s).maxShield;
 function useful(s: RunV2, slot: SkillSlot): boolean {
   const enemies = living(s),
     spell = slot === 'signature' ? s.tower : s.secondary;

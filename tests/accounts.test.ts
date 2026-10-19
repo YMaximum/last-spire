@@ -41,6 +41,7 @@ function activeSave() {
   const save = emptySave();
   const run = createRun(save.profile, 'bastion', 0, 0, 84731, {
     mode: 'normal',
+    evolutionVersion: 0,
     runes: snapshotRunes(save.progression.runes),
   });
   save.run = run;
@@ -248,6 +249,50 @@ describe('persistent account checkpoints', () => {
     expect(store.read(actor.player.id).snapshot).toEqual(snapshot);
     expect(store.read(actor.player.id).revision).toBe(1);
   });
+  it('protects evolution against schema-six overwrites and preserves retry identity', () => {
+    const actor = login();
+    const lease = store.acquireLease(actor.player.id, store.generation, 0, false);
+    const save = activeSave();
+    const run = save.run as RunV3;
+    run.wave = 26;
+    run.evolution = { version: 1, coreId: run.weapons[0].id, tier: 0, pending: 1 };
+    const snapshot = snapshotFromSave(save);
+    const writeId = randomUUID();
+    const saved = write(actor.player.id, 0, lease.leaseToken, snapshot, writeId);
+    const old = structuredClone(snapshot) as Record<string, any>;
+    old.version = 6;
+    delete old.run.evolution;
+    expect(() =>
+      store.write(actor.player.id, store.generation, 1, lease.leaseToken, randomUUID(), old),
+    ).toThrow('update_required');
+    expect(() =>
+      store.write(actor.player.id, store.generation, 1, lease.leaseToken, randomUUID(), {
+        ...snapshot,
+        version: 8,
+      }),
+    ).toThrow('invalid_checkpoint');
+    expect(write(actor.player.id, 0, lease.leaseToken, snapshot, writeId)).toEqual(saved);
+    expect(store.read(actor.player.id).snapshot).toEqual(snapshot);
+    expect(store.read(actor.player.id).revision).toBe(1);
+  });
+  it('preserves the original schema-six cloud revision without adding evolution to its active run', () => {
+    const actor = login();
+    const lease = store.acquireLease(actor.player.id, store.generation, 0, false);
+    const snapshot = snapshotFromSave(activeSave());
+    const old = { ...snapshot, version: 6 };
+    write(actor.player.id, 0, lease.leaseToken, snapshot);
+    store.db
+      .prepare('UPDATE saves SET payload=? WHERE userId=?')
+      .run(JSON.stringify(old), actor.player.id);
+    const migrated = store.read(actor.player.id).snapshot!;
+    expect(migrated).toEqual({ ...old, version: 7 });
+    expect(migrated.run).not.toHaveProperty('evolution');
+    write(actor.player.id, 1, lease.leaseToken, migrated);
+    const history = store.db
+      .prepare('SELECT payload FROM history WHERE userId=? AND revision=1')
+      .get(actor.player.id)!;
+    expect(JSON.parse(String(history.payload))).toEqual(old);
+  });
   it('migrates schema-five cloud runs without changing rules and preserves the original revision', () => {
     const actor = login();
     const lease = store.acquireLease(actor.player.id, store.generation, 0, false);
@@ -262,7 +307,7 @@ describe('persistent account checkpoints', () => {
       .prepare('UPDATE saves SET payload=? WHERE userId=?')
       .run(JSON.stringify(old), actor.player.id);
     const migrated = store.read(actor.player.id).snapshot!;
-    expect(migrated).toEqual({ ...old, version: 6 });
+    expect(migrated).toEqual({ ...old, version: 7 });
     expect(migrated.run).not.toHaveProperty('arsenalVersion');
     write(actor.player.id, 1, lease.leaseToken, migrated);
     const history = store.db
@@ -285,7 +330,7 @@ describe('persistent account checkpoints', () => {
       .prepare('UPDATE saves SET payload=? WHERE userId=?')
       .run(JSON.stringify(old), actor.player.id);
     const migrated = store.read(actor.player.id).snapshot!;
-    expect(migrated.version).toBe(6);
+    expect(migrated.version).toBe(7);
     expect(migrated.progression.stages.map((s) => s.unlockedDifficulty)).toEqual([3, 3, 0]);
     expect(migrated.run).toEqual(old.run);
     write(actor.player.id, 1, lease.leaseToken, migrated);

@@ -18,7 +18,10 @@ import { EXPANSION_CARD_IDS, EXPANSION_FUSION_IDS, FUSIONS } from '../src/conten
 
 function checkpoint() {
   const save = emptySave();
-  const run = createRun(save.profile, 'bastion', 0, 0, 484, { arsenalVersion: 2 });
+  const run = createRun(save.profile, 'bastion', 0, 0, 484, {
+    arsenalVersion: 2,
+    evolutionVersion: 0,
+  });
   run.arsenalVersion = 2;
   save.run = run;
   save.progression.active = {
@@ -77,7 +80,7 @@ describe('expanded arsenal save compatibility', () => {
     run.counters['arsenal:absorption'] = 4.5;
     run.counters['arsenal:crossfire'] = 3;
     const restored = parseGame(exportGame(save));
-    expect(restored.version).toBe(6);
+    expect(restored.version).toBe(7);
     expect(restored.run).toEqual(run);
     expect(saveFromSnapshot(snapshotFromSave(save), save.settings)).toEqual(restored);
     run.counters['arsenal:absorption'] = Infinity;
@@ -156,7 +159,7 @@ describe('expanded arsenal save compatibility', () => {
     save.progression.bestiary.swarmer = { encountered: 5, defeated: 3 };
     const old = { ...save, version: 5 };
     const migrated = parseGame(old);
-    expect(migrated).toEqual({ ...old, version: 6 });
+    expect(migrated).toEqual({ ...old, version: 7 });
     const resumed = migrated.run as RunV3;
     expect(resumed).not.toHaveProperty('arsenalVersion');
     for (let i = 0; i < 180; i++) {

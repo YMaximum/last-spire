@@ -7,7 +7,15 @@ import {
 import type { SaveV2, SettingsV2 } from '../model/arsenal';
 import type { SaveData } from '../model/shared';
 import { CARDS as LEGACY_CARDS, WEAPONS as LEGACY_WEAPONS } from '../content/base-catalog';
-import { CARDS, WEAPONS, TOWERS, FUSIONS, isFusedKind } from '../content/catalog';
+import {
+  CARDS,
+  WEAPONS,
+  TOWERS,
+  FUSIONS,
+  isFusedKind,
+  EXPANSION_CARD_IDS,
+  EXPANSION_FUSION_IDS,
+} from '../content/catalog';
 import { rewardForRun } from '../game/engine';
 import type { RunV3 } from '../game/types';
 import {
@@ -51,7 +59,7 @@ export interface ModeRecord {
   credits: number;
 }
 export interface GameSave extends Omit<SaveV2, 'version'> {
-  version: 5;
+  version: 6;
   progression: {
     runes: RuneLoadout;
     autocast: AutocastRules;
@@ -182,7 +190,7 @@ export function emptySave(): SaveV3 {
   const base = emptyV2();
   return {
     ...base,
-    version: 5,
+    version: 6,
     settings: defaultSettings(),
     progression: {
       runes: defaultRuneLoadout(base.profile.upgrades),
@@ -360,6 +368,13 @@ function modernProjection(value: unknown): { original: RunV3; projection: Obj } 
     invalid('shop rules are unsupported');
   if (original.encounterVersion !== undefined && original.encounterVersion !== 2)
     invalid('encounter rules are unsupported');
+  if (original.arsenalVersion !== undefined && original.arsenalVersion !== 2)
+    invalid('arsenal rules are unsupported');
+  const expandedArsenal = original.arsenalVersion === 2;
+  const expansionFusions = new Set<string>(EXPANSION_FUSION_IDS);
+  const expansionKinds = new Set(
+    FUSIONS.filter((recipe) => expansionFusions.has(recipe.id)).map((recipe) => recipe.kind),
+  );
   if (original.encounterVersion === 2) parseDiscoveries(original.discoveries);
   else if (original.discoveries !== undefined)
     invalid('legacy encounter rules cannot track new discoveries');
@@ -367,6 +382,7 @@ function modernProjection(value: unknown): { original: RunV3; projection: Obj } 
   delete projection.encounterVersion;
   delete projection.discoveries;
   delete projection.shopVersion;
+  delete projection.arsenalVersion;
   for (const field of [
     'rulesVersion',
     'mode',
@@ -385,6 +401,8 @@ function modernProjection(value: unknown): { original: RunV3; projection: Obj } 
   const consumed = new Set<string>();
   for (const item of list(projection.weapons, 'arsenal', 6)) {
     const w = equipment(item, original.time as number);
+    if (!expandedArsenal && expansionKinds.has(w.kind as never))
+      invalid('expanded fusion requires arsenal rules');
     const id = identifier(w.id, 'equipment ID');
     if (ids.has(id)) invalid('duplicate equipment ID');
     ids.add(id);
@@ -421,6 +439,8 @@ function modernProjection(value: unknown): { original: RunV3; projection: Obj } 
     const c = object(item, offer ? 'offer' : 'card');
     const def = CARDS.find((def) => def.id === c.cardId);
     if (!def) invalid('card family is unknown');
+    if (!expandedArsenal && EXPANSION_CARD_IDS.includes(def.id))
+      invalid('expanded card requires arsenal rules');
     if (!offer) numeric(c.stacks, 'card stacks', 1, def.maxStacks);
     if (c.targetId !== undefined && !ids.has(identifier(c.targetId, 'card target')))
       invalid('card targets an unknown core');
@@ -459,6 +479,11 @@ function modernProjection(value: unknown): { original: RunV3; projection: Obj } 
     const p = object(item, 'projectile');
     if (p.fusionId !== undefined && !FUSIONS.some((f) => f.id === p.fusionId))
       invalid('projectile fusion recipe is unknown');
+    if (
+      !expandedArsenal &&
+      (expansionFusions.has(p.fusionId as string) || expansionKinds.has(p.kind as never))
+    )
+      invalid('expanded projectile requires arsenal rules');
     delete p.fusionId;
     if (!kinds.has(p.kind as never)) invalid('projectile kind is unknown');
     if (!oldKinds.has(p.kind as never)) p.kind = 'bolt';
@@ -491,11 +516,11 @@ export function parseGame(raw: string | unknown): SaveV3 {
     finiteTree(raw);
     const root = object(raw, 'save');
     const version = root.version;
-    if (![1, 2, 3, 4, 5].includes(version as number))
+    if (![1, 2, 3, 4, 5, 6].includes(version as number))
       invalid(
         'This checkpoint requires a newer Last Spire client. Reload or update before continuing.',
       );
-    const expanded = version === 3 || version === 4 || version === 5;
+    const expanded = (version as number) >= 3;
     const sourceSettings = object(root.settings, 'settings');
     const settings = { ...defaultSettings(), ...sourceSettings };
     const profile = expanded ? structuredClone(object(root.profile, 'profile')) : root.profile;
@@ -528,7 +553,7 @@ export function parseGame(raw: string | unknown): SaveV3 {
       if (base.run?.cleared) recordStageClear(base.profile, stages, base.run);
       return {
         ...base,
-        version: 5,
+        version: 6,
         settings: { ...defaultSettings(), ...sourceSettings } as SettingsV2,
         progression: {
           runes: legacyRunes(base.profile.upgrades),
@@ -547,7 +572,7 @@ export function parseGame(raw: string | unknown): SaveV3 {
       'active',
       'records',
       ...((version as number) >= 4 ? ['stages'] : []),
-      ...(version === 5 ? ['bestiary'] : []),
+      ...((version as number) >= 5 ? ['bestiary'] : []),
     ]);
     const runes = loadout(p.runes);
     const rules = autocast(p.autocast);
@@ -631,14 +656,14 @@ export function parseGame(raw: string | unknown): SaveV3 {
     if (base.run?.cleared) recordStageClear(base.profile, stages, base.run);
     const result: SaveV3 = {
       ...base,
-      version: 5,
+      version: 6,
       progression: {
         runes,
         autocast: rules,
         active,
         records,
         stages,
-        bestiary: version === 5 ? parseDiscoveries(p.bestiary) : {},
+        bestiary: (version as number) >= 5 ? parseDiscoveries(p.bestiary) : {},
       },
     };
     const json = JSON.stringify(result);
@@ -741,6 +766,13 @@ export function saveKey(scope: SaveScope = 'guest'): string {
   return scope;
 }
 async function backupLegacy(store: IDBObjectStore, raw: unknown, scope: SaveScope): Promise<void> {
+  const arsenalBackup = `backup-before-arsenal:${saveKey(scope)}`;
+  if (
+    raw &&
+    [1, 2, 3, 4, 5].includes((raw as { version?: number }).version ?? 0) &&
+    (await request(store.get(arsenalBackup))) === undefined
+  )
+    store.put(raw, arsenalBackup);
   const encounterBackup = `backup-before-encounters:${saveKey(scope)}`;
   if (
     raw &&
@@ -770,6 +802,8 @@ export async function readRawSave(scope: SaveScope = 'guest'): Promise<unknown> 
 export async function readLegacyBackup(scope: SaveScope = 'guest'): Promise<unknown> {
   saveKey(scope);
   return transact('readonly', async (store) => {
+    const arsenal = await request(store.get(`backup-before-arsenal:${saveKey(scope)}`));
+    if (arsenal !== undefined) return arsenal;
     const encountered = await request(store.get(`backup-before-encounters:${saveKey(scope)}`));
     if (encountered !== undefined) return encountered;
     const migrated = await request(store.get(`backup-before-stage-progression:${saveKey(scope)}`));

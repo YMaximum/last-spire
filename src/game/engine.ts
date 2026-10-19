@@ -5,6 +5,28 @@ import type { RunV3, RunOptions } from './types';
 import { MASTERY_THRESHOLDS } from './types';
 import { recordDamageNumber } from './damage-feedback';
 import { quoteRepairs } from './shop-healing';
+import { expansionEffectPreview } from '../content/arsenal-expansion';
+import { EXPANSION_CARD_IDS, EXPANSION_FUSION_IDS } from '../content/catalog';
+import {
+  hasArsenal,
+  arsenalProjectile,
+  arsenalExpiry,
+  arsenalBounce,
+  arsenalDamage,
+  arsenalArmor,
+  arsenalAbsorb,
+  arsenalHealing,
+  arsenalThorns,
+  arsenalEnemyTick,
+  arsenalControlEnd,
+  arsenalFieldMultiplier,
+  arsenalMeteor,
+  arsenalDrone,
+  arsenalReflect,
+  arsenalPulse,
+  cleanupArsenal,
+  type ArsenalHooks,
+} from './arsenal';
 import {
   ENEMY_BY_ID,
   FINAL_BOSSES,
@@ -115,6 +137,41 @@ export function effectPower(s: RunV2, effect: string, weaponId?: string) {
   return (p.global[effect] || 0) + (weaponId ? p.targets[weaponId]?.[effect] || 0 : 0);
 }
 const ep = effectPower;
+const arsenalHooks: ArsenalHooks = {
+  power: effectPower,
+  damage: dealDamage,
+  area: makeArea,
+  visual,
+  shield: grantShield,
+  fragment(s, parent, angle, damage) {
+    const owner = s.weapons.find((w) => w.id === parent.weaponId);
+    if (!owner || s.projectiles.length >= 4096) return;
+    const fragment = projectile(
+      s,
+      owner,
+      {
+        ...getWeaponStats(s, owner),
+        crit: 0,
+        critDamage: 1,
+        damage,
+        life: 0.8,
+        split: 0,
+        pulse: 0,
+        trail: 0,
+        returning: false,
+        pierce: 0,
+        bounces: 0,
+      },
+      angle,
+      'bolt',
+      parent.x,
+      parent.y,
+      2,
+    );
+    fragment.critical = false;
+    fragment.damage = damage;
+  },
+};
 function buff(s: RunV2, stat: string) {
   return Math.min(
     2,
@@ -172,6 +229,7 @@ export function createRun(
   const s: RunV3 = {
     version: 2,
     rulesVersion: 3,
+    ...(options.arsenalVersion === 1 ? {} : { arsenalVersion: 2 as const }),
     ...(options.encounterVersion === 1 ? {} : { encounterVersion: 2 as const, discoveries: {} }),
     ...(options.shopVersion === 1 ? {} : { shopVersion: 2 as const }),
     mode: options.mode || 'normal',
@@ -350,6 +408,8 @@ export function getWeaponStats(s: RunV2, w: WeaponInstance): WeaponStats {
   const view = fusionViewMeta.get(w);
   if (view) {
     b.damage *= 1.45 * (1 + (view.parent.fusion?.overflowPower || 0));
+    if (hasArsenal(s) && view.recipeId === 'fusion-reliquary' && w.kind === 'rail')
+      b.damage *= 1 + (s.counters[`ars-pressure-${w.id}`] || 0);
     if (view.recipeId === 'fusion-prism') b.bounces = Math.min(8, b.bounces + 1);
     if (view.recipeId === 'fusion-orrery') {
       b.returning = true;
@@ -366,7 +426,7 @@ function promote(r: Rarity, mastery: number): Rarity {
 export function acquireCard(s: RunV2, offer: CardOffer, targetId?: string): boolean {
   if (s.rulesVersion !== 3) return legacy.acquireCard(s, offer, targetId);
   const d = card(offer.cardId);
-  if (!d) return false;
+  if (!d || (!hasArsenal(s) && EXPANSION_CARD_IDS.includes(d.id))) return false;
   targetId = targetId || offer.targetId;
   if (d.group !== 'infusion' && d.group !== 'weapon' && d.effect !== 'mastery-focus')
     targetId = undefined;
@@ -546,7 +606,9 @@ export function previewCard(
   if (!summary && d) {
     const a = ep(s, d.effect),
       b = ep(copy, d.effect);
-    summary = `Effective ${d.effect.replaceAll('-', ' ')}: ${a.toFixed(2)} → ${b.toFixed(2)} · ${copy.cards.find((c) => c.cardId === d.id)?.rarity || offer.rarity}`;
+    summary =
+      expansionEffectPreview(d.effect, a, b) ||
+      `Effective ${d.effect.replaceAll('-', ' ')}: ${a.toFixed(2)} → ${b.toFixed(2)} · ${copy.cards.find((c) => c.cardId === d.id)?.rarity || offer.rarity}`;
   }
   return {
     canApply: ok,
@@ -574,6 +636,18 @@ function offerRandom(s: RunV2) {
   return v.offerRng / 4294967296;
 }
 function eligibleFamily(s: RunV2, c: (typeof CARDS)[number]): boolean {
+  if (!hasArsenal(s) && EXPANSION_CARD_IDS.includes(c.id)) return false;
+  if (hasArsenal(s)) {
+    const cores = s.weapons.flatMap((w) => (w.fusion ? w.fusion.ingredients : [w]));
+    const hasKind = (kind: WeaponKind) => cores.some((w) => w.kind === kind);
+    if (c.effect === 'rebound-charge' && !hasKind('ricochet') && !ep(s, 'bounce')) return false;
+    if (c.effect === 'return-pulse' && !hasKind('chakram') && !ep(s, 'return')) return false;
+    if (c.effect === 'crossfire' && s.weapons.filter((w) => !isDefensiveKind(w.kind)).length < 2)
+      return false;
+    if (c.effect === 'critical-mirror' && !hasKind('core-mirror') && !ep(s, 'reflect'))
+      return false;
+    if (c.effect === 'briar-wounds' && !hasKind('core-thorn') && !ep(s, 'thorns')) return false;
+  }
   const copies = s.cards.filter((x) => x.cardId === c.id);
   if (copies.length && copies.every((x) => x.stacks >= c.maxStacks && x.rarity === 'mythic')) {
     if (c.group !== 'infusion' && c.effect !== 'mastery-focus') return false;
@@ -651,6 +725,7 @@ function makeOffers(s: RunV2, count: number, shop: boolean): CardOffer[] {
           c.weapon &&
           FUSIONS.some(
             (f) =>
+              (hasArsenal(s) || !EXPANSION_FUSION_IDS.includes(f.id)) &&
               f.ingredients.includes(c.weapon!) &&
               f.ingredients.some(
                 (kind) => kind !== c.weapon && s.weapons.some((w) => !w.fusion && w.kind === kind),
@@ -955,7 +1030,7 @@ function kill(s: RunV2, e: EnemyV2, event: DamageEvent) {
 export function dealDamage(s: RunV2, e: EnemyV2, event: DamageEvent): number {
   if (s.rulesVersion !== 3) return legacy.dealDamage(s, e, event);
   if (e.hp <= 0 || event.damage <= 0 || event.depth > MAX_DEPTH) return 0;
-  let amount = event.damage,
+  let amount = arsenalDamage(s, e, event, arsenalHooks),
     el = event.element;
   if (event.source === 'primary') {
     if (el !== 'physical') amount *= 1 + ep(s, 'conductivity', event.weaponId);
@@ -970,7 +1045,8 @@ export function dealDamage(s: RunV2, e: EnemyV2, event: DamageEvent): number {
       amount *= (1 + ep(s, 'focus', event.weaponId)) * (synergyEffect(s, 'charge-focus') ? 1.2 : 1);
   }
   amount *= e.mark > 0 ? 1.22 : 1;
-  amount *= 1 - clamp(e.armor * (hasEncounters(s) && event.source === 'dot' ? 0.4 : 1), 0, 0.65);
+  amount *=
+    1 - clamp(arsenalArmor(s, e) * (hasEncounters(s) && event.source === 'dot' ? 0.4 : 1), 0, 0.65);
   if (hasEncounters(s)) amount = encounterDamage(s, e, amount, el);
   const dealt = Math.min(e.hp, amount);
   recordDamageNumber(s, e, dealt, event);
@@ -1105,6 +1181,7 @@ export function takeDamage(
   s.hp -= amount - absorbed;
   s.stats.damageTaken += amount - absorbed;
   s.counters.protectionAbsorbed = (s.counters.protectionAbsorbed || 0) + absorbed;
+  arsenalAbsorb(s, absorbed, arsenalHooks);
   reactCores(s, amount, absorbed, attacker, element);
   if (ep(s, 'hurt-charge') && ready(s, 'hurt-charge', 0.6))
     addBuff(s, 'hurt-charge', 'damage', Math.min(0.5, ep(s, 'hurt-charge')), 4);
@@ -1117,15 +1194,31 @@ export function takeDamage(
       damage: ep(s, 'thorns') * (synergyEffect(s, 'thorn-reflect') ? 2 : 1),
       element: 'physical',
     });
+    arsenalThorns(
+      s,
+      attacker,
+      ep(s, 'thorns') * (synergyEffect(s, 'thorn-reflect') ? 2 : 1),
+      arsenalHooks,
+    );
     visual(s, 'thorns', origin.x, origin.y, '#d8b474', 40, attacker.x, attacker.y);
   }
   if (attacker && ep(s, 'reflect')) {
+    const critical =
+      hasArsenal(s) &&
+      ep(s, 'critical-mirror') > 0 &&
+      random(s) < Math.min(0.6, ep(s, 'critical-mirror'));
+    if (critical) visual(s, 'ars-critical', attacker.x, attacker.y, '#f1e6c7', 35);
     dealDamage(s, attacker, {
       rootId: s.nextId++,
       source: 'retaliation',
       depth: 1,
       weaponId: 'reflect',
-      damage: amount * ep(s, 'reflect') * (synergyEffect(s, 'solar-reflect') ? 2 : 1),
+      damage:
+        amount *
+        ep(s, 'reflect') *
+        (synergyEffect(s, 'solar-reflect') ? 2 : 1) *
+        (critical ? 1.7 : 1),
+      critical,
       element: synergyEffect(s, 'solar-reflect') ? 'solar' : element,
     });
     visual(s, 'reflect', origin.x, origin.y, '#bce8e2', 30, attacker.x, attacker.y);
@@ -1537,6 +1630,7 @@ function fireWeapon(s: RunV2, w: WeaponInstance) {
       const p = projectile(s, w, st, angle);
       if (kind === 'flame') {
         p.life = st.range / st.speed;
+        if (hasArsenal(s)) p.maxLife = p.life;
         p.radius += 4;
         if (!p.elements.includes('fire')) p.elements.push('fire');
       }
@@ -1616,7 +1710,11 @@ function stepProjectiles(s: RunV2, dt: number) {
   for (let i = 0; i < initial; i++) {
     const p = s.projectiles[i];
     p.life -= dt;
-    if (p.life <= 0) continue;
+    if (p.life <= 0) {
+      arsenalExpiry(s, p, arsenalHooks);
+      continue;
+    }
+    arsenalProjectile(s, p, dt, arsenalHooks);
     p.previousX = p.x;
     p.previousY = p.y;
     if (p.depth === 0 && ep(s, 'flight-acceleration', p.weaponId)) {
@@ -1633,6 +1731,7 @@ function stepProjectiles(s: RunV2, dt: number) {
       const w = s.weapons.find((w) => w.id === p.weaponId),
         target = chooseTarget(s, w ? getWeaponStats(s, w).range : 300, p);
       if (w && target && s.projectiles.length < 4096 && ready(s, `drone-${p.id}`, 0.65)) {
+        arsenalDrone(s, p, arsenalHooks);
         const st = getWeaponStats(s, w);
         st.damage = p.damage * 0.4;
         const carrier = p.fusionId === 'fusion-citadel';
@@ -1797,6 +1896,7 @@ function stepProjectiles(s: RunV2, dt: number) {
           p.vx = Math.cos(angle) * speed;
           p.vy = Math.sin(angle) * speed;
           p.bounces--;
+          arsenalBounce(s, p, arsenalHooks);
           if (synergyEffect(s, 'bounce-homing')) p.homing += 1.4;
           break;
         }
@@ -1829,6 +1929,8 @@ function stepAreas(s: RunV2, dt: number) {
     let targets = s.enemies.filter((e) => e.hp > 0 && dist(e, a) < a.radius);
     if (a.kind === 'storm')
       targets = targets.slice(0, synergyEffect(s, 'storm-field-count') ? 5 : 3);
+    // A field's tick is a new attack, shared across its targets and infusions.
+    const rootId = hasArsenal(s) ? s.nextId++ : a.id;
     for (const e of targets) {
       if (a.kind === 'frost') {
         e.chill = Math.max(e.chill, 0.4);
@@ -1845,18 +1947,21 @@ function stepAreas(s: RunV2, dt: number) {
       const elements = sourceWeapon?.infusions.length ? sourceWeapon.infusions : [a.element];
       for (const element of elements)
         dealDamage(s, e, {
-          rootId: a.id,
+          rootId,
           source: a.depth === 0 ? 'primary' : 'proc',
           depth: a.depth,
           weaponId: a.weaponId,
           damage:
-            (a.damage * (a.kind === 'fire' && synergyEffect(s, 'fire-field-power') ? 1.4 : 1)) /
+            (a.damage *
+              arsenalFieldMultiplier(s, e, a, arsenalHooks) *
+              (a.kind === 'fire' && synergyEffect(s, 'fire-field-power') ? 1.4 : 1)) /
             elements.length,
           element,
         });
       if (a.element === 'poison') e.poison += a.damage * 0.06;
     }
     if (a.kind === 'meteor') {
+      arsenalMeteor(s, a, arsenalHooks);
       visual(s, 'impact', a.x, a.y, '#edab72', a.radius);
       a.kind = 'fire';
       a.damage *= 0.15;
@@ -2019,9 +2124,15 @@ function stepEnemies(s: RunV2, dt: number) {
       e.poison *= Math.exp(-dt * 0.25);
     }
     if (e.hp <= 0) continue;
+    arsenalEnemyTick(s, e, dt, arsenalHooks);
+    if (e.hp <= 0) continue;
+    const previousStun = e.stun,
+      previousChill = e.chill;
     e.mark = Math.max(0, e.mark - dt);
     e.chill = Math.max(0, e.chill - dt * 0.055);
     e.stun = Math.max(0, e.stun - dt);
+    arsenalControlEnd(s, e, previousStun, previousChill, arsenalHooks);
+    if (e.hp <= 0) continue;
     if (e.stun > 0) {
       if (hasEncounters(s)) interruptEncounter(s, e);
       continue;
@@ -2232,6 +2343,7 @@ export function step(s: RunV2, dt = TICK): void {
   }
   if (ready(s, 'cleanup', 15)) {
     if (hasEncounters(s)) cleanEncounterCounters(s);
+    cleanupArsenal(s);
     const living = new Set(s.enemies.map((e) => e.id));
     for (const key of Object.keys(s.counters)) {
       if (key.startsWith('distance-')) {
@@ -2330,13 +2442,26 @@ function coreStrike(
 ) {
   if (enemy.hp <= 0) return;
   const parts: (Element | 'physical')[] = w.infusions.length ? w.infusions : [element];
+  const sharedRoot = hasArsenal(s) ? s.nextId++ : undefined;
+  const critical =
+    hasArsenal(s) &&
+    w.kind === 'core-mirror' &&
+    echo &&
+    ep(s, 'critical-mirror') > 0 &&
+    random(s) < Math.min(0.6, ep(s, 'critical-mirror'));
+  if (critical) {
+    damage *= 1.7;
+    visual(s, 'ars-critical', enemy.x, enemy.y, '#eee3bc', 36);
+  }
+  if (w.kind === 'core-thorn' && echo) arsenalThorns(s, enemy, damage, arsenalHooks);
   for (const el of parts) {
     dealDamage(s, enemy, {
-      rootId: s.nextId++,
+      rootId: sharedRoot ?? s.nextId++,
       source: 'retaliation',
-      depth: 1,
+      depth: hasArsenal(s) && !echo && w.kind !== 'core-echo' ? 2 : 1,
       weaponId: w.id,
       damage: damage / parts.length,
+      critical,
       element: el,
     });
     if (el === 'fire')
@@ -2425,13 +2550,19 @@ function reactCores(
     }
     if (!inRange || !attacker || !ready(s, `react-core-${coreKey(w)}`, st.cooldown)) continue;
     if (w.kind === 'core-mirror') {
+      const owner = s.weapons.find((owner) => owner.id === w.id);
+      if (owner) arsenalReflect(s, owner, amount);
       const damage = st.damage + amount * (0.8 + Math.min(1, ep(s, 'reflect')));
       coreStrike(s, w, attacker, damage, element);
       let previous = attacker;
       const count = Math.min(
         4,
         Math.floor(ep(s, 'reflect-bounce')) +
-          (fusionViewMeta.get(w)?.recipeId === 'fusion-cathedral' ? 1 : 0),
+          (fusionViewMeta.get(w)?.recipeId === 'fusion-cathedral'
+            ? 1
+            : hasArsenal(s) && fusionViewMeta.get(w)?.recipeId === 'fusion-parallax'
+              ? 2
+              : 0),
       );
       const hitIds = new Set([attacker.id]);
       for (let i = 0; i < count; i++) {
@@ -2445,10 +2576,24 @@ function reactCores(
           w,
           next,
           damage *
-            Math.pow(fusionViewMeta.get(w)?.recipeId === 'fusion-cathedral' ? 0.35 : 0.65, i + 1),
+            Math.pow(
+              ['fusion-cathedral', 'fusion-parallax'].includes(
+                fusionViewMeta.get(w)?.recipeId || '',
+              )
+                ? 0.35
+                : 0.65,
+              i + 1,
+            ),
           element,
           false,
         );
+        if (hasArsenal(s) && fusionViewMeta.get(w)?.recipeId === 'fusion-parallax') {
+          const d = Math.max(1, dist(next, attacker)),
+            pull = next.kind === 'boss' ? 4 : 12;
+          next.x += ((attacker.x - next.x) / d) * pull;
+          next.y += ((attacker.y - next.y) / d) * pull;
+          visual(s, 'chain', previous.x, previous.y, '#c7bde9', 3, next.x, next.y);
+        }
         previous = next;
       }
       if (ep(s, 'reflect-barbs') && ready(s, 'reflect-barbs', 0.5))
@@ -2483,6 +2628,15 @@ function reactCores(
     if (w.kind === 'core-frost') {
       coreStrike(s, w, attacker, st.damage, 'frost');
       attacker.chill = Math.min(attacker.kind === 'boss' ? 0.3 : 0.65, attacker.chill + 0.2);
+      if (
+        hasArsenal(s) &&
+        fusionViewMeta.get(w)?.recipeId === 'fusion-rimechoir' &&
+        !(s.counters[`ars-refrain-${w.id}-due`] > s.time)
+      ) {
+        s.counters[`ars-refrain-${w.id}-due`] = s.time + 0.4;
+        s.counters[`ars-refrain-${w.id}-target`] = attacker.id;
+        s.counters[`ars-refrain-${w.id}-damage`] = st.damage * 0.35;
+      }
       grantShield(s, Math.min(10, amount * 0.15));
     }
     if (w.kind === 'core-gravitic') {
@@ -2498,6 +2652,7 @@ function healTower(s: RunV2, amount: number, allowDischarge = true) {
     healed = Math.min(missing, amount),
     overheal = Math.max(0, amount - healed);
   s.hp = Math.min(s.maxHp, s.hp + amount);
+  arsenalHealing(s, healed, arsenalHooks);
   s.counters.totalHealing = (s.counters.totalHealing || 0) + healed;
   s.counters.protectionHealing = (s.counters.protectionHealing || 0) + healed;
   for (const w of defensiveViews(s))
@@ -2531,6 +2686,28 @@ function healTower(s: RunV2, amount: number, allowDischarge = true) {
 function stepDefensiveCores(s: RunV2, dt: number) {
   const active = s.enemies.some((e) => e.hp > 0 && dist(e, origin) < 460);
   if (!active) return;
+  if (hasArsenal(s))
+    for (const owner of s.weapons) {
+      const key = `ars-refrain-${owner.id}`,
+        due = s.counters[`${key}-due`];
+      if (!due || due > s.time) continue;
+      delete s.counters[`${key}-due`];
+      const enemy = s.enemies.find((e) => e.id === s.counters[`${key}-target`] && e.hp > 0);
+      if (enemy && dist(enemy, origin) <= getWeaponStats(s, owner).range) {
+        dealDamage(s, enemy, {
+          rootId: s.nextId++,
+          source: 'retaliation',
+          depth: 2,
+          weaponId: owner.id,
+          damage: s.counters[`${key}-damage`] || 0,
+          element: 'frost',
+        });
+        enemy.chill = Math.min(enemy.kind === 'boss' ? 0.3 : 0.65, enemy.chill + 0.1);
+        visual(s, 'ars-release', enemy.x, enemy.y, '#c2d7f5', 55);
+      }
+      delete s.counters[`${key}-target`];
+      delete s.counters[`${key}-damage`];
+    }
   for (const w of defensiveViews(s)) {
     const st = isDefensiveKind(w.kind) ? corePower(s, w) : undefined;
     if (!st) continue;
@@ -2676,9 +2853,12 @@ function fireFusedWeapon(s: RunV2, w: WeaponInstance): boolean {
     w.angle = view.angle;
     w.shotCycle = view.shotCycle;
     w.lifetimeShots++;
+    if (hasArsenal(s) && w.fusion.recipeId === 'fusion-reliquary' && view.kind === 'rail')
+      s.counters[`ars-pressure-${w.id}`] = 0;
     s.counters[key] = s.time + view.cooldown;
     const st = getWeaponStats(s, view),
       target = chooseTarget(s, st.range);
+    if (view.kind === 'pulse') arsenalPulse(s, w, st.damage, st.range, arsenalHooks);
     if (w.fusion.recipeId === 'fusion-lance' && view.kind === 'rail' && target) {
       const angle = Math.atan2(target.y - 400, target.x - 500);
       for (const offset of [-0.12, 0.12])
@@ -2741,6 +2921,7 @@ function fusionCandidates(s: RunV2) {
     (w) => !w.fusion && !isFusedKind(w.kind) && (w.masteryRank || 1) === 6,
   );
   return FUSIONS.flatMap((recipe) => {
+    if (!hasArsenal(s) && EXPANSION_FUSION_IDS.includes(recipe.id)) return [];
     const a = equipped.find((w) => w.kind === recipe.ingredients[0]),
       b = equipped.find((w) => w.kind === recipe.ingredients[1]);
     return a && b && a.id !== b.id
@@ -2760,7 +2941,14 @@ export function refreshFusionReady(s: RunV2): void {
 }
 function fusionInputs(s: RunV2, recipeId: string, a: string, b: string) {
   const recipe = FUSION_BY_ID[recipeId];
-  if (!recipe || !isModern(s) || s.phase !== 'combat' || a === b) return;
+  if (
+    !recipe ||
+    !isModern(s) ||
+    s.phase !== 'combat' ||
+    a === b ||
+    (!hasArsenal(s) && EXPANSION_FUSION_IDS.includes(recipeId))
+  )
+    return;
   const first = s.weapons.find((w) => w.id === a),
     second = s.weapons.find((w) => w.id === b);
   if (

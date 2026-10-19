@@ -7,6 +7,8 @@ export interface RunV3 extends RunV2 {
   /** Absent on recovered runs, whose original 30% repair remains unchanged. */
   shopVersion?: 2;
   encounterVersion?: 2;
+  /** Expanded arsenal applies only to expeditions started under these rules. */
+  arsenalVersion?: 2;
   discoveries?: import('../content/enemies').BestiaryRecords;
   mode: RunMode;
   level: number;
@@ -17,6 +19,7 @@ export interface RunV3 extends RunV2 {
 }
 export interface RunOptions {
   encounterVersion?: 1 | 2;
+  arsenalVersion?: 1 | 2;
   shopVersion?: 1 | 2;
   mode?: RunMode;
   runes?: Partial<Record<RuneId, number>>;

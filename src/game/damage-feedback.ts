@@ -42,7 +42,10 @@ export function recordDamageNumber(
   const entries = numbers.get(host);
   if (!entries || !Number.isFinite(amount) || amount <= 0) return;
   readDamageNumbers(host);
-  const critical = !!event.critical && event.source === 'primary' && event.depth === 0;
+  const critical =
+    !!event.critical &&
+    ((event.source === 'primary' && event.depth === 0) ||
+      (event.source === 'retaliation' && event.depth === 1));
   let previous: DamageNumber | undefined;
   for (let i = entries.length - 1; i >= 0; i--) {
     const n = entries[i];

@@ -412,7 +412,7 @@ describe('sixteen new support card mechanics', () => {
     });
   }
   it('contains exactly the agreed twenty-four new distinct families', () => {
-    expect(CARDS).toHaveLength(124);
+    expect(CARDS).toHaveLength(136);
   });
 });
 

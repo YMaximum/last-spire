@@ -1,6 +1,6 @@
 /** Reproducible policy audit. Raw observations stay in ignored local output. */
 import * as engine from '../src/game/engine';
-import { CARDS, TOWERS, isDefensiveKind } from '../src/content/catalog';
+import { CARDS, TOWERS, FUSIONS, isDefensiveKind } from '../src/content/catalog';
 import { defaultProfile } from '../src/legacy/classic/storage';
 import type { CardOffer, RunV2 } from '../src/model/arsenal';
 import { emptySave, exportGame } from '../src/persistence/storage';
@@ -61,21 +61,21 @@ const weights: Record<string, number> = {
   'xp-gain': 7,
   'mastery-focus': 8,
   'mastery-investment': 7,
+  'projectile-growth': 6,
+  'rebound-charge': 8,
+  'return-pulse': 9,
+  'expiry-shards': 7,
+  'armor-erosion': 17,
+  crossfire: 11,
+  'absorption-charge': 14,
+  'healing-barrier': 14,
+  'critical-mirror': 16,
+  'briar-wounds': 17,
+  'field-resonance': 7,
+  'control-release': 8,
 };
-const recipePairs = [
-  ['bolt', 'rail'],
-  ['volley', 'ricochet'],
-  ['spiral', 'chakram'],
-  ['beam', 'tesla'],
-  ['swarm', 'drone'],
-  ['mine', 'meteor'],
-  ['core-mirror', 'core-echo'],
-  ['core-thorn', 'core-mending'],
-  ['core-capacitor', 'core-frost'],
-  ['core-cinder', 'core-gravitic'],
-  ['orbit', 'core-thorn'],
-  ['pulse', 'core-capacitor'],
-];
+const recipePairs = FUSIONS.map((recipe) => recipe.ingredients);
+
 for (const tower of TOWERS.filter(
   (t) => selectedTowers.includes('all') || selectedTowers.includes(t.id),
 ))

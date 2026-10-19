@@ -19,6 +19,7 @@ import { emptySave, parseGame } from '../src/persistence/storage';
 import { emptySave as emptyV2 } from '../src/legacy/runeforged/storage';
 import { createRun as legacyRun } from '../src/legacy/runeforged/engine';
 import { createRun } from '../src/game/engine';
+import type { RunV3 } from '../src/game/types';
 import { snapshotRunes } from '../src/game/controls';
 import { snapshotFromSave, saveFromSnapshot, validateSnapshot } from '../src/account/snapshot';
 import {
@@ -226,6 +227,49 @@ describe('persistent account checkpoints', () => {
       defeated: 3,
     });
   });
+  it('protects expanded arsenal state against schema-five overwrites and keeps retries idempotent', () => {
+    const actor = login();
+    const lease = store.acquireLease(actor.player.id, store.generation, 0, false);
+    const save = activeSave();
+    const run = save.run as RunV3;
+    run.arsenalVersion = 2;
+    run.cards.push({ cardId: 'modifier-growth', stacks: 1, mastery: 1, rarity: 'normal' });
+    const snapshot = snapshotFromSave(save);
+    const writeId = randomUUID();
+    const saved = write(actor.player.id, 0, lease.leaseToken, snapshot, writeId);
+    const old = structuredClone(snapshot) as Record<string, any>;
+    old.version = 5;
+    delete old.run.arsenalVersion;
+    old.run.cards = [];
+    expect(() =>
+      store.write(actor.player.id, store.generation, 1, lease.leaseToken, randomUUID(), old),
+    ).toThrow('update_required');
+    expect(write(actor.player.id, 0, lease.leaseToken, snapshot, writeId)).toEqual(saved);
+    expect(store.read(actor.player.id).snapshot).toEqual(snapshot);
+    expect(store.read(actor.player.id).revision).toBe(1);
+  });
+  it('migrates schema-five cloud runs without changing rules and preserves the original revision', () => {
+    const actor = login();
+    const lease = store.acquireLease(actor.player.id, store.generation, 0, false);
+    const save = activeSave();
+    delete (save.run as RunV3).arsenalVersion;
+    save.profile.credits = 294;
+    save.progression.bestiary.swarmer = { encountered: 8, defeated: 5 };
+    const snapshot = snapshotFromSave(save);
+    const old = { ...snapshot, version: 5 };
+    write(actor.player.id, 0, lease.leaseToken, snapshot);
+    store.db
+      .prepare('UPDATE saves SET payload=? WHERE userId=?')
+      .run(JSON.stringify(old), actor.player.id);
+    const migrated = store.read(actor.player.id).snapshot!;
+    expect(migrated).toEqual({ ...old, version: 6 });
+    expect(migrated.run).not.toHaveProperty('arsenalVersion');
+    write(actor.player.id, 1, lease.leaseToken, migrated);
+    const history = store.db
+      .prepare('SELECT payload FROM history WHERE userId=? AND revision=1')
+      .get(actor.player.id)!;
+    expect(JSON.parse(String(history.payload))).toEqual(old);
+  });
   it('migrates stored old cloud checkpoints on read and retains the original in revision history on write', () => {
     const actor = login();
     const lease = store.acquireLease(actor.player.id, store.generation, 0, false);
@@ -241,7 +285,7 @@ describe('persistent account checkpoints', () => {
       .prepare('UPDATE saves SET payload=? WHERE userId=?')
       .run(JSON.stringify(old), actor.player.id);
     const migrated = store.read(actor.player.id).snapshot!;
-    expect(migrated.version).toBe(5);
+    expect(migrated.version).toBe(6);
     expect(migrated.progression.stages.map((s) => s.unlockedDifficulty)).toEqual([3, 3, 0]);
     expect(migrated.run).toEqual(old.run);
     write(actor.player.id, 1, lease.leaseToken, migrated);

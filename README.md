@@ -56,8 +56,8 @@ Settings → **Floating damage numbers** shows or hides damage inscriptions and 
 
 - Seven towers: Bastion, Pyre, Tempest, Glacier, Verdant, Null, and Monolith.
 - Three environments, each supporting 50-wave Quick, 100-wave Normal, and direct Endless expeditions: Verdant Wilds, Ember Foundry, and Void Ruins; stage clears unlock the next environment.
-- **124 card families**: the original 100 plus eight defensive cores and sixteen support families. Sixteen weapons, eight defensive cores, six infusions, projectile modifiers, defenses, triggered buffs, skills, and utilities support offensive, defensive, and mixed builds.
-- **40 passive synergies and 12 mastered fusions**. Two equipped ingredients at mastery 6 become one stronger core, freeing a socket. Preview inheritance and capped conversions before forging. Fused cores cannot fuse again. Flame and Singularity retain support-card compatibility but have no fusion recipe in this set.
+- **136 card families**: the original 100 plus eight defensive cores and twenty-eight support families. Sixteen weapons, eight defensive cores, six infusions, projectile modifiers, defenses, triggered buffs, skills, and utilities support offensive, defensive, and mixed builds.
+- **40 passive synergies and 20 mastered fusions**. Two equipped ingredients at mastery 6 become one stronger core, freeing a socket. Preview inheritance and capped conversions before forging. Fused cores cannot fuse again. Alternative recipes compete for shared ingredients; the forge and card hints explain each route.
 - Bosses at waves 25/50/75/100 in Normal and 12/25/37/50 in Quick, elites at other ten-wave milestones, five optional Ascension tiers, and endless continuation. Both finite modes unlock stages; records distinguish modes.
 - Original brass, stone, and luminous-core SVG marks for every family. Inspect the [local icon contact sheet](http://localhost:5173/icon-contact-sheet.html), also bundled in production.
 
@@ -71,6 +71,8 @@ Existing v1 saves are backed up before migration. Resumed original runs keep the
 
 Settings can export/import JSON, review pasted JSON, and download the migration backup. Invalid checkpoints stop automatic writes and expose recovery controls. If storage is unavailable, settlement can remain in memory and be exported before closing. Unsaved memory from a previously closed browser tab cannot be recovered.
 
+See [the expanded arsenal and validation baseline](docs/ARSENAL.md) for the new recipes, support families, save compatibility, and measured limitations.
+
 ## Validation and development
 
 ```sh
@@ -82,7 +84,7 @@ npm run check:secrets
 node --import tsx scripts/audit-v3.ts --tower=bastion --stage=0 --mode=normal --policy=competent --seeds=1
 ```
 
-The current-rule audit supports `--tower=pyre`, `--stage=1`, `--difficulty=5`, `--mode=quick`, `--policy=random`, and `--seconds=5400`. It uses the current fixed-tick simulation, actual offered cards, and shop economy. Policies are proxies for play skill, not measured human win rates. The older `npm run balance` and `npm run balance:legacy` commands exercise legacy rules; do not use their results to claim current balance. Keep audits to small, serialized batches.
+The current-rule audit supports `--tower=pyre`, `--stage=1`, `--difficulty=5`, `--mode=quick`, `--policy=random`, and `--seconds=5400`. It uses the current fixed-tick simulation, actual offered cards, and shop economy. Policies are proxies for play skill, not measured human win rates. `npm run balance` invokes this current audit. `npm run balance:runeforged` and `npm run balance:legacy` exercise recovered rules; their results do not establish current balance. Keep audits to small, serialized batches.
 
 For isolated browser regression scenes:
 

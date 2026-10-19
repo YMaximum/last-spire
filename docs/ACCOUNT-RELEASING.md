@@ -124,6 +124,8 @@ API rollback uses a retained compatible code release with the **current** creden
 
 Automatic daily/startup backups retain at most seven same-VPS snapshots. They cannot protect against total VPS or disk loss. Preserve private permissions and free-space reserves; do not automatically delete another project's data or erase deletion markers to make an operation succeed. Off-site backup remains a future opt-in improvement.
 
-## Encounter checkpoint compatibility
+## Arsenal checkpoint compatibility
 
-The encounter expansion writes save schema 5. Install the matching checked account API before publishing its browser bundle. Local and cloud validators must agree on archetypes, discovery records and active encounter rules. Older clients cannot overwrite a newer cloud checkpoint; ask players to reload/update after migration. Retain the previous checked API and static artifacts for recovery, and preserve original migration backups. A static rollback is not permission to downgrade a migrated save.
+The arsenal expansion writes save schema 6. Install the matching checked account API before publishing its browser bundle. Local and cloud validators must agree on cards, fusion recipes, archetypes, discovery records and active rules. New expeditions record `arsenalVersion: 2`; resumed expeditions without this field retain their original arsenal and offers. Migration preserves active runs, RNG, credits, unlocks and unsettled rewards, and keeps a write-once original checkpoint per local guest/account scope before the arsenal migration. Cloud revision history retains the original stored checkpoint when the migrated checkpoint is written.
+
+Older clients, including schema-5 encounter clients, cannot overwrite a newer cloud checkpoint; ask players to reload/update after migration. Retain the previous checked API and static artifacts for recovery, and preserve original migration backups. A static rollback is not permission to downgrade a migrated save. This save-schema change does not change the account protocol or database schema, which remain version 1.

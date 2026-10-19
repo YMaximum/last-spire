@@ -360,7 +360,7 @@ describe('encounter save compatibility and discovery settlement', () => {
     old.version = 4;
     delete old.progression.bestiary;
     const migrated = parseGame(old);
-    expect(migrated.version).toBe(5);
+    expect(migrated.version).toBe(6);
     expect(migrated.progression.bestiary).toEqual({});
     expect(migrated.run).toEqual(run);
     // Seed only an isolated account scope so this test cannot touch another profile.
@@ -389,7 +389,7 @@ describe('encounter save compatibility and discovery settlement', () => {
       (x: any) => (x.run.encounterVersion = 3),
       (x: any) => (x.progression.bestiary = { swarmer: { encountered: 1, defeated: 2 } }),
       (x: any) => (x.progression.bestiary = { unknown: { encountered: 1, defeated: 0 } }),
-      (x: any) => (x.version = 6),
+      (x: any) => (x.version = 7),
     ];
     for (const mutate of bads) {
       const x = structuredClone(base);

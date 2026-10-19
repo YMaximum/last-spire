@@ -28,6 +28,12 @@ Optional Google sign-in and account-isolated cloud-save controls are available t
 
 ## Playing
 
+The expedition screen puts tower selection, purchased/equipped runes, run mode, stage, and difficulty together. Its Start/Resume action stays visible while the setup scrolls. An existing expedition must be retired and its rewards secured before another can start. Rune purchases are separate from the levels selected for a run; the active expedition keeps its original loadout.
+
+The **Fusions** button shows the number of ready recipes. When two equipped cores reach mastery six, their offer appears at the next cleared-wave boundary after pending upgrades and shops. Preview inheritance before forging, or choose **Later**; the ready recipe stays in the dedicated Fusion forge without repeating its automatic offer for those cores. **F** opens the forge.
+
+Combat continues while the game tab remains open but unfocused. Hidden tabs skip battlefield rendering and use low-frequency simulation callbacks. If the browser suspends callbacks, the same document catches up in bounded fixed ticks when callbacks resume, stopping at the first decision or defeat. Decisions encountered while away pause even when foreground choice auto-pause is disabled. Manual pause is respected. Closing/reloading the page does not generate offline progress; a restored expedition waits for Resume. Browsers may throttle or freeze hidden pages, so continuous real-time execution cannot be guaranteed.
+
 Your tower fires automatically. Choose targeting, build a loadout, and time two active skills. **Q** uses the signature ability; **E** uses the secondary. **Space** pauses, **1/2/3** change speed, **A** opens the arsenal, **C** opens the codex, and **Esc** closes the top window or pauses. Touch buttons provide the same controls.
 
 All six shared arsenal sockets are available immediately for weapons or defensive cores. New weapon cards fill sockets; duplicates strengthen an existing weapon. Replacement is optional and requires a named target. Global cards remain when replacing a core; its targeted infusions and mastery are released. Infusions combine on a chosen weapon and divide its direct damage budget across the elements.

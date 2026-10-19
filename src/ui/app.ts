@@ -1,5 +1,6 @@
 import './style.css';
 import './interface.css';
+import './expedition.css';
 import { BuildInspector, entityMarkup, type EntityRef } from './inspector';
 import {
   defaultAutocastConfig,
@@ -68,6 +69,16 @@ import {
 } from '../game/engine';
 import { BattleRenderer } from '../render/battle';
 import { WindowManager } from './windows';
+import { launchMarkup } from './launch';
+import { SimulationClock, resolveDecisionPause } from '../game/clock';
+import { PageLoop } from './page-loop';
+import {
+  acknowledgeFusions,
+  pendingFusionOffer,
+  recordFusionBoundary,
+  unseenFusions,
+  nextRunDecision,
+} from '../game/fusion-offers';
 import {
   emptySave,
   loadGame,
@@ -147,7 +158,7 @@ const observedOffers = new Set<string>();
 let selectedOffer: { rewardId: string; offerId: string; purchase: boolean } | null = null;
 const telemetry = new LocalTelemetry();
 const app = $('app');
-app.innerHTML = `<main id="battlefield"><canvas id="arena" aria-label="Last Spire battlefield"></canvas><div class="arena-shade"></div><header class="battle-hud"><button class="brand-button" id="menu-btn" aria-label="Expedition menu">${glyph('tower')}<span>LAST SPIRE<small>THE RUNEFORGED AGE</small></span>${glyph('menu')}</button><div class="wave-hud"><span id="stage-label">VERDANT WILDS</span><strong id="wave-label">Wave 01 <em>/ 100</em></strong><div id="wave-progress"><i></i></div></div><div class="resource-hud"><span title="Scrap is spent during this expedition">${glyph('diamond')}<b id="scrap-value">0</b><small>SCRAP</small></span><span title="Credits unlock towers between expeditions">${glyph('diamond')}<b id="credit-value">0</b><small>CREDITS</small></span><button id="settings-btn" class="square-button" aria-label="Settings">${glyph('gear')}</button></div></header><div class="threat-strip"><span id="threat-text">One spire. A thousand ways to fight.</span><button id="pause-indicator" class="hidden">PAUSED · RESUME</button></div><nav class="field-tools" aria-label="Battlefield panels"><button id="arsenal-btn" title="Arsenal (A)">${glyph('tower')}<span>Arsenal</span></button><button id="codex-btn" title="Codex (C)">${glyph('book')}<span>Codex</span></button><button id="stats-btn" title="Combat statistics">${glyph('stats')}<span>Ledger</span></button><button id="autocast-btn" title="Conditional skill autocast">${glyph('bolt')}<span>Autocast</span></button><button id="account-btn" title="Account and cloud saves">${glyph('shield')}<span>Guest · Local</span></button><button id="rewards-btn" class="reward-tool hidden">${glyph('diamond')}<span id="reward-count">Choose upgrade</span></button></nav><div id="buff-strip" aria-label="Active buffs"></div><div id="event-toast" role="status" aria-live="polite"></div><div id="boss-warning" class="hidden"></div><footer class="combat-controls"><div class="integrity"><div><span>${glyph('heart')} SPIRE INTEGRITY</span><strong id="hp-value">—</strong></div><div class="hp-track"><i id="hp-fill"></i><i id="shield-fill"></i></div><span id="barrier-value">Barrier dormant</span></div><div class="ability-tray"><button class="ability" id="signature-btn"><span>${glyph('shield')}</span><div><small>SIGNATURE <kbd>Q</kbd></small><b id="signature-name">Bulwark</b></div><em id="signature-cd"></em><span id="signature-auto" class="auto-indicator" hidden>AUTO</span></button><button class="ability" id="secondary-btn"><span>${glyph('bolt')}</span><div><small>SECONDARY <kbd>E</kbd></small><b id="secondary-name">Mend</b></div><em id="secondary-cd"></em><span id="secondary-auto" class="auto-indicator" hidden>AUTO</span></button></div><div class="playback"><button class="square-button" id="pause-btn" aria-label="Pause combat">${glyph('pause')}</button><button id="speed-btn" title="Speed (1, 2, 3)">1×</button><button id="target-btn" title="Target priority">${glyph('target')}<span id="target-label">Nearest</span></button></div></footer><div id="xp-hud" hidden><span id="xp-label"></span><div class="xp-track"><i id="xp-fill"></i></div></div><div id="window-host"></div><div id="window-dock"></div><div id="loading-screen"><div class="loading-rune">${glyph('tower')}</div><h1>LAST SPIRE</h1><p>Waking the ancient machines…</p></div></main>`;
+app.innerHTML = `<main id="battlefield"><canvas id="arena" aria-label="Last Spire battlefield"></canvas><div class="arena-shade"></div><header class="battle-hud"><button class="brand-button" id="menu-btn" aria-label="Expedition menu">${glyph('tower')}<span>LAST SPIRE<small>THE RUNEFORGED AGE</small></span>${glyph('menu')}</button><div class="wave-hud"><span id="stage-label">VERDANT WILDS</span><strong id="wave-label">Wave 01 <em>/ 100</em></strong><div id="wave-progress"><i></i></div></div><div class="resource-hud"><span title="Scrap is spent during this expedition">${glyph('diamond')}<b id="scrap-value">0</b><small>SCRAP</small></span><span title="Credits unlock towers between expeditions">${glyph('diamond')}<b id="credit-value">0</b><small>CREDITS</small></span><button id="settings-btn" class="square-button" aria-label="Settings">${glyph('gear')}</button></div></header><div class="threat-strip"><span id="threat-text">One spire. A thousand ways to fight.</span><button id="pause-indicator" class="hidden">PAUSED · RESUME</button></div><nav class="field-tools" aria-label="Battlefield panels"><button id="expedition-btn" class="launch-tool">${glyph('play')}<span>Start expedition</span></button><button id="fusion-btn" class="fusion-tool" title="Fusion forge (F)">${glyph('diamond')}<span id="fusion-count">Fusions</span></button><button id="arsenal-btn" title="Arsenal (A)">${glyph('tower')}<span>Arsenal</span></button><button id="codex-btn" title="Codex (C)">${glyph('book')}<span>Codex</span></button><button id="stats-btn" title="Combat statistics">${glyph('stats')}<span>Ledger</span></button><button id="autocast-btn" title="Conditional skill autocast">${glyph('bolt')}<span>Autocast</span></button><button id="account-btn" title="Account and cloud saves">${glyph('shield')}<span>Guest · Local</span></button><button id="rewards-btn" class="reward-tool hidden">${glyph('diamond')}<span id="reward-count">Choose upgrade</span></button></nav><div id="buff-strip" aria-label="Active buffs"></div><div id="event-toast" role="status" aria-live="polite"></div><div id="boss-warning" class="hidden"></div><footer class="combat-controls"><div class="integrity"><div><span>${glyph('heart')} SPIRE INTEGRITY</span><strong id="hp-value">—</strong></div><div class="hp-track"><i id="hp-fill"></i><i id="shield-fill"></i></div><span id="barrier-value">Barrier dormant</span></div><div class="ability-tray"><button class="ability" id="signature-btn"><span>${glyph('shield')}</span><div><small>SIGNATURE <kbd>Q</kbd></small><b id="signature-name">Bulwark</b></div><em id="signature-cd"></em><span id="signature-auto" class="auto-indicator" hidden>AUTO</span></button><button class="ability" id="secondary-btn"><span>${glyph('bolt')}</span><div><small>SECONDARY <kbd>E</kbd></small><b id="secondary-name">Mend</b></div><em id="secondary-cd"></em><span id="secondary-auto" class="auto-indicator" hidden>AUTO</span></button></div><div class="playback"><button class="square-button" id="pause-btn" aria-label="Pause combat">${glyph('pause')}</button><button id="speed-btn" title="Speed (1, 2, 3)">1×</button><button id="target-btn" title="Target priority">${glyph('target')}<span id="target-label">Nearest</span></button></div></footer><div id="xp-hud" hidden><span id="xp-label"></span><div class="xp-track"><i id="xp-fill"></i></div></div><div id="window-host"></div><div id="window-dock"></div><div id="catchup-notice" class="catchup-notice hidden" role="status" aria-live="polite"><div>${glyph('tower')}<h2>Catching up to your battle…</h2><p>Resolving elapsed combat. Your next decision will pause the spire.</p></div></div><div id="loading-screen"><div class="loading-rune">${glyph('tower')}</div><h1>LAST SPIRE</h1><p>Waking the ancient machines…</p></div></main>`;
 const manager = new WindowManager(
   $('window-host'),
   $('window-dock'),
@@ -360,7 +371,7 @@ async function activateSave(incoming: SaveV3, target: SaveScope, explicitImport 
     applySettings();
     makePreview();
     updateHud();
-    if (!playing) openLaunch();
+    if (!playing || data.run?.phase === 'combat') openLaunch();
     else if (data.run?.phase === 'victory') openVictory();
     else if (data.run?.phase === 'ended') openResults();
     else if (data.run?.version === 1 && ['draft', 'shop'].includes(data.run.phase))
@@ -382,7 +393,7 @@ function notify(message: string, tone = 'normal') {
 }
 let audio: AudioContext | undefined;
 function sound(note = 440) {
-  if (!data.settings.sound) return;
+  if (!data.settings.sound || document.hidden) return;
   try {
     audio ??= new AudioContext();
     void audio.resume();
@@ -456,11 +467,26 @@ function updateHud() {
   $('speed-btn').textContent = `${data.settings.speed}×`;
   $('target-label').textContent = s.targeting[0].toUpperCase() + s.targeting.slice(1);
   $('pause-btn').innerHTML = glyph(paused ? 'play' : 'pause');
+  $('pause-btn').setAttribute('aria-label', paused ? 'Resume combat' : 'Pause combat');
   $('pause-indicator').classList.toggle(
     'hidden',
-    !playing || !(paused || manager.choicesPause()) || s.phase !== 'combat',
+    !playing || !(paused || decisionPaused(s)) || s.phase !== 'combat',
   );
-  $('pause-indicator').textContent = paused ? 'PAUSED · RESUME' : 'CHOOSING · AUTO-PAUSED';
+  $('pause-indicator').textContent = paused
+    ? 'PAUSED · RESUME'
+    : awayDecisionHold
+      ? 'PAUSED FOR A DECISION'
+      : 'CHOOSING · AUTO-PAUSED';
+  $('expedition-btn').querySelector('span')!.textContent = !playing
+    ? 'Start expedition'
+    : paused
+      ? 'Resume expedition'
+      : 'Expedition setup';
+  const readyFusions = playing && modern(s) ? availableFusions(s as RunV2).length : 0;
+  $('fusion-count').textContent = readyFusions ? `Fusions · ${readyFusions} ready` : 'Fusions';
+  $('fusion-btn').classList.toggle('fusion-ready', readyFusions > 0);
+  $('fusion-btn').setAttribute('aria-label', `Fusion forge, ${readyFusions} ready`);
+  $('arena').dataset.catchingUp = String(clock.catchingUp);
   const count = isV2(s)
     ? s.phase === 'combat'
       ? s.pendingRewards.length
@@ -515,35 +541,101 @@ function updateHud() {
   } else $('buff-strip').innerHTML = '';
 }
 function openLaunch() {
+  const scrollTop = manager.element('expedition')?.querySelector('.launch-scroll')?.scrollTop ?? 0;
+  manager.close('menu');
+  manager.close('rewards');
+  selectedOffer = null;
+  manager.close('attune');
+  manager.close('fusion-offer');
+  manager.close('fusion-preview');
+  if (playing && data.run) {
+    paused = true;
+    chosenTower = data.run.tower;
+    chosenStage = data.run.stage;
+    chosenDifficulty = data.run.difficulty;
+    chosenMode = modern(data.run)?.mode ?? 'normal';
+  }
+  const expanded =
+    manager.element('expedition')?.querySelector<HTMLDetailsElement>('.launch-runes')?.open ??
+    false;
   manager.open(
-    'launch',
+    'expedition',
     {
-      title: 'The last light waits.',
-      subtitle: 'FORGE YOUR NEXT EXPEDITION',
-      width: 490,
-      height: 610,
+      title: playing ? 'Your expedition awaits.' : 'Forge your next expedition.',
+      subtitle: 'LAST SPIRE · EXPEDITION SETUP',
+      width: 1100,
+      height: 820,
     },
-    `<p class="lead">One ancient machine. Six arsenal sockets. A build that belongs to you.</p><div class="launch-tower" style="--accent:${TOWERS.find((t) => t.id === chosenTower)!.color}">${glyph('tower')}<div><small>YOUR SPIRE</small><h3>${TOWERS.find((t) => t.id === chosenTower)!.name}</h3><p>${esc(chosenTower === 'tempest' ? 'Lightning chains jump to three nearby enemies.' : TOWERS.find((t) => t.id === chosenTower)!.passive)}</p></div></div><button id="launch-hangar" class="outline-button full">Choose tower & permanent runes ${glyph('arrow')}</button><label class="control-label">Run mode<select id="mode-select"><option value="quick" ${chosenMode === 'quick' ? 'selected' : ''}>Quick · 50 waves · 15–20 min</option><option value="normal" ${chosenMode === 'normal' ? 'selected' : ''}>Normal · 100 waves · 30–45 min</option><option value="endless" ${chosenMode === 'endless' ? 'selected' : ''}>Endless · until defeat or retirement</option></select></label><label class="control-label">Expedition<select id="stage-select">${STAGES.map((st) => `<option value="${st.id}" ${chosenStage === st.id ? 'selected' : ''} ${st.id >= data.profile.stageUnlocked ? 'disabled' : ''}>${st.name}${st.id >= data.profile.stageUnlocked ? ' · Locked' : ''}</option>`).join('')}</select></label><label class="control-label">Difficulty<select id="difficulty-select">${Array.from({ length: 6 }, (_, i) => `<option value="${i}" ${i === chosenDifficulty ? 'selected' : ''} ${i > data.profile.difficultyUnlocked ? 'disabled' : ''}>${i === 0 ? 'Normal' : `Ascension ${i}`}${i > data.profile.difficultyUnlocked ? ' · Locked' : ''}</option>`).join('')}</select></label><div class="expedition-facts"><span>${chosenMode === 'endless' ? 'No endpoint' : chosenMode === 'quick' ? '50 waves' : '100 waves'}</span><span>XP level-ups</span><span>Autosaved</span></div><div class="launch-start"><button id="begin-btn" class="gold-button full">Start expedition ${glyph('play')}</button></div><p class="quiet">Your choices build the power. The waves won’t wait.</p>`,
+    launchMarkup(
+      {
+        save: data,
+        tower: chosenTower,
+        stage: chosenStage,
+        difficulty: chosenDifficulty,
+        mode: chosenMode,
+        playing,
+      },
+      runeMarkup(),
+      RUNE_NAMES,
+    ),
   );
-  $('launch-hangar').onclick = openHangar;
+  const panel = manager.element('expedition')!;
+  panel.querySelector('.launch-scroll')!.scrollTop = scrollTop;
+  panel.querySelector<HTMLDetailsElement>('.launch-runes')!.open = expanded;
+  panel.querySelectorAll<HTMLButtonElement>('[data-launch-tower]').forEach((button) => {
+    button.onclick = () => {
+      if (playing || contextChanging || blocked) return;
+      const selected = TOWERS.find((t) => t.id === button.dataset.launchTower);
+      if (!selected) return;
+      if (!data.profile.unlocked.includes(selected.id)) {
+        if (data.profile.credits < selected.cost) return;
+        data.profile.credits -= selected.cost;
+        data.profile.unlocked.push(selected.id);
+        notify(`${selected.name} awakened.`);
+      }
+      chosenTower = selected.id;
+      makePreview();
+      scheduleSave();
+      openLaunch();
+      updateHud();
+    };
+  });
   $('mode-select').onchange = () => {
+    if (playing) return;
     chosenMode = $<HTMLSelectElement>('mode-select').value as RunMode;
     makePreview();
     openLaunch();
     updateHud();
   };
   $('stage-select').onchange = () => {
+    if (playing) return;
     chosenStage = Number($<HTMLSelectElement>('stage-select').value);
     makePreview();
+    openLaunch();
     updateHud();
   };
   $('difficulty-select').onchange = () => {
+    if (playing) return;
     chosenDifficulty = Number($<HTMLSelectElement>('difficulty-select').value);
     makePreview();
+    openLaunch();
     updateHud();
   };
-  $('begin-btn').onclick = () => {
-    if (playing) return;
+  bindRunes();
+  $('launch-retire')?.addEventListener('click', () => {
+    manager.close('expedition');
+    openRetire(true);
+  });
+  $('resume-btn')?.addEventListener('click', () => {
+    manager.close('expedition');
+    if (data.run?.phase === 'ended') return openResults();
+    if (data.run?.phase === 'victory') return openVictory();
+    paused = false;
+    presentDecisions();
+    updateHud();
+  });
+  $('begin-btn')?.addEventListener('click', () => {
+    if (playing || contextChanging || blocked || entryScreen.visible) return;
     data.run = createRun(
       effectiveProfile(),
       chosenTower,
@@ -570,15 +662,18 @@ function openLaunch() {
     });
     playing = true;
     paused = false;
+    awayDecisionHold = false;
     lastRewardId = '';
     lastSignature = '';
     lastPhase = '';
     lastWave = 0;
     manager.closeAll();
+    clock.reset();
     scheduleSave();
     updateHud();
     if (!data.profile.tutorialDone) openHelp();
-  };
+  });
+  updateHud();
 }
 function openMenu() {
   manager.open(
@@ -601,7 +696,7 @@ function openMenu() {
   $('menu-settings').onclick = openSettings;
   $('menu-account').onclick = () => accountPanel.open();
   $('menu-help').onclick = openHelp;
-  $('menu-retire')?.addEventListener('click', openRetire);
+  $('menu-retire')?.addEventListener('click', () => openRetire());
 }
 function scopeLabel(c: CardDefinition) {
   if (c.group === 'weapon')
@@ -679,6 +774,9 @@ function offerMarkup(offer: CardOffer, shop: boolean) {
 function showRewards(id?: string) {
   const s = current();
   if (!playing) return;
+  if (manager.has('attune')) return;
+  manager.close('fusion-offer');
+  manager.close('fusion-preview');
   if (!isV2(s)) {
     showLegacyRewards(s);
     return;
@@ -690,6 +788,7 @@ function showRewards(id?: string) {
   const reward =
     s.pendingRewards.find((p) => p.id === (id ?? rewardSelection)) ?? s.pendingRewards[0];
   rewardSelection = reward.id;
+  lastRewardId = reward.id;
   const shop = reward.kind === 'shop';
   const offerKey = `${s.id}:${reward.id}:${reward.offers.map((o) => o.id).join(',')}`;
   if (!observedOffers.has(offerKey)) {
@@ -721,6 +820,8 @@ function showRewards(id?: string) {
   );
   $('choice-pause').onchange = () => {
     data.settings.autoPauseChoices = $<HTMLInputElement>('choice-pause').checked;
+    if (!data.settings.autoPauseChoices) awayDecisionHold = false;
+    updateHud();
     scheduleSave();
     updateHud();
   };
@@ -815,6 +916,7 @@ function showTargetPicker(offer: CardOffer) {
   if (!isV2(s)) return;
   const c = CARD_BY_ID[offer.cardId];
   const replacing = c.group === 'weapon';
+  manager.close('rewards');
   manager.open(
     'attune',
     {
@@ -823,6 +925,11 @@ function showTargetPicker(offer: CardOffer) {
       width: 500,
       height: 550,
       choice: true,
+      onClose: () => {
+        const target = selectedOffer;
+        selectedOffer = null;
+        if (target && !contextChanging) showRewards(target.rewardId);
+      },
     },
     `<p class="lead">${replacing ? 'All global cards stay. This explicitly replaces one weapon; its infusions and weapon mastery are released.' : 'Your other weapons keep their current effects. This infusion adds to the selected weapon.'}</p><div class="target-weapons">${s.weapons
       .map(
@@ -922,13 +1029,134 @@ function showLegacyRewards(s: RunState) {
   });
 }
 let arsenalTab = 'weapons';
+let awayDecisionHold = false;
+function queuedDecision(s: RunV2 | RunState) {
+  return isV2(s)
+    ? s.pendingRewards.length > 0 || pendingFusionOffer(s)
+    : s.phase === 'draft' || s.phase === 'shop';
+}
+function decisionPaused(s: RunV2 | RunState, background = false, update = false) {
+  const state = resolveDecisionPause({
+    queued: queuedDecision(s),
+    fusion: isV2(s) && pendingFusionOffer(s),
+    choiceWindow: manager.pendingChoice(),
+    windowPaused: manager.choicesPause(),
+    autoPause: data.settings.autoPauseChoices,
+    background,
+    held: awayDecisionHold,
+  });
+  if (update) awayDecisionHold = state.held;
+  return state.paused;
+}
+function canSimulate(backgroundProgress: boolean) {
+  const s = current();
+  const decision = decisionPaused(s, backgroundProgress, true);
+  return (
+    playing &&
+    !paused &&
+    !contextChanging &&
+    !entryScreen.visible &&
+    s.phase === 'combat' &&
+    !decision
+  );
+}
+function presentDecisions() {
+  const s = current();
+  if (
+    !playing ||
+    contextChanging ||
+    entryScreen.visible ||
+    manager.has('expedition') ||
+    manager.has('attune') ||
+    manager.has('retire') ||
+    manager.has('fusion-preview')
+  )
+    return;
+  if (manager.pendingChoice() && !manager.has('rewards') && !manager.has('fusion-offer')) return;
+  if (!isV2(s)) {
+    if (['draft', 'shop'].includes(s.phase) && !manager.has('rewards')) showLegacyRewards(s);
+    return;
+  }
+  if (s.phase !== 'combat') return;
+  if (nextRunDecision(s) === 'reward') {
+    const id = s.pendingRewards[0].id;
+    if (!manager.has('rewards') || !s.pendingRewards.some((r) => r.id === lastRewardId)) {
+      manager.close('fusion-offer');
+      showRewards(id);
+      sound(680);
+    }
+    return;
+  }
+  manager.close('rewards');
+  lastRewardId = '';
+  const currentRules = modern(s);
+  if (currentRules && pendingFusionOffer(s) && !manager.has('fusion-offer'))
+    openFusionOffer(currentRules);
+}
+function openFusionOffer(s: RunV3) {
+  const offers = unseenFusions(s);
+  if (!offers.length) return;
+  manager.close('fusions');
+  manager.open(
+    'fusion-offer',
+    {
+      title: 'Your cores are ready to fuse.',
+      subtitle: 'MASTERY COMPLETE · COMBAT PAUSED',
+      width: 760,
+      height: 640,
+      choice: true,
+      onClose: () => {
+        if (current() !== s || contextChanging) return;
+        acknowledgeFusions(s, offers);
+        scheduleSave();
+        updateHud();
+      },
+    },
+    `<p class="lead">Two mastered cores can become one. Preview what carries over before committing.</p>
+    <div class="fusion-offers">${offers
+      .map((offer) => {
+        const recipe = FUSION_BY_ID[offer.recipeId];
+        return `<article class="fusion-offer-card">${cardIcon(recipe.iconId, 64)}<div><h3>${recipe.name}</h3><p>${recipe.description}</p><small>${recipe.ingredients.map((kind) => WEAPON_BY_ID[kind].name).join(' + ')} · mastery 6 each</small></div><button class="gold-button" data-fuse-recipe="${recipe.id}" data-ingredient-a="${esc(offer.ingredientIds[0])}" data-ingredient-b="${esc(offer.ingredientIds[1])}">Preview fusion · free</button></article>`;
+      })
+      .join(
+        '',
+      )}</div><button id="fusion-later" class="outline-button full">Later · keep both cores</button><p class="quiet">The Fusion forge button keeps every eligible recipe available. Choosing Later will not repeat this offer for the same cores.</p>`,
+  );
+  $('fusion-later').onclick = () => manager.close('fusion-offer');
+  scheduleSave();
+}
+function openFusions() {
+  const s = current();
+  if (playing && isV2(s) && s.pendingRewards.length) {
+    showRewards();
+    notify('Resolve your pending upgrades before choosing a fusion.');
+    return;
+  }
+  manager.close('fusion-offer');
+  manager.close('fusion-preview');
+  manager.open(
+    'fusions',
+    {
+      title: 'The fusion forge.',
+      subtitle: 'MASTER TWO CORES · FORGE ONE',
+      width: 900,
+      height: 760,
+    },
+    fusionPanel(s),
+  );
+}
 function fusionPanel(input: RunV2 | RunState) {
   const s = modern(input);
   if (!s)
     return '<p>Mastered fusions are available in new XP expeditions. This recovered run keeps its original rules.</p>';
   const ready = availableFusions(s as RunV2);
-  return `<p>Two equipped ingredients at mastery 6 become one fused core, freeing a socket. Fusion is free. Compatible investments carry over; a fused core cannot fuse again.</p><div class="fusion-list">${FUSIONS.map(
-    (recipe) => {
+  const recipes = [...FUSIONS].sort(
+    (a, b) =>
+      Number(ready.some((r) => r.recipeId === b.id)) -
+      Number(ready.some((r) => r.recipeId === a.id)),
+  );
+  return `<p class="notice">${ready.length ? `${ready.length} fusion${ready.length === 1 ? '' : 's'} ready to forge. Eligible recipes appear first.` : 'Master two compatible cores to unlock a fusion.'}</p><p>Two equipped ingredients at mastery 6 become one fused core, freeing a socket. Fusion is free. Compatible investments carry over; a fused core cannot fuse again.</p><div class="fusion-list">${recipes
+    .map((recipe) => {
       const match = ready.find((f) => f.recipeId === recipe.id);
       return `<article class="fusion-recipe"><div class="fusion-heading">${cardIcon(recipe.iconId, 56)}<div><h3><button class="build-reference" data-entity-kind="fusion" data-entity-id="${recipe.id}">${recipe.name}</button></h3><p>${recipe.description}</p></div></div><div class="fusion-ingredients">${recipe.ingredients
         .map((kind) => {
@@ -938,20 +1166,26 @@ function fusionPanel(input: RunV2 | RunState) {
         .join(
           '',
         )}</div><button class="${match ? 'gold-button' : 'outline-button'} full" data-fuse-recipe="${recipe.id}" data-ingredient-a="${match?.ingredientIds[0] ?? ''}" data-ingredient-b="${match?.ingredientIds[1] ?? ''}" ${match ? '' : 'disabled'}>${match ? 'Preview fusion' : 'Both ingredients must reach mastery 6'}</button></article>`;
-    },
-  ).join(
-    '',
-  )}</div><p class="quiet">Flame and Singularity have no authored fusion path in this set. They retain their full support-card and passive-synergy compatibility.</p>`;
+    })
+    .join(
+      '',
+    )}</div><p class="quiet">Flame and Singularity have no authored fusion path in this set. They retain their full support-card and passive-synergy compatibility.</p>`;
 }
 function openFusionPreview(recipeId: string, a: string, b: string) {
   const s = modern(current());
   if (!s) return;
+  if (s.pendingRewards.length) {
+    showRewards();
+    return;
+  }
   const info = previewFusion(s as RunV2, recipeId, a, b);
   if (!info) {
     notify('Those ingredients are no longer ready.');
     return;
   }
   const recipe = FUSION_BY_ID[recipeId];
+  manager.close('fusion-offer');
+  manager.close('fusions');
   manager.open(
     'fusion-preview',
     {
@@ -965,6 +1199,7 @@ function openFusionPreview(recipeId: string, a: string, b: string) {
   );
   $('cancel-fusion').onclick = () => manager.close('fusion-preview');
   $('confirm-fusion').onclick = async () => {
+    if (current() !== s || contextChanging) return;
     if (!fuseCores(s as RunV2, recipeId, a, b)) {
       notify('Fusion requirements changed; inspect the arsenal again.');
       return;
@@ -1270,15 +1505,18 @@ function runeMarkup() {
 }
 function bindRunes() {
   manager
-    .element('hangar')!
+    .element('expedition')!
     .querySelectorAll<HTMLInputElement>('[data-rune-select]')
     .forEach((el) => {
       el.oninput = () => {
-        $(`rune-value-${el.dataset.runeSelect}`).textContent = el.value;
-        $(`rune-benefit-${el.dataset.runeSelect}`).textContent = runeBenefit(
-          el.dataset.runeSelect as RuneId,
-          Number(el.value),
-        );
+        manager
+          .element('expedition')!
+          .querySelector<HTMLElement>(`#rune-value-${el.dataset.runeSelect}`)!.textContent =
+          el.value;
+        manager
+          .element('expedition')!
+          .querySelector<HTMLElement>(`#rune-benefit-${el.dataset.runeSelect}`)!.textContent =
+          runeBenefit(el.dataset.runeSelect as RuneId, Number(el.value));
       };
       el.onchange = () => {
         if (playing) return;
@@ -1290,10 +1528,11 @@ function bindRunes() {
         makePreview();
         scheduleSave();
         updateHud();
+        openLaunch();
       };
     });
   manager
-    .element('hangar')!
+    .element('expedition')!
     .querySelectorAll<HTMLButtonElement>('[data-rune-buy]')
     .forEach(
       (el) =>
@@ -1392,46 +1631,7 @@ function openAutocast() {
   };
 }
 function openHangar() {
-  manager.open(
-    'hangar',
-    {
-      title: 'Seven hearts. One last light.',
-      subtitle: `TOWER HANGAR · ${data.profile.credits} CREDITS`,
-      width: 1080,
-      height: 760,
-    },
-    `<p class="lead">Every spire has a different nature. Every spire can forge a full arsenal.</p><div class="tower-grid">${TOWERS.map(
-      (t) => {
-        const unlocked = data.profile.unlocked.includes(t.id);
-        return `<article class="tower-card" style="--accent:${t.color}"><div class="tower-portrait">${glyph('tower')}<span>${t.name[0]}</span></div><small>${t.subtitle}</small><h3>${t.name}</h3><p>${esc(t.description)}</p><div class="tower-passive">${esc(t.id === 'tempest' ? 'Lightning chains jump to three nearby enemies.' : t.passive)}</div><p><b>${t.skill}</b> · ${esc(t.skillDescription)}</p><button data-tower="${t.id}" class="${unlocked ? 'outline-button' : 'gold-button'} full" ${playing || (!unlocked && data.profile.credits < t.cost) ? 'disabled' : ''}>${unlocked ? (chosenTower === t.id ? 'Selected' : 'Select tower') : `Awaken · ${t.cost} credits`}</button></article>`;
-      },
-    ).join(
-      '',
-    )}</div><div class="permanent-runes"><div><h3>Permanent runes</h3><p>Buying raises ownership. Choose any purchased level freely before starting; changes never cost credits.</p></div>${runeMarkup()}</div>`,
-  );
-  manager
-    .element('hangar')!
-    .querySelectorAll<HTMLButtonElement>('[data-tower]')
-    .forEach(
-      (b) =>
-        (b.onclick = () => {
-          if (playing) return;
-          const t = TOWERS.find((t) => t.id === b.dataset.tower)!;
-          if (!data.profile.unlocked.includes(t.id)) {
-            if (data.profile.credits < t.cost) return;
-            data.profile.credits -= t.cost;
-            data.profile.unlocked.push(t.id);
-            notify(`${t.name} awakened.`);
-          }
-          chosenTower = t.id;
-          makePreview();
-          scheduleSave();
-          openHangar();
-          updateHud();
-          if (manager.has('launch')) openLaunch();
-        }),
-    );
-  bindRunes();
+  openLaunch();
 }
 function download(text: string, name: string) {
   const url = URL.createObjectURL(new Blob([text], { type: 'application/json' })),
@@ -1669,7 +1869,7 @@ function openVictory() {
     updateHud();
   };
 }
-function openRetire() {
+function openRetire(returnToSetup = false) {
   const s = data.run;
   if (!s) return;
   if (s.phase === 'ended') {
@@ -1687,7 +1887,10 @@ function openRetire() {
     },
     `<p class="lead">Retire at wave ${s.wave} and collect ${Math.floor(isV2(s) ? rewardForRun(s) : creditReward(s))} credits. Your permanent progress stays with you; this run’s build is released.</p><div class="result-actions"><button id="cancel-retire" class="outline-button">Keep defending</button><button id="confirm-retire" class="gold-button">Retire & collect</button></div>`,
   );
-  $('cancel-retire').onclick = () => manager.close('retire');
+  $('cancel-retire').onclick = () => {
+    manager.close('retire');
+    if (returnToSetup) openLaunch();
+  };
   $('confirm-retire').onclick = () => {
     if (isV2(s)) retire(s);
     else legacyRetire(s);
@@ -1799,7 +2002,7 @@ function togglePause() {
 }
 function activate(which: 'signature' | 'secondary') {
   const s = data.run;
-  if (!s || paused || manager.choicesPause() || s.phase !== 'combat') return;
+  if (!s || paused || decisionPaused(s) || s.phase !== 'combat') return;
   const success = isV2(s) ? useSkill(s, which) : legacySkill(s, which);
   if (success) {
     telemetry.event(s.id, s.time, 'skill', { slot: which, automatic: false });
@@ -1808,6 +2011,8 @@ function activate(which: 'signature' | 'secondary') {
   }
 }
 $('menu-btn').onclick = openMenu;
+$('expedition-btn').onclick = openLaunch;
+$('fusion-btn').onclick = openFusions;
 $('settings-btn').onclick = openSettings;
 $('account-btn').onclick = () => accountPanel.open();
 $('arsenal-btn').onclick = openArsenal;
@@ -1818,7 +2023,7 @@ $('rewards-btn').onclick = () => showRewards();
 $('pause-btn').onclick = togglePause;
 $('pause-indicator').onclick = () => {
   if (paused) togglePause();
-  else if (manager.visible('rewards')) manager.close('rewards');
+  else presentDecisions();
 };
 $('signature-btn').onclick = () => activate('signature');
 $('secondary-btn').onclick = () => activate('secondary');
@@ -1835,7 +2040,7 @@ $('target-btn').onclick = () => {
   updateHud();
 };
 document.addEventListener('keydown', (e) => {
-  if (contextChanging || entryScreen.visible) return;
+  if (contextChanging || entryScreen.visible || clock.catchingUp) return;
   const input = e.target as HTMLElement;
   if (input.matches('input,select,textarea') || e.altKey || e.ctrlKey || e.metaKey) return;
   const key = e.key.toLowerCase();
@@ -1847,6 +2052,7 @@ document.addEventListener('keydown', (e) => {
   if (key === 'q') activate('signature');
   if (key === 'e') activate('secondary');
   if (key === 'a') manager.visible('arsenal') ? manager.close('arsenal') : openArsenal();
+  if (key === 'f') manager.visible('fusions') ? manager.close('fusions') : openFusions();
   if (key === 'c') manager.visible('codex') ? manager.close('codex') : openCodex();
   if (['1', '2', '3'].includes(key)) {
     data.settings.speed = Number(key) as 1 | 2 | 3;
@@ -1861,16 +2067,8 @@ document.addEventListener('keydown', (e) => {
     else togglePause();
   }
 });
-document.addEventListener('visibilitychange', () => {
-  if (document.hidden && playing) {
-    paused = true;
-    void persist();
-    updateHud();
-  }
-});
-window.addEventListener('pagehide', () => void persist());
+const clock = new SimulationClock(TICK);
 let last = 0,
-  accumulator = 0,
   hudTimer = 0,
   saveTimer = 0,
   perfTime = 0,
@@ -1878,20 +2076,15 @@ let last = 0,
 const frameMeter = new FrameMeter();
 function frame(now: number) {
   const frameElapsed = last ? Math.max(0, (now - last) / 1000) : 0;
-  const delta = Math.min(0.12, frameElapsed);
   last = now;
   const s = current();
   const simulationStarted = performance.now();
-  if (
-    playing &&
-    !paused &&
-    !contextChanging &&
-    !entryScreen.visible &&
-    !manager.choicesPause() &&
-    s.phase === 'combat'
-  ) {
-    accumulator += delta * data.settings.speed;
-    while (accumulator >= TICK) {
+  clock.advance(now, {
+    speed: data.settings.speed,
+    background: document.hidden || !document.hasFocus(),
+    canStep: canSimulate,
+    step: () => {
+      const waveBefore = s.wave;
       if (isV2(s)) {
         const active = data.progression.active;
         if (active?.runId === s.id) {
@@ -1900,14 +2093,15 @@ function frame(now: number) {
             if (casts[slot]) telemetry.event(s.id, s.time, 'skill', { slot, automatic: true });
         }
         step(s, TICK);
+        recordFusionBoundary(s, waveBefore);
         recordDamageSample(s);
       } else legacyStep(s, TICK);
-      accumulator -= TICK;
-      if (s.phase !== 'combat') break;
-    }
-  } else accumulator = 0;
+    },
+  });
+  presentDecisions();
+  $('catchup-notice').classList.toggle('hidden', !clock.catchingUp);
   const before = performance.now();
-  if (!document.hidden) renderer.draw(s, data.settings);
+  if (!document.hidden && !clock.catchingUp) renderer.draw(s, data.settings);
   frameMeter.record({
     seconds: frameElapsed,
     simulationMs: before - simulationStarted,
@@ -1936,12 +2130,14 @@ function frame(now: number) {
           : undefined,
       );
   }
-  hudTimer += delta;
-  saveTimer += delta;
+  hudTimer += frameElapsed;
+  saveTimer += frameElapsed;
   if (hudTimer > 0.16) {
     hudTimer = 0;
-    updateHud();
-    inspector.update();
+    if (!document.hidden) {
+      updateHud();
+      inspector.update();
+    }
     if (playing) {
       const signature = isV2(s)
         ? `${s.cards.map((c) => c.cardId + c.mastery + c.targetId).join(',')}|${s.weapons.length}|${s.synergies.join(',')}`
@@ -1955,27 +2151,22 @@ function frame(now: number) {
         lastPhase = s.phase;
         if (s.cleared) recordClear();
         if (s.phase === 'victory') {
-          manager.close('rewards');
+          selectedOffer = null;
+          for (const id of ['rewards', 'attune', 'fusion-offer', 'fusion-preview', 'retire'])
+            manager.close(id);
           openVictory();
         }
         if (s.phase === 'ended') {
-          manager.close('rewards');
+          selectedOffer = null;
+          for (const id of ['rewards', 'attune', 'fusion-offer', 'fusion-preview', 'retire'])
+            manager.close(id);
           manager.close('victory');
           if (isV2(s)) void telemetry.finish(s);
           openResults();
         }
         scheduleSave();
       }
-      const rewardId = isV2(s)
-        ? (s.pendingRewards[0]?.id ?? '')
-        : s.phase === 'draft' || s.phase === 'shop'
-          ? `legacy-${s.wave}-${s.phase}`
-          : '';
-      if (rewardId && rewardId !== lastRewardId && s.phase !== 'victory' && s.phase !== 'ended') {
-        lastRewardId = rewardId;
-        showRewards(rewardId);
-        sound(680);
-      }
+      presentDecisions();
       if (s.notices.length && now >= nextNoticeAt) {
         nextNoticeAt = now + 2400;
         const message = s.notices.shift()!;
@@ -1984,17 +2175,43 @@ function frame(now: number) {
       }
     }
   }
-  statsTimer += delta;
+  statsTimer += frameElapsed;
   if (statsTimer >= 1) {
     statsTimer = 0;
-    if (manager.visible('stats')) refreshStatsView();
+    if (!document.hidden && manager.visible('stats')) refreshStatsView();
   }
   if (saveTimer > 5) {
     saveTimer = 0;
     if (playing && !settlePromise) void persist();
   }
-  requestAnimationFrame(frame);
 }
+const pageLoop = new PageLoop(frame, {
+  hidden: () => document.hidden,
+  now: () => performance.now(),
+  frame: (callback) => requestAnimationFrame(callback),
+  cancelFrame: (id) => cancelAnimationFrame(id),
+  timer: (callback, ms) => window.setTimeout(callback, ms),
+  cancelTimer: (id) => clearTimeout(id),
+});
+document.addEventListener('visibilitychange', () => {
+  pageLoop.refresh();
+  if (document.hidden && playing) void persist();
+});
+window.addEventListener('focus', () => pageLoop.refresh());
+window.addEventListener('blur', () => pageLoop.refresh());
+window.addEventListener('pagehide', () => {
+  pageLoop.stop();
+  clock.reset();
+  last = 0;
+  void persist();
+});
+window.addEventListener('pageshow', (event) => {
+  if (event.persisted) {
+    clock.reset();
+    last = 0;
+    pageLoop.start();
+  }
+});
 async function init() {
   let recovery = '';
   await telemetry.init();
@@ -2034,15 +2251,26 @@ async function init() {
   $('loading-screen').remove();
   updateHud();
   if (recovery) openRecovery(recovery);
-  else if (!playing) openLaunch();
+  else if (!playing || data.run?.phase === 'combat') openLaunch();
   else if (data.run?.phase === 'victory') openVictory();
   else if (data.run?.phase === 'ended') openResults();
   else if (data.run?.version === 1 && ['draft', 'shop'].includes(data.run.phase)) {
     paused = false;
     showLegacyRewards(data.run);
   } else notify('Expedition restored. Press Space or tap play when you’re ready.');
-  requestAnimationFrame(frame);
   if (!recovery) entryScreen.open();
+  pageLoop.start();
 }
+for (const eventName of ['click', 'change'])
+  app.addEventListener(
+    eventName,
+    (event) => {
+      if (clock.catchingUp) {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+      }
+    },
+    true,
+  );
 window.addEventListener('online', () => void accountSync.refresh());
 void init();

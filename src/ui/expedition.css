@@ -1,0 +1,326 @@
+.spire-window[data-window='expedition'] .window-body {
+  overflow: hidden;
+  padding: 0;
+  display: flex;
+}
+.launch-panel {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  min-height: 0;
+}
+.launch-scroll {
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding: 22px;
+  flex: 1;
+  min-height: 0;
+}
+.launch-scroll > section {
+  margin: 24px 0;
+}
+.launch-intro,
+.launch-section-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 14px;
+}
+.launch-intro .lead {
+  margin: 0;
+}
+.launch-credit {
+  color: var(--brass);
+  white-space: nowrap;
+  font-size: 16px;
+}
+.launch-section-heading h3 {
+  margin: 0 0 12px;
+}
+.launch-section-heading small {
+  color: #a7b8a7;
+  font-size: 14px;
+}
+.launch-towers {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
+  gap: 8px;
+}
+.launch-tower-option {
+  min-width: 0;
+  padding: 10px 4px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  background: #15251e;
+}
+.launch-tower-option b {
+  font-size: 16px;
+}
+.launch-tower-option small {
+  font-size: 14px;
+  white-space: nowrap;
+}
+.launch-tower-option.selected {
+  border-color: var(--accent);
+  background: #2b3c2b;
+  box-shadow: inset 0 0 18px #bbbc6320;
+}
+.launch-tower-option.locked .tower-mark {
+  opacity: 0.55;
+}
+.tower-mark {
+  display: block;
+  width: 60px;
+  height: 60px;
+  flex: none;
+}
+.launch-core {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  margin-top: 16px;
+  padding: 16px;
+  border-left: 3px solid var(--accent);
+  background: #1c2e24;
+}
+.launch-core .tower-mark {
+  width: 76px;
+  height: 76px;
+}
+.launch-core h3 {
+  margin: 0;
+}
+.launch-core h3 small {
+  display: block;
+  margin-top: 4px;
+  font: 14px var(--font-body, sans-serif);
+  color: #b0bca5;
+}
+.launch-core p {
+  margin: 8px 0 0;
+  font-size: 18px;
+  line-height: 1.5;
+}
+.launch-options {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 14px;
+}
+.launch-options .control-label {
+  margin: 0;
+  min-width: 0;
+}
+.launch-options select {
+  min-width: 0;
+  width: 100%;
+}
+.launch-rune-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.launch-rune-summary p {
+  margin: 0;
+  color: #b4c4b4;
+}
+.launch-rune-summary > span {
+  border: 1px solid #6e7751;
+  padding: 6px 10px;
+  font-size: 16px;
+  border-radius: 3px;
+  background: #243126;
+}
+.launch-rune-summary b {
+  color: #efce87;
+  margin-left: 6px;
+}
+.launch-runes {
+  margin-top: 16px;
+  border: 1px solid #64704d;
+  padding: 12px;
+}
+.launch-runes summary {
+  cursor: pointer;
+  min-height: 44px;
+  align-content: center;
+  font-size: 18px;
+  color: #e0c78e;
+}
+.launch-runes summary > span {
+  float: right;
+  color: #b2c0ae;
+  font-size: 14px;
+}
+.launch-runes > p {
+  font-size: 18px;
+}
+.launch-start {
+  position: static;
+  padding: 16px 22px;
+  margin: 0;
+  border-top: 1px solid #77825b;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  box-shadow: 0 -8px 22px #08181055;
+  flex: none;
+}
+.launch-start strong,
+.launch-start small {
+  display: block;
+}
+.launch-start small {
+  color: #b0c1ad;
+  font-size: 14px;
+  margin-top: 4px;
+}
+.launch-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-left: auto;
+  max-width: 100%;
+}
+.launch-actions > button {
+  white-space: nowrap;
+  min-height: 52px;
+}
+.launch-actions > .outline-button {
+  font-size: 16px;
+}
+.field-tools > .launch-tool,
+.field-tools > .fusion-tool {
+  border-color: #9c895a;
+}
+.field-tools > .launch-tool span,
+.field-tools > .fusion-tool span,
+.field-tools > .launch-tool:hover span,
+.field-tools > .fusion-tool:hover span {
+  max-width: 200px;
+  opacity: 1;
+  margin-left: 0;
+}
+.field-tools > .fusion-ready {
+  border-color: #92ceb3;
+  color: #beeacc;
+  box-shadow: 0 0 16px #7bdeab25;
+}
+.fusion-offers {
+  display: grid;
+  gap: 14px;
+  margin: 18px 0;
+}
+.fusion-offer-card {
+  display: grid;
+  grid-template-columns: 64px 1fr;
+  gap: 14px;
+  padding: 16px;
+  border: 1px solid #7a8a5f;
+  background: #20352a;
+}
+.fusion-offer-card h3 {
+  margin: 0 0 8px;
+}
+.fusion-offer-card p {
+  margin: 0 0 8px;
+  font-size: 18px;
+}
+.fusion-offer-card small {
+  font-size: 14px;
+}
+.fusion-offer-card button {
+  grid-column: 1 / -1;
+}
+.catchup-notice {
+  position: absolute;
+  inset: 0;
+  z-index: 1000;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  text-align: center;
+  background: #091810ed;
+}
+.catchup-notice > div {
+  max-width: 540px;
+  padding: 28px;
+  border: 1px solid #a58f5d;
+  background: #1a2b21;
+}
+.catchup-notice .ui-icon {
+  width: 52px;
+  height: 52px;
+  color: var(--brass);
+}
+.catchup-notice p {
+  font-size: 18px;
+}
+@media (max-width: 850px) {
+  .launch-options {
+    grid-template-columns: 1fr;
+  }
+  .launch-start {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .launch-actions > .gold-button {
+    flex: 1;
+  }
+}
+@media (max-width: 650px) {
+  .launch-scroll {
+    padding: 14px;
+  }
+  .launch-intro {
+    align-items: start;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .launch-section-heading {
+    align-items: start;
+    flex-direction: column;
+    gap: 0;
+    margin-bottom: 10px;
+  }
+  .launch-towers {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .launch-core {
+    padding: 12px;
+    gap: 10px;
+    align-items: start;
+  }
+  .launch-core .tower-mark {
+    width: 44px;
+    height: 44px;
+  }
+  .launch-start {
+    padding: 12px 14px;
+  }
+  .launch-start small {
+    display: none;
+  }
+  .launch-actions {
+    flex-wrap: wrap;
+  }
+  .launch-actions > button {
+    min-height: 48px;
+    font-size: 16px;
+  }
+  .field-tools {
+    max-width: calc(100vw - 20px);
+    flex-wrap: wrap;
+  }
+  .field-tools > .launch-tool span {
+    max-width: 165px;
+  }
+  .field-tools > .fusion-tool span {
+    max-width: 140px;
+  }
+}

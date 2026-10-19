@@ -1,4 +1,4 @@
-import type { SettingsV2, WindowLayout } from './types';
+import type { SettingsV2, WindowLayout } from '../model/arsenal';
 export interface WindowSpec {
   title: string;
   subtitle?: string;

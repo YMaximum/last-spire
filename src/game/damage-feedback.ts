@@ -1,4 +1,4 @@
-import type { DamageEvent } from '../v2/types';
+import type { DamageEvent } from '../model/arsenal';
 
 export type DamageElement = DamageEvent['element'];
 export interface DamageNumber {

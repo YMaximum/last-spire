@@ -8,7 +8,7 @@ import {
   STAGES,
   SYNERGIES,
   TOWERS,
-} from './content';
+} from '../../content/world';
 import {
   applyUpgrade,
   buyUpgrade,
@@ -24,7 +24,7 @@ import {
   TICK,
   useSkill,
 } from './engine';
-import { ArenaRenderer } from './render';
+import { ArenaRenderer } from '../../render/arena';
 import {
   defaultProfile,
   defaultSettings,
@@ -36,7 +36,7 @@ import {
   settleInMemory,
   settleRun,
 } from './storage';
-import type { Element, Profile, RunState, SaveData, Settings, TowerId } from './types';
+import type { Element, Profile, RunState, SaveData, Settings, TowerId } from '../../model/shared';
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 const icons: Record<string, string> = {
   spire: 'M12 2 7 9v11h10V9L12 2ZM5 20h14M10 13h4M12 8v2',

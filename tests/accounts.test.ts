@@ -15,11 +15,11 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { request as httpRequest, type Server } from 'node:http';
 import { OAuth2Client } from 'google-auth-library';
-import { emptySave, parseGame } from '../src/v3/storage';
-import { emptySave as emptyV2 } from '../src/v2/storage';
-import { createRun as legacyRun } from '../src/v2/engine';
-import { createRun } from '../src/v3/engine';
-import { snapshotRunes } from '../src/v3/controls';
+import { emptySave, parseGame } from '../src/persistence/storage';
+import { emptySave as emptyV2 } from '../src/legacy/runeforged/storage';
+import { createRun as legacyRun } from '../src/legacy/runeforged/engine';
+import { createRun } from '../src/game/engine';
+import { snapshotRunes } from '../src/game/controls';
 import { snapshotFromSave, saveFromSnapshot, validateSnapshot } from '../src/account/snapshot';
 import {
   AccountStore,

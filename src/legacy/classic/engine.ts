@@ -1,4 +1,4 @@
-import { recordDamageNumber } from './v3/damage-feedback';
+import { recordDamageNumber } from '../../game/damage-feedback';
 import type {
   Projectile,
   Attack,
@@ -13,7 +13,7 @@ import type {
   Targeting,
   Upgrade,
   Visual,
-} from './types';
+} from '../../model/shared';
 import {
   ELEMENTS,
   ELEMENT_COLORS,
@@ -22,7 +22,7 @@ import {
   STAGES,
   SYNERGIES,
   TOWERS,
-} from './content';
+} from '../../content/world';
 export const CENTER = { x: 500, y: 400 };
 export const TICK = 1 / 30;
 export function random(s: RunState): number {

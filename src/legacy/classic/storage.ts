@@ -12,8 +12,8 @@ import type {
   Settings,
   TowerId,
   Upgrade,
-} from './types';
-import { STAGES } from './content';
+} from '../../model/shared';
+import { STAGES } from '../../content/world';
 
 const DB_NAME = 'last-spire';
 const DB_VERSION = 1;

@@ -1,20 +1,20 @@
 import { describe, expect, it, vi } from 'vitest';
-import { defaultProfile } from '../src/storage';
-import { createRun, dealDamage, spawnEnemy, step, TICK } from '../src/v3/engine';
+import { defaultProfile } from '../src/legacy/classic/storage';
+import { createRun, dealDamage, spawnEnemy, step, TICK } from '../src/game/engine';
 import {
   enableDamageNumbers,
   readDamageNumbers,
   recordDamageNumber,
-} from '../src/v3/damage-feedback';
+} from '../src/game/damage-feedback';
 import {
   DAMAGE_STYLES,
   drawDamageNumbers,
   formatDamage,
   layoutDamageNumbers,
   type NumberView,
-} from '../src/v3/damage-numbers';
-import { emptySave, exportGame, parseGame } from '../src/v3/storage';
-import type { DamageEvent } from '../src/v2/types';
+} from '../src/render/damage-numbers';
+import { emptySave, exportGame, parseGame } from '../src/persistence/storage';
+import type { DamageEvent } from '../src/model/arsenal';
 
 const event = (element: DamageEvent['element'] = 'physical', critical = false): DamageEvent => ({
   rootId: 1,

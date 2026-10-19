@@ -10,9 +10,9 @@ import {
   loadDeviceSettings,
   deleteAccountCache,
   type SaveScope,
-} from '../src/v3/storage';
-import { createRun, rewardForRun } from '../src/v3/engine';
-import { snapshotRunes } from '../src/v3/controls';
+} from '../src/persistence/storage';
+import { createRun, rewardForRun } from '../src/game/engine';
+import { snapshotRunes } from '../src/game/controls';
 import {
   archiveSave,
   fingerprint,

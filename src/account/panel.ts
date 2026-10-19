@@ -1,6 +1,6 @@
 import './style.css';
-import type { WindowManager } from '../v2/windows';
-import { emptySave, exportGame, loadGame, readRawSave, type SaveV3 } from '../v3/storage';
+import type { WindowManager } from '../ui/windows';
+import { emptySave, exportGame, loadGame, readRawSave, type SaveV3 } from '../persistence/storage';
 import { saveFromSnapshot, snapshotFromSave } from './snapshot';
 import { fingerprint, readRecovery } from './cache';
 import { AccountSync, scopeFor, type CheckpointSource } from './sync';

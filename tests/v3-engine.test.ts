@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { defaultProfile } from '../src/storage';
-import * as old from '../src/v2/engine';
-import { CARDS, isDefensiveKind } from '../src/v3/catalog';
+import { defaultProfile } from '../src/legacy/classic/storage';
+import * as old from '../src/legacy/runeforged/engine';
+import { CARDS, isDefensiveKind } from '../src/content/catalog';
 import {
   createRun,
   step,
@@ -21,8 +21,8 @@ import {
   rerollReward,
   continueEndless,
   describeNextThreat,
-} from '../src/v3/engine';
-import type { RunV3 } from '../src/v3/types';
+} from '../src/game/engine';
+import type { RunV3 } from '../src/game/types';
 const fresh = (mode: 'quick' | 'normal' | 'endless' = 'normal') => {
   const s = createRun(defaultProfile(), 'bastion', 0, 0, 542, { mode });
   s.spawnTimer = s.spawnTotal = 999;

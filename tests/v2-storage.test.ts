@@ -1,9 +1,9 @@
 import 'fake-indexeddb/auto';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { createRun as createLegacyRun } from '../src/engine';
-import { defaultProfile, defaultSettings as legacySettings } from '../src/storage';
-import { createRun, spawnEnemy, step, useSkill, rewardForRun } from '../src/v2/engine';
-import { CARDS, WEAPONS } from '../src/v2/catalog';
+import { createRun as createLegacyRun } from '../src/legacy/classic/engine';
+import { defaultProfile, defaultSettings as legacySettings } from '../src/legacy/classic/storage';
+import { createRun, spawnEnemy, step, useSkill, rewardForRun } from '../src/legacy/runeforged/engine';
+import { CARDS, WEAPONS } from '../src/content/base-catalog';
 import {
   defaultSettings,
   emptySave,
@@ -18,9 +18,9 @@ import {
   saveGame,
   settleGame,
   settleInMemory,
-} from '../src/v2/storage';
-import type { SaveData } from '../src/types';
-import type { RunV2, SaveV2 } from '../src/v2/types';
+} from '../src/legacy/runeforged/storage';
+import type { SaveData } from '../src/model/shared';
+import type { RunV2, SaveV2 } from '../src/model/arsenal';
 
 function makeSave(overrides: Partial<RunV2> = {}): SaveV2 {
   const profile = defaultProfile();

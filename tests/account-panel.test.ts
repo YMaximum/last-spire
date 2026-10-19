@@ -1,9 +1,9 @@
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { WindowManager } from '../src/v2/windows';
+import type { WindowManager } from '../src/ui/windows';
 import { AccountPanel, checkpointMarkup } from '../src/account/panel';
 import { AccountSync } from '../src/account/sync';
-import { emptySave } from '../src/v3/storage';
+import { emptySave } from '../src/persistence/storage';
 import { snapshotFromSave } from '../src/account/snapshot';
 import { AccountApi } from '../src/account/api';
 import { renderGoogleButton } from '../src/account/google';

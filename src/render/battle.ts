@@ -1,8 +1,8 @@
-import { ArenaRenderer } from '../render';
-import type { Enemy, RunState as LegacyRun, Settings, TowerId } from '../types';
-import type { AreaEffect, Element, ProjectileV2, RunV2, SettingsV2, VisualV2 } from './types';
-import { FUSIONS, FUSION_BY_ID, WEAPON_BY_ID, type FusionDefinition } from './catalog';
-import { enableDamageNumbers, readDamageNumbers } from './damage-feedback';
+import { ArenaRenderer } from './arena';
+import type { Enemy, RunState as LegacyRun, Settings, TowerId } from '../model/shared';
+import type { AreaEffect, Element, ProjectileV2, RunV2, SettingsV2, VisualV2 } from '../game/types';
+import { FUSIONS, FUSION_BY_ID, WEAPON_BY_ID, type FusionDefinition } from '../content/catalog';
+import { enableDamageNumbers, readDamageNumbers } from '../game/damage-feedback';
 import { drawDamageNumbers } from './damage-numbers';
 
 const W = 1000,

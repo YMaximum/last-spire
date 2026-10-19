@@ -8,7 +8,7 @@ import {
   STAGES,
   SYNERGIES,
   TOWERS,
-} from '../src/content';
+} from '../src/content/world';
 
 describe('content catalog', () => {
   it('covers every pattern, element, and modifier combination exactly once', () => {

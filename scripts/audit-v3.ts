@@ -1,11 +1,11 @@
 /** Reproducible policy audit. Raw observations stay in ignored local output. */
-import * as engine from '../src/v3/engine';
-import { CARDS, TOWERS, isDefensiveKind } from '../src/v3/catalog';
-import { defaultProfile } from '../src/storage';
-import type { CardOffer, RunV2 } from '../src/v2/types';
-import { emptySave, exportGame } from '../src/v3/storage';
-import { defaultAutocastConfig } from '../src/v3/controls';
-import type { RunMode } from '../src/v3/types';
+import * as engine from '../src/game/engine';
+import { CARDS, TOWERS, isDefensiveKind } from '../src/content/catalog';
+import { defaultProfile } from '../src/legacy/classic/storage';
+import type { CardOffer, RunV2 } from '../src/model/arsenal';
+import { emptySave, exportGame } from '../src/persistence/storage';
+import { defaultAutocastConfig } from '../src/game/controls';
+import type { RunMode } from '../src/game/types';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 if (process.argv.includes('--help')) {

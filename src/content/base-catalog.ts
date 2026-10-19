@@ -4,7 +4,7 @@ import type {
   SynergyDefinition,
   Rarity,
   WeaponKind,
-} from './types';
+} from '../model/arsenal';
 
 export const RARITIES: Rarity[] = ['normal', 'rare', 'epic', 'legendary', 'mythic'];
 export const RARITY_COLORS: Record<Rarity, string> = {

@@ -23,7 +23,7 @@ import {
   readRawSave,
   type SaveScope,
   type SaveV3,
-} from '../src/v3/storage';
+} from '../src/persistence/storage';
 
 const CLIENT = '12345678-test.apps.googleusercontent.com',
   ORIGIN = 'http://localhost:5173';

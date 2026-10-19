@@ -1,4 +1,4 @@
-import type { RunV2 } from '../v2/types';
+import type { RunV2 } from '../model/arsenal';
 
 export const MAX_TELEMETRY_RUNS = 30;
 export const MAX_TELEMETRY_BYTES = 30 * 1024 * 1024;

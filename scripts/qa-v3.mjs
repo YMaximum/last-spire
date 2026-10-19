@@ -1,6 +1,6 @@
 /** Explicit synthetic checkpoints, never normal player data. */
 import { mkdirSync, writeFileSync } from 'node:fs';
-import { emptySave, exportGame } from '../src/v3/storage.ts';
+import { emptySave, exportGame } from '../src/persistence/storage.ts';
 import {
   createRun,
   grantXp,
@@ -8,8 +8,8 @@ import {
   advanceMastery,
   fuseCores,
   spawnEnemy,
-} from '../src/v3/engine.ts';
-import { CARDS } from '../src/v3/catalog.ts';
+} from '../src/game/engine.ts';
+import { CARDS } from '../src/content/catalog.ts';
 const make = (mode = 'normal', tower = 'monolith') => {
   const save = emptySave();
   save.profile.tutorialDone = true;

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { RECIPES, SYNERGIES } from '../src/content';
+import { RECIPES, SYNERGIES } from '../src/content/world';
 import {
   activeSynergies,
   applyUpgrade,
@@ -17,9 +17,9 @@ import {
   syncSynergies,
   TICK,
   useSkill,
-} from '../src/engine';
-import { defaultProfile } from '../src/storage';
-import type { Attack, Element, Enemy, RunState, Upgrade } from '../src/types';
+} from '../src/legacy/classic/engine';
+import { defaultProfile } from '../src/legacy/classic/storage';
+import type { Attack, Element, Enemy, RunState, Upgrade } from '../src/model/shared';
 
 const run = (seed = 1729) => createRun(defaultProfile(), 'bastion', 0, 0, seed);
 function target(id = 900, x = 650, y = 400): Enemy {

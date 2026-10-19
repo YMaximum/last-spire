@@ -1,6 +1,6 @@
-import type { RunV2 } from '../v2/types';
+import type { RunV2 } from '../model/arsenal';
 import type { RuneId } from './controls';
-export type * from '../v2/types';
+export type * from '../model/arsenal';
 export type RunMode = 'quick' | 'normal' | 'endless';
 export interface RunV3 extends RunV2 {
   rulesVersion: 3;

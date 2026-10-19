@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { defaultProfile } from '../src/storage';
-import { CARDS, SYNERGIES, WEAPONS } from '../src/v2/catalog';
-import { createRun, acquireCard, activeSynergies, getWeaponStats, effectPower, spawnEnemy, step, dealDamage, takeDamage, useSkill, chooseReward, buyOffer, rerollReward, repair, continueEndless, rewardForRun, retire, previewCard, TICK } from '../src/v2/engine';
-import type { RunV2, CardOffer } from '../src/v2/types';
+import { defaultProfile } from '../src/legacy/classic/storage';
+import { CARDS, SYNERGIES, WEAPONS } from '../src/content/base-catalog';
+import { createRun, acquireCard, activeSynergies, getWeaponStats, effectPower, spawnEnemy, step, dealDamage, takeDamage, useSkill, chooseReward, buyOffer, rerollReward, repair, continueEndless, rewardForRun, retire, previewCard, TICK } from '../src/legacy/runeforged/engine';
+import type { RunV2, CardOffer } from '../src/model/arsenal';
 const offer=(cardId:string):CardOffer=>({id:cardId,cardId,rarity:'normal',price:42});
 const fresh=()=>createRun(defaultProfile(),'bastion',0,0,1783);
 const grant=(s:RunV2,id:string)=>acquireCard(s,offer(id),CARDS.find(c=>c.id===id)?.group==='infusion'?s.weapons[0].id:undefined);

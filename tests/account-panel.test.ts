@@ -89,6 +89,23 @@ function choices(s: ReturnType<typeof setup>) {
   };
 }
 describe('account and checkpoint interface', () => {
+  it('enables an explicit retry after a rejected active-account upload, but not while busy', () => {
+    const s = setup();
+    choices(s);
+    vi.spyOn(s.sync, 'active', 'get').mockReturnValue(true);
+    const retry = vi.spyOn(s.sync, 'sync').mockResolvedValue();
+    s.sync.view.phase = 'error';
+    s.sync.view.message = 'Cloud rejected the checkpoint. Retry after the service update.';
+    s.panel.open();
+    const button = document.querySelector<HTMLButtonElement>('#account-sync')!;
+    expect(button.disabled).toBe(false);
+    button.click();
+    expect(retry).toHaveBeenCalledTimes(1);
+    s.sync.view.busy = true;
+    s.panel.update();
+    expect(document.querySelector<HTMLButtonElement>('#account-sync')!.disabled).toBe(true);
+  });
+
   it('keeps guest play clear and leaves Google unloaded during background updates', () => {
     const s = setup();
     s.panel.update();

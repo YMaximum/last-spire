@@ -311,6 +311,50 @@ describe('Google account / cloud checkpoint flow', () => {
     expect((await c.api.bootstrap()).player).toBeNull();
   });
 });
+describe('recovery from a rejected first checkpoint', () => {
+  it('retries a rejected checkpoint after the service is repaired without choosing progress again', async () => {
+    const { c, h, sync } = await signedIn();
+    h.save().profile.credits = 125;
+    const write = vi
+      .spyOn(c.api, 'write')
+      .mockRejectedValueOnce(new SyncError('invalid_checkpoint', 400));
+    await sync.choose('guest');
+    expect(sync.active).toBe(true);
+    expect(sync.view.phase).toBe('error');
+    expect(sync.view.message).toContain('matching cloud service update');
+    expect(h.save().profile.credits).toBe(125);
+    expect((await c.api.read()).snapshot).toBeNull();
+    await sync.sync();
+    expect(write).toHaveBeenCalledTimes(2);
+    expect(sync.view.phase).toBe('synced');
+    expect((await c.api.read()).snapshot?.profile.credits).toBe(125);
+    expect(h.save().profile.credits).toBe(125);
+  });
+  it('resumes the reviewed local branch after reload while the cloud remains empty', async () => {
+    const values = new Map<string, string>();
+    vi.stubGlobal('sessionStorage', {
+      getItem: (key: string) => values.get(key) ?? null,
+      setItem: (key: string, value: string) => values.set(key, value),
+      removeItem: (key: string) => values.delete(key),
+    });
+    const { c, h, sync } = await signedIn();
+    h.save().profile.credits = 87;
+    vi.spyOn(c.api, 'write').mockRejectedValueOnce(new SyncError('invalid_checkpoint', 400));
+    await sync.choose('guest');
+    expect(sync.view.phase).toBe('error');
+    sync.dispose();
+    const nextHost = host();
+    const resumed = new AccountSync(nextHost, c.api, async () => () => {});
+    controllers.push(resumed);
+    await resumed.initialize();
+    expect(resumed.view.phase).toBe('local');
+    expect(nextHost.save().profile.credits).toBe(87);
+    await resumed.sync();
+    expect(resumed.view.phase).toBe('synced');
+    expect((await c.api.read()).snapshot?.profile.credits).toBe(87);
+  });
+});
+
 describe('browser transport rejects unsafe or invalid responses', () => {
   it('does not call the browser’s native fetch with an AccountApi receiver', async () => {
     let receiver: unknown;

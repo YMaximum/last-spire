@@ -5,6 +5,8 @@ export interface LoopEnvironment {
   cancelFrame: (id: number) => void;
   timer: (callback: () => void, ms: number) => number;
   cancelTimer: (id: number) => void;
+  /** Resume bounded work sooner when a hidden callback could not drain its debt. */
+  catchingUp?: () => boolean;
 }
 
 /** Owns exactly one callback: animation frames in view, low-frequency work hidden. */
@@ -49,7 +51,8 @@ export class PageLoop {
 
   private schedule() {
     if (!this.running) return;
-    if (this.env.hidden()) this.timerId = this.env.timer(() => this.refresh(), 1000);
+    if (this.env.hidden())
+      this.timerId = this.env.timer(() => this.refresh(), this.env.catchingUp?.() ? 16 : 1000);
     else this.frameId = this.env.frame(() => this.refresh());
   }
 }

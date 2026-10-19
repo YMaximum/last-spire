@@ -72,7 +72,7 @@ export class AccountPanel {
       active = this.sync.active;
     const busy = view.busy ? 'disabled' : '';
     const syncDisabled =
-      view.busy || !['synced', 'local', 'offline'].includes(view.phase) ? 'disabled' : '';
+      view.busy || !['synced', 'local', 'offline', 'error'].includes(view.phase) ? 'disabled' : '';
     const needsSignIn = !view.player || view.phase === 'reauth';
     const previousGoogle = this.manager
       .element('account')

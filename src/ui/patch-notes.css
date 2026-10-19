@@ -1,0 +1,52 @@
+.patch-notes {
+  font-size: 18px;
+  line-height: 1.6;
+}
+.patch-entry {
+  margin: 18px 0;
+  border: 1px solid #716448;
+  background: #17271f;
+}
+.patch-entry summary {
+  padding: 18px;
+  cursor: pointer;
+  min-height: 44px;
+}
+.patch-entry summary:focus-visible {
+  outline: 2px solid #ecd28e;
+  outline-offset: -3px;
+}
+.patch-entry summary > span,
+.patch-entry summary > strong {
+  display: block;
+}
+.patch-entry summary > strong {
+  color: #f1d79b;
+  font-size: 22px;
+  margin: 4px 0;
+}
+.patch-entry .patch-kicker {
+  color: #c2b78e;
+  font-size: 14px;
+  letter-spacing: 0.08em;
+}
+.patch-entry li {
+  padding-left: 2px;
+  margin: 12px 0;
+}
+.patch-entry ul {
+  padding: 0 24px 0 38px;
+}
+.patch-compatibility {
+  margin: 18px;
+  padding-top: 14px;
+  border-top: 1px solid #655e46;
+  font-size: 16px;
+}
+.patch-compatibility strong {
+  color: #c9dec7;
+}
+.launch-news {
+  margin-top: 14px;
+  min-height: 44px;
+}

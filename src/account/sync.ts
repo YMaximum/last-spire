@@ -63,6 +63,9 @@ export async function compareCheckpoint(
   remote: CloudCheckpoint,
 ): Promise<'equal' | 'local' | 'cloud' | 'conflict'> {
   if (!base || base.generation !== remote.generation) return 'conflict';
+  // A reviewed, still-empty cloud has no branch to overwrite. Keep first-upload
+  // retries available after a rejection, including after a page reload.
+  if (remote.snapshot === null && remote.revision === 0 && base.revision === 0) return 'local';
   const localHash = await fingerprint(local),
     remoteHash = remote.snapshot ? await fingerprint(remote.snapshot) : '';
   if (localHash === remoteHash) return 'equal';
@@ -71,6 +74,10 @@ export async function compareCheckpoint(
   return 'conflict';
 }
 const messages: Record<string, string> = {
+  invalid_checkpoint:
+    'The cloud service rejected this save format or its contents. Your device progress is kept. A newer game may need its matching cloud service update; after that, use Sync now to retry.',
+  payload_too_large:
+    'This checkpoint exceeds the cloud save limit. Your device progress is kept; export a backup before continuing.',
   update_required:
     'This cloud checkpoint uses a newer save format. Update or reload Last Spire before syncing. Your local checkpoint is kept.',
   offline:
@@ -414,7 +421,7 @@ export class AccountSync {
     }
   }
   async sync() {
-    if (!this.active || !['synced', 'local', 'offline'].includes(this.view.phase)) return;
+    if (!this.active || !['synced', 'local', 'offline', 'error'].includes(this.view.phase)) return;
     await this.operation(async () => {
       await this.host.persist();
       await this.verifyOwner();

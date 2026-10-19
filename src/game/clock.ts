@@ -46,6 +46,15 @@ export class SimulationClock {
     return this.debt + 1e-9 >= this.tick;
   }
 
+  /** Simulation debt is work to retain, not a reason to block player input. */
+  get pendingSeconds() {
+    return this.debt;
+  }
+
+  get backgroundCatchup() {
+    return this.backgroundDebt && this.catchingUp;
+  }
+
   reset(now?: number) {
     this.last = now;
     this.debt = 0;

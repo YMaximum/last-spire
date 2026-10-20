@@ -4,6 +4,7 @@ export type * from '../model/arsenal';
 export type RunMode = 'quick' | 'normal' | 'endless';
 export interface RunV3 extends RunV2 {
   rulesVersion: 3;
+  leaderboard?: import('../model/leaderboard').RunLeaderboard;
   evolution?: import('../model/evolution').EvolutionState;
   /** Absent on recovered runs, whose original 30% repair remains unchanged. */
   shopVersion?: 2;
@@ -19,6 +20,7 @@ export interface RunV3 extends RunV2 {
   runeSnapshot: Record<RuneId, number>;
 }
 export interface RunOptions {
+  leaderboard?: boolean;
   evolutionVersion?: 0 | 1;
   encounterVersion?: 1 | 2;
   arsenalVersion?: 1 | 2;

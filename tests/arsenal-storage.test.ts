@@ -1,3 +1,4 @@
+import { historicalCheckpoint } from './historical-checkpoint';
 import 'fake-indexeddb/auto';
 import { beforeEach, describe, expect, it } from 'vitest';
 import {
@@ -80,7 +81,7 @@ describe('expanded arsenal save compatibility', () => {
     run.counters['arsenal:absorption'] = 4.5;
     run.counters['arsenal:crossfire'] = 3;
     const restored = parseGame(exportGame(save));
-    expect(restored.version).toBe(7);
+    expect(restored.version).toBe(8);
     expect(restored.run).toEqual(run);
     expect(saveFromSnapshot(snapshotFromSave(save), save.settings)).toEqual(restored);
     run.counters['arsenal:absorption'] = Infinity;
@@ -157,9 +158,10 @@ describe('expanded arsenal save compatibility', () => {
     save.profile.credits = 191;
     save.profile.unlocked.push('monolith');
     save.progression.bestiary.swarmer = { encountered: 5, defeated: 3 };
+    historicalCheckpoint(save);
     const old = { ...save, version: 5 };
     const migrated = parseGame(old);
-    expect(migrated).toEqual({ ...old, version: 7 });
+    expect(migrated).toEqual({ ...old, version: 8, progression: { ...old.progression, leaderboardResults: [] } });
     const resumed = migrated.run as RunV3;
     expect(resumed).not.toHaveProperty('arsenalVersion');
     for (let i = 0; i < 180; i++) {
@@ -177,7 +179,8 @@ describe('expanded arsenal save compatibility', () => {
       save.profile.credits = 81;
       run.earned = 47;
       retire(run);
-      const old = { ...save, version: 5 };
+      historicalCheckpoint(save);
+    const old = { ...save, version: 5 };
       await rawPut(old, scope);
       const migrated = await loadGame(scope);
       expect(await readRawSave(scope)).toEqual(old);

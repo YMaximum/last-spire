@@ -55,6 +55,7 @@ export function launchMarkup(
         ? 'Review victory'
         : 'Resume expedition';
   return `<div class="launch-panel"><div class="launch-scroll"><div class="launch-intro"><p class="lead">Choose a heart. Forge your expedition.</p><span class="launch-credit">${save.profile.credits.toLocaleString()} credits</span></div>
+    <button id="launch-leaderboard" class="outline-button launch-news">Endless rankings</button>
     <button id="launch-patch-notes" class="outline-button launch-news">What’s new · patch notes</button>
     <section aria-label="Choose tower"><div class="launch-section-heading"><h3>Your spire</h3><small>${playing ? 'Run loadout locked' : 'Seven engines · one starting core'}</small></div><div class="launch-towers">${TOWERS.map(
       (t) => {

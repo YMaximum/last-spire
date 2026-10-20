@@ -1,3 +1,4 @@
+import { historicalCheckpoint } from './historical-checkpoint';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { randomUUID, generateKeyPairSync, sign } from 'node:crypto';
 import {
@@ -196,7 +197,7 @@ describe('persistent account checkpoints', () => {
     const writeId = randomUUID();
     const saved = write(actor.player.id, 0, lease.leaseToken, snapshot, writeId);
     const { stages: _, bestiary: __, ...oldProgression } = snapshot.progression;
-    const oldClient = { ...snapshot, version: 3, progression: oldProgression };
+    const oldClient = historicalCheckpoint(structuredClone({ ...snapshot, version: 3, progression: oldProgression }));
     expect(() =>
       store.write(actor.player.id, store.generation, 1, lease.leaseToken, randomUUID(), oldClient),
     ).toThrow('update_required');
@@ -214,6 +215,7 @@ describe('persistent account checkpoints', () => {
     const snapshot = snapshotFromSave(save);
     write(actor.player.id, 0, lease.leaseToken, snapshot);
     const old = structuredClone(snapshot) as Record<string, any>;
+    historicalCheckpoint(old);
     old.version = 4;
     delete old.progression.bestiary;
     if (old.run) {
@@ -239,6 +241,7 @@ describe('persistent account checkpoints', () => {
     const writeId = randomUUID();
     const saved = write(actor.player.id, 0, lease.leaseToken, snapshot, writeId);
     const old = structuredClone(snapshot) as Record<string, any>;
+    historicalCheckpoint(old);
     old.version = 5;
     delete old.run.arsenalVersion;
     old.run.cards = [];
@@ -260,6 +263,7 @@ describe('persistent account checkpoints', () => {
     const writeId = randomUUID();
     const saved = write(actor.player.id, 0, lease.leaseToken, snapshot, writeId);
     const old = structuredClone(snapshot) as Record<string, any>;
+    historicalCheckpoint(old);
     old.version = 6;
     delete old.run.evolution;
     expect(() =>
@@ -268,7 +272,7 @@ describe('persistent account checkpoints', () => {
     expect(() =>
       store.write(actor.player.id, store.generation, 1, lease.leaseToken, randomUUID(), {
         ...snapshot,
-        version: 8,
+        version: 9,
       }),
     ).toThrow('invalid_checkpoint');
     expect(write(actor.player.id, 0, lease.leaseToken, snapshot, writeId)).toEqual(saved);
@@ -279,13 +283,13 @@ describe('persistent account checkpoints', () => {
     const actor = login();
     const lease = store.acquireLease(actor.player.id, store.generation, 0, false);
     const snapshot = snapshotFromSave(activeSave());
-    const old = { ...snapshot, version: 6 };
+    const old = { ...historicalCheckpoint(structuredClone(snapshot)), version: 6 };
     write(actor.player.id, 0, lease.leaseToken, snapshot);
     store.db
       .prepare('UPDATE saves SET payload=? WHERE userId=?')
       .run(JSON.stringify(old), actor.player.id);
     const migrated = store.read(actor.player.id).snapshot!;
-    expect(migrated).toEqual({ ...old, version: 7 });
+    expect(migrated).toEqual({ ...old, version: 8, progression: { ...old.progression, leaderboardResults: [] } });
     expect(migrated.run).not.toHaveProperty('evolution');
     write(actor.player.id, 1, lease.leaseToken, migrated);
     const history = store.db
@@ -301,13 +305,13 @@ describe('persistent account checkpoints', () => {
     save.profile.credits = 294;
     save.progression.bestiary.swarmer = { encountered: 8, defeated: 5 };
     const snapshot = snapshotFromSave(save);
-    const old = { ...snapshot, version: 5 };
+    const old = { ...historicalCheckpoint(structuredClone(snapshot)), version: 5 };
     write(actor.player.id, 0, lease.leaseToken, snapshot);
     store.db
       .prepare('UPDATE saves SET payload=? WHERE userId=?')
       .run(JSON.stringify(old), actor.player.id);
     const migrated = store.read(actor.player.id).snapshot!;
-    expect(migrated).toEqual({ ...old, version: 7 });
+    expect(migrated).toEqual({ ...old, version: 8, progression: { ...old.progression, leaderboardResults: [] } });
     expect(migrated.run).not.toHaveProperty('arsenalVersion');
     write(actor.player.id, 1, lease.leaseToken, migrated);
     const history = store.db
@@ -323,14 +327,15 @@ describe('persistent account checkpoints', () => {
     save.profile.stageUnlocked = 2;
     save.profile.difficultyUnlocked = 3;
     const snapshot = snapshotFromSave(save);
-    const { stages: _, bestiary: __, ...progression } = snapshot.progression;
-    const old = { ...snapshot, version: 3, progression };
+    const historical = historicalCheckpoint(structuredClone(snapshot));
+    const { stages: _, bestiary: __, ...progression } = historical.progression;
+    const old = { ...historical, version: 3, progression };
     write(actor.player.id, 0, lease.leaseToken, snapshot);
     store.db
       .prepare('UPDATE saves SET payload=? WHERE userId=?')
       .run(JSON.stringify(old), actor.player.id);
     const migrated = store.read(actor.player.id).snapshot!;
-    expect(migrated.version).toBe(7);
+    expect(migrated.version).toBe(8);
     expect(migrated.progression.stages.map((s) => s.unlockedDifficulty)).toEqual([3, 3, 0]);
     expect(migrated.run).toEqual(old.run);
     write(actor.player.id, 1, lease.leaseToken, migrated);

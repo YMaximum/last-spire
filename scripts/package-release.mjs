@@ -65,7 +65,7 @@ try {
       runId: release.runId,
       runAttempt: release.runAttempt,
       protocol: 1,
-      database: 1,
+      database: 2,
       node: 22,
     }) + '\n',
   );

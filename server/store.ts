@@ -16,6 +16,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { MAX_CLOUD_BYTES, validateSnapshot, type CloudSnapshot } from '../src/account/snapshot';
 import { ApiError, requireApi } from './errors';
 import type { GoogleIdentity } from './identity';
+import { LeaderboardStore } from './leaderboard';
 
 export const SESSION_MS = 30 * 24 * 60 * 60 * 1000;
 export const LOGIN_MS = 10 * 60 * 1000;
@@ -91,6 +92,7 @@ export function privateFile(path: string): void {
 
 export class AccountStore {
   readonly db: DatabaseSync;
+  readonly leaderboard: LeaderboardStore;
   readonly directory: string;
   readonly path: string;
   readonly deletionJournal: string;
@@ -143,7 +145,11 @@ export class AccountStore {
     this.db = new DatabaseSync(this.path);
     try {
       const version = Number(this.db.prepare('PRAGMA user_version').get()!.user_version);
-      requireApi(version === 0 || version === 1, 503, 'unsupported_database_version');
+      requireApi(
+        version === 0 || version === 1 || version === 2,
+        503,
+        'unsupported_database_version',
+      );
       if (version === 0) {
         const tables = Number(
           this.db.prepare("SELECT count(*) AS n FROM sqlite_master WHERE type='table'").get()!.n,
@@ -168,6 +174,8 @@ export class AccountStore {
       this.db.exec(`PRAGMA foreign_keys=ON; PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL;
         PRAGMA busy_timeout=1500; PRAGMA trusted_schema=OFF; PRAGMA secure_delete=ON;
         PRAGMA max_page_count=${Math.floor(MAX_DATABASE_BYTES / Number(this.db.prepare('PRAGMA page_size').get()!.page_size))};`);
+      this.leaderboard = new LeaderboardStore(this.db, () => this.ensureSpace());
+      if (version < 2) this.leaderboard.migrate();
       // SQLite sidecars inherit the database's private permissions; verify any already present.
       for (const suffix of ['-wal', '-shm'])
         if (existsSync(this.path + suffix)) privateFile(this.path + suffix);
@@ -390,6 +398,7 @@ export class AccountStore {
         .run(userId, userId);
       const updatedAt = this.now(),
         revision = row.revision + 1;
+      this.leaderboard.retain(userId, snapshot);
       this.db
         .prepare(
           'UPDATE saves SET revision=?,payload=?,updatedAt=?,leaseExpiresAt=?,writeId=?,payloadHash=? WHERE userId=?',

@@ -1,3 +1,8 @@
+import './leaderboard.css';
+import { LeaderboardPanel } from './leaderboard-panel';
+import { LeaderboardClient } from '../account/leaderboard';
+import { AccountApi, SyncError } from '../account/api';
+import { deriveLeaderboardResult } from '../model/leaderboard';
 import './patch-notes.css';
 import { openPatchNotes } from './patch-notes';
 import './evolution.css';
@@ -122,6 +127,7 @@ import {
   parseGame,
   readLegacyBackup,
   readRawSave,
+  disqualifyImportedLeaderboard,
   SaveError,
 } from '../persistence/storage';
 import type {
@@ -215,6 +221,42 @@ const accountPanel = new AccountPanel(accountSync, manager, download, () => {
   paused = true;
   updateHud();
 });
+const publicLeaderboardApi = new AccountApi();
+const leaderboardPanel = new LeaderboardPanel(
+  manager,
+  new LeaderboardClient({
+    request: (path, method, body) => {
+      if (!accountSync.active) return publicLeaderboardApi.request(path, method, body);
+      if (accountSync.api.session?.player?.id !== accountSync.view.player!.id)
+        throw new SyncError('session_changed');
+      return accountSync.api.request(path, method, body);
+    },
+  }),
+  {
+    save: () => data,
+    identity: () => (accountSync.active ? accountSync.view.player!.id : null),
+    account: () => accountPanel.open(),
+    prepare: async () => {
+      const actor = accountSync.active ? accountSync.view.player!.id : null;
+      const epoch = contextEpoch;
+      if (!actor) throw new SyncError('unauthenticated');
+      if (data.run?.phase === 'ended') await settle();
+      if (
+        contextChanging ||
+        epoch !== contextEpoch ||
+        !accountSync.active ||
+        accountSync.view.player?.id !== actor
+      )
+        throw new SyncError('session_changed');
+      await persist();
+      if (storageFailed || blocked) throw new SyncError('storage_unavailable');
+      await accountSync.sync();
+      if (epoch !== contextEpoch || !accountSync.active || accountSync.view.player?.id !== actor)
+        throw new SyncError('session_changed');
+      if (accountSync.view.phase !== 'synced') throw new SyncError('checkpoint_not_synced');
+    },
+  },
+);
 const entryScreen = new EntryScreen({
   session: () => accountSync.api.bootstrap(),
   remembered: rememberedPlayer,
@@ -381,7 +423,10 @@ async function activateSave(incoming: SaveV3, target: SaveScope, explicitImport 
         );
       await saveGame(data, false, saveScope);
     }
-    const next = parseGame({ ...incoming, settings: data.settings });
+    const next = parseGame({
+      ...(explicitImport ? disqualifyImportedLeaderboard(incoming) : incoming),
+      settings: data.settings,
+    });
     await saveGame(next, true, target);
     ++contextEpoch;
     saveScope = target;
@@ -651,7 +696,10 @@ function openLaunch() {
     ),
   );
   const panel = manager.element('expedition')!;
-  panel.querySelector<HTMLButtonElement>('#launch-patch-notes')!.onclick = () => openPatchNotes(manager);
+  panel.querySelector<HTMLButtonElement>('#launch-leaderboard')!.onclick = () =>
+    leaderboardPanel.open();
+  panel.querySelector<HTMLButtonElement>('#launch-patch-notes')!.onclick = () =>
+    openPatchNotes(manager);
   panel.querySelector('.launch-scroll')!.scrollTop = scrollTop;
   panel.querySelector<HTMLDetailsElement>('.launch-runes')!.open = expanded;
   panel.querySelectorAll<HTMLButtonElement>('[data-launch-tower]').forEach((button) => {
@@ -764,7 +812,7 @@ function openMenu() {
       width: 410,
       height: 500,
     },
-    `<div class="menu-list">${!playing ? '<button id="menu-launch">Prepare expedition</button>' : ''}<button id="menu-arsenal">${glyph('tower')} Arsenal & synergies</button><button id="menu-evolution" class="outline-button full">${glyph('tower')} Tower evolution</button><button id="menu-codex">${glyph('book')} Field codex</button><button id="menu-hangar">${glyph('shield')} Tower hangar</button><button id="menu-settings">${glyph('gear')} Settings & saves</button><button id="menu-account">${glyph('shield')} Account & cloud saves</button><button id="menu-patch-notes">${glyph('book')} What’s new · patch notes</button><button id="menu-help">How to play</button>${playing ? '<button id="menu-retire" class="danger-text">Retire & collect rewards</button>' : ''}</div><p class="quiet">${playing ? 'Combat continues behind information windows. Use Space to pause.' : 'Original arcane machines. Endless possibilities.'}</p>`,
+    `<div class="menu-list">${!playing ? '<button id="menu-launch">Prepare expedition</button>' : ''}<button id="menu-arsenal">${glyph('tower')} Arsenal & synergies</button><button id="menu-evolution" class="outline-button full">${glyph('tower')} Tower evolution</button><button id="menu-codex">${glyph('book')} Field codex</button><button id="menu-hangar">${glyph('shield')} Tower hangar</button><button id="menu-settings">${glyph('gear')} Settings & saves</button><button id="menu-account">${glyph('shield')} Account & cloud saves</button><button id="menu-leaderboard">${glyph('stats')} Endless rankings</button><button id="menu-patch-notes">${glyph('book')} What’s new · patch notes</button><button id="menu-help">How to play</button>${playing ? '<button id="menu-retire" class="danger-text">Retire & collect rewards</button>' : ''}</div><p class="quiet">${playing ? 'Combat continues behind information windows. Use Space to pause.' : 'Original arcane machines. Endless possibilities.'}</p>`,
   );
   $('menu-launch')?.addEventListener('click', () => {
     manager.close('menu');
@@ -776,6 +824,7 @@ function openMenu() {
   $('menu-hangar').onclick = openHangar;
   $('menu-settings').onclick = openSettings;
   $('menu-account').onclick = () => accountPanel.open();
+  $('menu-leaderboard').onclick = () => leaderboardPanel.open();
   $('menu-patch-notes').onclick = () => openPatchNotes(manager);
   $('menu-help').onclick = openHelp;
   $('menu-retire')?.addEventListener('click', () => openRetire());
@@ -2065,7 +2114,7 @@ function showImportReview(incoming: SaveV3, name: string) {
       height: 450,
       choice: true,
     },
-    `<p class="lead">${esc(name)}</p><div class="ledger-grid"><div><small>Credits</small><b>${incoming.profile.credits}</b></div><div><small>Towers</small><b>${incoming.profile.unlocked.length}/${TOWERS.length}</b></div><div><small>Best wave</small><b>${incoming.profile.bestWave}</b></div><div><small>Active run</small><b>${incoming.run ? `Wave ${incoming.run.wave}` : 'None'}</b></div></div><p>This replaces only the active ${saveScope === 'guest' ? 'guest' : 'account'} progress. Export your current save first if you want to keep both. Account imports are reviewed against the cloud before upload.</p><div class="result-actions"><button id="cancel-import" class="outline-button">Cancel</button><button id="confirm-import" class="gold-button">Restore this save</button></div>`,
+    `<p class="lead">${esc(name)}</p><div class="ledger-grid"><div><small>Credits</small><b>${incoming.profile.credits}</b></div><div><small>Towers</small><b>${incoming.profile.unlocked.length}/${TOWERS.length}</b></div><div><small>Best wave</small><b>${incoming.profile.bestWave}</b></div><div><small>Active run</small><b>${incoming.run ? `Wave ${incoming.run.wave}` : 'None'}</b></div></div><p>This replaces only the active ${saveScope === 'guest' ? 'guest' : 'account'} progress. Export your current save first if you want to keep both. Account imports are reviewed against the cloud before upload. Imported runs and historical results remain personal and cannot publish Endless scores.</p><div class="result-actions"><button id="cancel-import" class="outline-button">Cancel</button><button id="confirm-import" class="gold-button">Restore this save</button></div>`,
   );
   $('cancel-import').onclick = () => manager.close('import');
   $('confirm-import').onclick = async () => {
@@ -2200,8 +2249,9 @@ function openResults(startSettlement = true) {
       height: 650,
       choice: true,
     },
-    `<div class="result-stats"><div><b>${s.wave}</b><span>Wave reached</span></div><div><b>${s.kills.toLocaleString()}</b><span>Defeated</span></div><div><b>+${isV2(s) ? rewardForRun(s) : s.earned}</b><span>${s.settled ? (storageFailed ? 'Credits kept in memory' : 'Credits secured') : 'Securing credits…'}</span></div></div><p class="lead">${synergies.length ? `Your awakened machinery: ${esc(synergies.join(' · '))}.` : 'A focused build, a defensive reaction, or a different weapon may change the next expedition.'}</p>${isV2(s) ? `<div class="ledger-grid"><div><small>Shop purchases</small><b>${s.stats.shopPurchases}</b></div><div><small>Scrap spent</small><b>${s.stats.spent}</b></div><div><small>Combat time</small><b>${Math.floor(s.time / 60)}m ${Math.floor(s.time % 60)}s</b></div><div><small>Passive synergies</small><b>${s.synergies.length}</b></div>${modern(s) ? `<div><small>Mastered fusions</small><b>${forged.length}</b></div><div><small>Tower level</small><b>${s.level}</b></div>` : ''}</div>` : ''}<p class="notice">${s.cleared ? `${STAGES[s.stage].name} · ${difficultyName(s.difficulty)} clear secured. Other stages keep their own difficulty access.` : 'Credits can awaken another tower or improve your permanent runes.'}${storageFailed ? ' Export a backup before closing this tab.' : ''}</p>${nextTower ? `<p class="notice">Next awakening: ${nextTower.name} · ${nextTower.cost} credits. ${availableCredits >= nextTower.cost ? 'You can awaken it in the hangar.' : `${nextTower.cost - availableCredits} credits to go.`}</p>` : ''}<div class="result-actions"><button id="result-ledger" class="outline-button">Damage ledger</button><button id="result-export" class="outline-button">Export save</button><button id="return-spire" class="gold-button">Return to the spire ${glyph('arrow')}</button></div>`,
+    `<div class="result-stats"><div><b>${s.wave}</b><span>Wave reached</span></div><div><b>${s.kills.toLocaleString()}</b><span>Defeated</span></div><div><b>+${isV2(s) ? rewardForRun(s) : s.earned}</b><span>${s.settled ? (storageFailed ? 'Credits kept in memory' : 'Credits secured') : 'Securing credits…'}</span></div></div><p class="lead">${synergies.length ? `Your awakened machinery: ${esc(synergies.join(' · '))}.` : 'A focused build, a defensive reaction, or a different weapon may change the next expedition.'}</p>${isV2(s) ? `<div class="ledger-grid"><div><small>Shop purchases</small><b>${s.stats.shopPurchases}</b></div><div><small>Scrap spent</small><b>${s.stats.spent}</b></div><div><small>Combat time</small><b>${Math.floor(s.time / 60)}m ${Math.floor(s.time % 60)}s</b></div><div><small>Passive synergies</small><b>${s.synergies.length}</b></div>${modern(s) ? `<div><small>Mastered fusions</small><b>${forged.length}</b></div><div><small>Tower level</small><b>${s.level}</b></div>` : ''}</div>` : ''}<p class="notice">${s.cleared ? `${STAGES[s.stage].name} · ${difficultyName(s.difficulty)} clear secured. Other stages keep their own difficulty access.` : 'Credits can awaken another tower or improve your permanent runes.'}${storageFailed ? ' Export a backup before closing this tab.' : ''}</p>${nextTower ? `<p class="notice">Next awakening: ${nextTower.name} · ${nextTower.cost} credits. ${availableCredits >= nextTower.cost ? 'You can awaken it in the hangar.' : `${nextTower.cost - availableCredits} credits to go.`}</p>` : ''}${isV2(s) && s.endless ? `<button id="result-leaderboard" class="outline-button full">${deriveLeaderboardResult(s) ? 'Review Endless score · optional publication' : 'Endless rankings & personal results'}</button>` : ''}<div class="result-actions"><button id="result-ledger" class="outline-button">Damage ledger</button><button id="result-export" class="outline-button">Export save</button><button id="return-spire" class="gold-button">Return to the spire ${glyph('arrow')}</button></div>`,
   );
+  $('result-leaderboard')?.addEventListener('click', () => leaderboardPanel.open(s.id));
   $('result-export').onclick = downloadCurrent;
   $('result-ledger').onclick = openStats;
   $('return-spire').onclick = async () => {

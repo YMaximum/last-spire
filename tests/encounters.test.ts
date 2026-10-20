@@ -1,3 +1,4 @@
+import { historicalCheckpoint } from './historical-checkpoint';
 import 'fake-indexeddb/auto';
 import { describe, it, expect } from 'vitest';
 import {
@@ -363,10 +364,11 @@ describe('encounter save compatibility and discovery settlement', () => {
     });
     const save = checkpoint(run);
     const old = JSON.parse(exportGame(save));
+    historicalCheckpoint(old);
     old.version = 4;
     delete old.progression.bestiary;
     const migrated = parseGame(old);
-    expect(migrated.version).toBe(7);
+    expect(migrated.version).toBe(8);
     expect(migrated.progression.bestiary).toEqual({});
     expect(migrated.run).toEqual(run);
     // Seed only an isolated account scope so this test cannot touch another profile.
@@ -395,7 +397,7 @@ describe('encounter save compatibility and discovery settlement', () => {
       (x: any) => (x.run.encounterVersion = 3),
       (x: any) => (x.progression.bestiary = { swarmer: { encountered: 1, defeated: 2 } }),
       (x: any) => (x.progression.bestiary = { unknown: { encountered: 1, defeated: 0 } }),
-      (x: any) => (x.version = 8),
+      (x: any) => (x.version = 9),
     ];
     for (const mutate of bads) {
       const x = structuredClone(base);

@@ -73,6 +73,7 @@ function legacyEnvelope(save: ReturnType<typeof emptySave>): string {
   envelope.version = 3;
   delete envelope.progression.stages;
   delete envelope.progression.bestiary;
+  delete envelope.progression.leaderboardResults;
   return JSON.stringify(envelope, null, 2);
 }
 describe('module moves preserve shipped save and simulation contracts', () => {

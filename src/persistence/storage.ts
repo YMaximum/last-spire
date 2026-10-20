@@ -39,6 +39,13 @@ import { ENEMY_BY_ID, type BestiaryRecords } from '../content/enemies';
 import { mergeDiscoveries } from '../game/bestiary';
 import { EVOLUTION_BY_ID } from '../content/evolutions';
 import type { EvolutionPathId } from '../model/evolution';
+import {
+  deriveLeaderboardResult,
+  isLeaderboardResult,
+  isRunLeaderboard,
+  MAX_LEADERBOARD_RESULTS,
+  type LeaderboardResult,
+} from '../model/leaderboard';
 export { SaveError };
 export type RunMode = 'quick' | 'normal' | 'endless';
 export interface ActiveRunConfig {
@@ -61,12 +68,13 @@ export interface ModeRecord {
   credits: number;
 }
 export interface GameSave extends Omit<SaveV2, 'version'> {
-  version: 7;
+  version: 8;
   progression: {
     runes: RuneLoadout;
     autocast: AutocastRules;
     active: ActiveRunConfig | null;
     records: ModeRecord[];
+    leaderboardResults: LeaderboardResult[];
     stages: StageProgress[];
     bestiary: BestiaryRecords;
   };
@@ -192,13 +200,14 @@ export function emptySave(): SaveV3 {
   const base = emptyV2();
   return {
     ...base,
-    version: 7,
+    version: 8,
     settings: defaultSettings(),
     progression: {
       runes: defaultRuneLoadout(base.profile.upgrades),
       autocast: defaultAutocastConfig(),
       active: null,
       records: [],
+      leaderboardResults: [],
       stages: freshStageProgress(),
       bestiary: {},
     },
@@ -428,7 +437,16 @@ function modernProjection(value: unknown): { original: RunV3; projection: Obj } 
   if (original.encounterVersion === 2) parseDiscoveries(original.discoveries);
   else if (original.discoveries !== undefined)
     invalid('legacy encounter rules cannot track new discoveries');
+  if (original.leaderboard !== undefined) {
+    if (!isRunLeaderboard(original.leaderboard)) invalid('leaderboard tracking is invalid');
+    if (
+      original.leaderboard.lastClearedWave > Number(original.wave) ||
+      original.leaderboard.lastClearedSeconds > Number(original.time)
+    )
+      invalid('leaderboard checkpoint exceeds run progress');
+  }
   const projection = structuredClone(original);
+  delete projection.leaderboard;
   delete projection.encounterVersion;
   delete projection.discoveries;
   delete projection.shopVersion;
@@ -568,12 +586,14 @@ export function parseGame(raw: string | unknown): SaveV3 {
     finiteTree(raw);
     const root = object(raw, 'save');
     const version = root.version;
-    if (![1, 2, 3, 4, 5, 6, 7].includes(version as number))
+    if (![1, 2, 3, 4, 5, 6, 7, 8].includes(version as number))
       invalid(
         'This checkpoint requires a newer Last Spire client. Reload or update before continuing.',
       );
     if ((version as number) < 7 && root.run && 'evolution' in object(root.run, 'run'))
       invalid('evolution requires save schema seven');
+    if ((version as number) < 8 && root.run && 'leaderboard' in object(root.run, 'run'))
+      invalid('leaderboard tracking requires save schema eight');
     const expanded = (version as number) >= 3;
     const sourceSettings = object(root.settings, 'settings');
     const settings = { ...defaultSettings(), ...sourceSettings };
@@ -607,13 +627,14 @@ export function parseGame(raw: string | unknown): SaveV3 {
       if (base.run?.cleared) recordStageClear(base.profile, stages, base.run);
       return {
         ...base,
-        version: 7,
+        version: 8,
         settings: { ...defaultSettings(), ...sourceSettings } as SettingsV2,
         progression: {
           runes: legacyRunes(base.profile.upgrades),
           autocast: defaultAutocastConfig(),
           active: null,
           records: [],
+          leaderboardResults: [],
           stages,
           bestiary: {},
         },
@@ -627,6 +648,7 @@ export function parseGame(raw: string | unknown): SaveV3 {
       'records',
       ...((version as number) >= 4 ? ['stages'] : []),
       ...((version as number) >= 5 ? ['bestiary'] : []),
+      ...((version as number) >= 8 ? ['leaderboardResults'] : []),
     ]);
     const runes = loadout(p.runes);
     const rules = autocast(p.autocast);
@@ -697,6 +719,34 @@ export function parseGame(raw: string | unknown): SaveV3 {
     });
     if (new Set(records.map((r) => r.runId)).size !== records.length)
       invalid('duplicate record IDs');
+    const leaderboardResults =
+      (version as number) >= 8
+        ? list(p.leaderboardResults, 'leaderboard results', MAX_LEADERBOARD_RESULTS).map(
+            (entry) => {
+              if (!isLeaderboardResult(entry)) invalid('leaderboard result is invalid');
+              const record = records.find((record) => record.runId === entry.runId);
+              if (
+                !record ||
+                !base.profile.settledRuns.includes(entry.runId) ||
+                record.stage !== entry.stage ||
+                record.difficulty !== entry.difficulty ||
+                record.tower !== entry.tower ||
+                record.wave <= entry.clearedWaves ||
+                record.seconds < entry.checkpointSeconds ||
+                (record.mode === 'quick' ? 'quick' : 'standard') !== entry.division ||
+                Object.keys(RUNE_CAPS).some(
+                  (id) => record.runes[id as RuneId] !== entry.runes[id as RuneId],
+                )
+              )
+                invalid('leaderboard result does not match a settled record');
+              return entry;
+            },
+          )
+        : [];
+    if (
+      new Set(leaderboardResults.map((result) => result.runId)).size !== leaderboardResults.length
+    )
+      invalid('duplicate leaderboard result IDs');
     // Legacy ownership stays synchronized; selected levels are only applied to new-run snapshots.
     base.profile.upgrades = {
       power: runes.owned.power,
@@ -710,12 +760,13 @@ export function parseGame(raw: string | unknown): SaveV3 {
     if (base.run?.cleared) recordStageClear(base.profile, stages, base.run);
     const result: SaveV3 = {
       ...base,
-      version: 7,
+      version: 8,
       progression: {
         runes,
         autocast: rules,
         active,
         records,
+        leaderboardResults,
         stages,
         bestiary: (version as number) >= 5 ? parseDiscoveries(p.bestiary) : {},
       },
@@ -730,6 +781,14 @@ export function parseGame(raw: string | unknown): SaveV3 {
       'invalid',
     );
   }
+}
+/** Imported files preserve personal history but cannot authorize public results. */
+export function disqualifyImportedLeaderboard(data: SaveV3): SaveV3 {
+  const imported = parseGame(data);
+  imported.progression.leaderboardResults = [];
+  const run = imported.run as RunV3 | null;
+  if (run?.rulesVersion === 3 && run.leaderboard) run.leaderboard.eligible = false;
+  return imported;
 }
 export function exportGame(data: SaveV3): string {
   return JSON.stringify(parseGame(data), null, 2);
@@ -820,6 +879,13 @@ export function saveKey(scope: SaveScope = 'guest'): string {
   return scope;
 }
 async function backupLegacy(store: IDBObjectStore, raw: unknown, scope: SaveScope): Promise<void> {
+  const leaderboardBackup = `backup-before-leaderboard:${saveKey(scope)}`;
+  if (
+    raw &&
+    [1, 2, 3, 4, 5, 6, 7].includes((raw as { version?: number }).version ?? 0) &&
+    (await request(store.get(leaderboardBackup))) === undefined
+  )
+    store.put(raw, leaderboardBackup);
   const evolutionBackup = `backup-before-evolution:${saveKey(scope)}`;
   if (
     raw &&
@@ -863,6 +929,8 @@ export async function readRawSave(scope: SaveScope = 'guest'): Promise<unknown> 
 export async function readLegacyBackup(scope: SaveScope = 'guest'): Promise<unknown> {
   saveKey(scope);
   return transact('readonly', async (store) => {
+    const leaderboard = await request(store.get(`backup-before-leaderboard:${saveKey(scope)}`));
+    if (leaderboard !== undefined) return leaderboard;
     const evolution = await request(store.get(`backup-before-evolution:${saveKey(scope)}`));
     if (evolution !== undefined) return evolution;
     const arsenal = await request(store.get(`backup-before-arsenal:${saveKey(scope)}`));
@@ -921,7 +989,17 @@ function settleProfile(data: SaveV3, profile = data.profile): SaveV3 {
         credits: rewardForRun(run),
       });
     progression.records = progression.records.slice(-500);
+    const result = deriveLeaderboardResult(modern);
+    if (result && !progression.leaderboardResults.some((entry) => entry.runId === result.runId))
+      progression.leaderboardResults.push(result);
   }
+  progression.leaderboardResults = progression.leaderboardResults
+    .filter(
+      (entry) =>
+        progression.records.some((record) => record.runId === entry.runId) &&
+        next.settledRuns.includes(entry.runId),
+    )
+    .slice(-MAX_LEADERBOARD_RESULTS);
   return { ...data, profile: next, run: { ...run, settled: true }, progression };
 }
 export function settleInMemory(data: SaveV3): SaveV3 {

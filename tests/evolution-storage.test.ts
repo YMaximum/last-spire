@@ -1,3 +1,4 @@
+import { historicalCheckpoint } from './historical-checkpoint';
 import 'fake-indexeddb/auto';
 import { beforeEach, describe, expect, it } from 'vitest';
 import {
@@ -60,7 +61,7 @@ describe('evolution checkpoint validation', () => {
     run.wave = 76;
     run.evolution = { version: 1, coreId: run.weapons[0].id, path: path.id, tier: 3, pending: 0 };
     const restored = parseGame(exportGame(save));
-    expect(restored.version).toBe(7);
+    expect(restored.version).toBe(8);
     expect(restored.run).toEqual(run);
     expect(saveFromSnapshot(snapshotFromSave(save), save.settings)).toEqual(restored);
   });
@@ -117,7 +118,7 @@ describe('evolution checkpoint validation', () => {
     for (const version of [1, 2, 3, 4, 5, 6]) {
       expect(() => parseGame({ ...save, version })).toThrow(/schema seven/);
     }
-    expect(() => parseGame({ ...save, version: 8 })).toThrow(/newer Last Spire client/);
+    expect(() => parseGame({ ...save, version: 9 })).toThrow(/newer Last Spire client/);
     delete run.arsenalVersion;
     expect(() => parseGame(save)).toThrow(/evolution requires/);
     run.arsenalVersion = 2;
@@ -168,9 +169,10 @@ describe('evolution migration and scoped recovery', () => {
       for (let tick = 0; tick < 80; tick++) step(run);
       save.profile.credits = 249;
       save.profile.unlocked.push('monolith');
+      historicalCheckpoint(save);
       const old = structuredClone({ ...save, version });
       const migrated = parseGame(old);
-      expect(migrated).toEqual({ ...old, version: 7 });
+      expect(migrated).toEqual({ ...old, version: 8, progression: { ...old.progression, leaderboardResults: [] } });
       expect(migrated.run).not.toHaveProperty('evolution');
       const resumed = migrated.run as RunV3;
       for (let tick = 0; tick < 120; tick++) {
@@ -188,6 +190,7 @@ describe('evolution migration and scoped recovery', () => {
       save.profile.credits = 71;
       run.earned = 53;
       retire(run);
+      historicalCheckpoint(save);
       const old = structuredClone({ ...save, version: 6 });
       const oldArsenal = { ...old, version: 5 };
       const key = scope === 'guest' ? 'root' : scope;
@@ -213,7 +216,7 @@ describe('evolution migration and scoped recovery', () => {
   );
   it('refuses to overwrite an unsupported future local checkpoint', async () => {
     const { save } = checkpoint();
-    const future = { ...save, version: 8 };
+    const future = { ...save, version: 9 };
     await rawPut(future, 'guest');
     await expect(loadGame()).rejects.toThrow(/newer Last Spire client/);
     await expect(saveGame(save)).rejects.toThrow(/Existing save could not be read/);

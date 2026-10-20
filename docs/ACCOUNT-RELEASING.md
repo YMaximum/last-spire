@@ -1,5 +1,9 @@
 # Releasing the account service
 
+The Endless ledger requires the matching schema-8 save validator and database schema 2. Deploy the reviewed API before the browser build, preserving its database backup and canonical deletion journal. Database schema 1 migrates transactionally; older API binaries reject schema 2. Do not use a static rollback as permission to restore account data or run an older API against the migrated database. Prefer a forward fix; database recovery needs a separately reviewed plan. See [LEADERBOARDS.md](LEADERBOARDS.md).
+
+Update the reviewed host collector contract and account deployment tools before collecting the new database-2 artifact. The artifact identity and API health check must agree on the database version. Historical database-1 artifacts remain verifiable, but deploying a lower database version over the current one is refused before runtime changes. If a migration may have committed during an interrupted activation, automatic API downgrade is refused: retain the pending state, runtimes, backup, and data for reviewed forward recovery. Never automatically restore a pre-migration backup over possible newer writes. These tool changes are source changes only until an administrator explicitly installs the reviewed versions during the documented maintenance window.
+
 Use this runbook only after reviewing and merging the production-account infrastructure PR. Installation, CI collection, API deployment, frontend deployment, and public routing are separate operations. None happens automatically. Keep actual host paths, configuration values, credential details, and recovery evidence in the private operations notes.
 
 The existing `last-spire-deploy <sha>` and `last-spire-rollback` commands continue to manage the static game. The companion commands below manage the account API. Every deploy still requires a successful exact-main GitHub run and its immutable VPS collection receipt. No GitHub artifact-storage quota is needed.

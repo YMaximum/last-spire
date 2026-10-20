@@ -1,4 +1,5 @@
 import { STAGES } from '../content/world';
+import { BALANCE_EDITION } from '../model/leaderboard';
 import * as legacy from '../legacy/runeforged/engine';
 import { TOWERS, isDefensiveKind, isFusedKind, FUSIONS, FUSION_BY_ID } from '../content/catalog';
 import type { RunV3, RunOptions } from './types';
@@ -251,6 +252,21 @@ export function createRun(
   const s: RunV3 = {
     version: 2,
     rulesVersion: 3,
+    ...(options.leaderboard === false ||
+    options.arsenalVersion === 1 ||
+    options.encounterVersion === 1 ||
+    options.shopVersion === 1 ||
+    options.evolutionVersion === 0
+      ? {}
+      : {
+          leaderboard: {
+            version: 1 as const,
+            balanceEdition: BALANCE_EDITION,
+            eligible: true,
+            lastClearedWave: 0,
+            lastClearedSeconds: 0,
+          },
+        }),
     ...(options.arsenalVersion === 1 ? {} : { arsenalVersion: 2 as const }),
     ...(options.encounterVersion === 1 ? {} : { encounterVersion: 2 as const, discoveries: {} }),
     ...(options.shopVersion === 1 ? {} : { shopVersion: 2 as const }),
@@ -2388,6 +2404,10 @@ export function step(s: RunV2, dt = TICK): void {
   }
   if (s.spawned >= s.spawnTotal && !s.enemies.length && s.waveTime >= 18) {
     const cleared = s.wave;
+    if ((s as RunV3).leaderboard) {
+      (s as RunV3).leaderboard!.lastClearedWave = cleared;
+      (s as RunV3).leaderboard!.lastClearedSeconds = s.time;
+    }
     queueEvolution(s, cleared);
     if (cleared === finalWave(s)) {
       s.cleared = true;

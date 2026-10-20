@@ -4,6 +4,8 @@ Repository agreements are in [AGENTS.md](AGENTS.md). For reviewed PRs, isolated 
 
 See [SECURITY.md](SECURITY.md) for safe publication, development boundaries, release checks, and private vulnerability reporting.
 
+Player-facing updates are available in **What’s new** inside the game. Optional [Endless rankings](docs/LEADERBOARDS.md) use separately chosen public usernames and explicit publication; Google identity and full saves remain private. The original arcane spire favicon is bundled locally.
+
 An original single-player browser roguelite about building one ancient arcane machine. TypeScript, Canvas 2D, Vite, and local IndexedDB saves. No account or network service is required.
 
 ## Play locally

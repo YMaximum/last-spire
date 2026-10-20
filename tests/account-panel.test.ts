@@ -118,7 +118,7 @@ describe('account and checkpoint interface', () => {
     expect(document.querySelector('script[src*="google"]')).toBeNull();
     s.click('account-export');
     expect(s.download).toHaveBeenCalledWith(
-      expect.stringContaining('"version": 7'),
+      expect.stringContaining('"version": 8'),
       'last-spire-save.json',
     );
   });

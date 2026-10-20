@@ -105,8 +105,15 @@ class ContractTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             contract.inspect_archive(archive(entries), SHA, 42, 1)
 
+    def test_reviewed_database_versions_keep_historical_artifacts_verifiable(self):
+        for database in (1, 2):
+            entries = files()
+            entries['api/release.json'] = json.dumps(contract.api_identity(IDENTITY, database)).encode()
+            with self.subTest(database=database):
+                self.assertIn('api/release.json', contract.inspect_archive(archive(entries), SHA, 42, 1, collect=True))
+
     def test_backend_database_protocol_runtime_and_identity_must_match(self):
-        for key, value in [('database', 2), ('protocol', True), ('node', 24), ('commit', 'b' * 40), ('runAttempt', 2)]:
+        for key, value in [('database', 3), ('database', True), ('protocol', True), ('node', 24), ('commit', 'b' * 40), ('runAttempt', 2)]:
             entries = files()
             identity = contract.api_identity(IDENTITY)
             identity[key] = value

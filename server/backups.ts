@@ -50,7 +50,7 @@ export async function verifyBackup(path: string) {
   try {
     requireApi(
       db.prepare('PRAGMA quick_check').get()!.quick_check === 'ok' &&
-        db.prepare('PRAGMA user_version').get()!.user_version === 1 &&
+        [1, 2].includes(Number(db.prepare('PRAGMA user_version').get()!.user_version)) &&
         typeof db.prepare("SELECT value FROM metadata WHERE key='generation'").get()?.value ===
           'string',
       503,

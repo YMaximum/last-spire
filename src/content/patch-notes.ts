@@ -12,6 +12,20 @@ export interface PatchNote {
 
 export const PATCH_NOTES: readonly PatchNote[] = [
   {
+    id: 'endless-ledger',
+    title: 'Leave your mark in the Endless ledger',
+    summary:
+      'Optional public rankings, private result previews, and a new Last Spire browser-tab sigil.',
+    changes: [
+      'Browse Endless rankings from expedition setup or the main menu. Boards are separate by stage, difficulty, balance edition, and Standard or Quick pace.',
+      'Earn 100 points per fully cleared wave. Ties use simulation time to the last clear; kills, partial waves, pauses, and playback speed add no points.',
+      'Signed-in players choose a separate public username and confirm each result before publishing. Review all public information first, retry later, or withdraw an entry. Credits and returning to the spire never depend on publication.',
+      'Rankings are Casual · client-reported, without prizes or replay verification. Google names, emails, full saves, and private logs are not public leaderboard information.',
+    ],
+    compatibility:
+      'New current-rule expeditions track eligible results. Older active runs retain their rules; imported historical progress remains personal. Guest play stays available. Public rankings require the matching account service.',
+  },
+  {
     id: 'workshop-journal',
     title: 'News from the workshop',
     summary: 'Read recent changes without leaving your expedition.',

@@ -156,14 +156,15 @@ def bundle(sha):
     release.verify_installed(RELEASES, sha)
     value = json.loads((RELEASES / sha / 'api/release.json').read_text())
     require(value.get('schema') == 1 and value.get('component') == 'accounts' and value.get('commit') == sha
-            and value.get('protocol') == 1 and value.get('database') == 1 and value.get('node') == 22, 'API/database compatibility needs review before this release.')
+            and value.get('protocol') == 1 and type(value.get('database')) is int and value['database'] in (1, 2) and value.get('node') == 22, 'API/database compatibility needs review before this release.')
+    return value['database']
 
 
-def health(port, sha):
+def health(port, sha, database=2):
     base = f'http://127.0.0.1:{port}'
     with urllib.request.urlopen(base + '/api/healthz', timeout=3) as response:
         value = json.loads(response.read(65537))
-        require(value == {'ok': True, 'schema': 1, 'commit': sha, 'database': 1, 'runtime': 22}, 'API release health check failed.')
+        require(isinstance(value, dict) and type(value.get('database')) is int and value == {'ok': True, 'schema': 1, 'commit': sha, 'database': database, 'runtime': 22}, 'API release health check failed.')
     with urllib.request.urlopen(base + '/api/session', timeout=3) as response:
         value = json.loads(response.read(65537))
         cookie = response.headers.get('Set-Cookie', '')
@@ -181,9 +182,10 @@ def health(port, sha):
 
 
 def wait_healthy(port, sha):
+    database = bundle(sha)
     for attempt in range(20):
         try:
-            health(port, sha)
+            health(port, sha, database)
             return
         except (OSError, ValueError):
             if attempt == 19:
@@ -275,6 +277,8 @@ def recover_pending(rollback=False):
         wait_healthy(8092, before['current'])
         path.unlink()
         return
+    if before['current'] and bundle(target) > bundle(before['current']):
+        raise Refused('Database migration may have committed; automatic API downgrade is unsafe. Keep the runtime and data for reviewed forward recovery.')
     if active:
         require(container_commit(active) == target, 'Interrupted deployment runtime differs; inspect privately.')
         release.docker('rm', '-f', NAME)
@@ -290,9 +294,11 @@ def recover_pending(rollback=False):
 
 
 def activate(cfg, sha):
-    bundle(sha)
+    target_database = bundle(sha)
     recover_pending()
     before = read_state()
+    if before['current']:
+        require(target_database >= bundle(before['current']), 'Database downgrade requires reviewed recovery; no deployment started.')
     current = inspect(NAME)
     require(inspect(HOLD) is None, 'Previous interrupted runtime needs recovery.')
     require((current is None and before['current'] is None) or (current and container_commit(current) == before['current']), 'Runtime and release state differ; inspect before deployment.')

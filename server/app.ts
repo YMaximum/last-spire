@@ -4,6 +4,7 @@ import { MAX_CLOUD_BYTES } from '../src/account/snapshot';
 import { ApiError, requireApi } from './errors';
 import { sameSecret, type IdentityVerifier, type GoogleCodeVerifier } from './identity';
 import { AccountStore, LOGIN_MS, SESSION_MS } from './store';
+import { parseBoard } from './leaderboard';
 
 export interface ApiConfig {
   origin: string;
@@ -217,6 +218,21 @@ export function accountServer(
       });
     }
     const session = store.session(readCookie(req));
+    if (
+      method === 'GET' &&
+      (path === '/api/leaderboard' || path?.startsWith('/api/leaderboard?'))
+    ) {
+      requireApi((path?.length ?? 0) <= 512, 400, 'invalid_board');
+      const board = parseBoard(new URL(path!, config.origin).searchParams);
+      const expected = req.headers['x-last-spire-player'];
+      if (expected)
+        requireApi(session?.userId && expected === session.userId, 401, 'session_changed');
+      return reply(
+        res,
+        200,
+        store.leaderboard.board(board, expected ? session!.userId! : undefined),
+      );
+    }
     requireApi(session, 401, 'unauthenticated');
     if (method !== 'GET')
       requireApi(
@@ -262,6 +278,57 @@ export function accountServer(
       'session_changed',
     );
     requireApi(limiter.allow('user:' + session.userId, 120, 60_000), 429, 'rate_limited');
+    if (path?.startsWith('/api/leaderboard/')) {
+      requireApi(req.headers['x-last-spire-player'] === session.userId, 401, 'session_changed');
+      if (method === 'GET' && path === '/api/leaderboard/profile')
+        return reply(res, 200, store.leaderboard.profile(session.userId));
+      if (method !== 'GET')
+        requireApi(
+          limiter.allow('leaderboard-write:' + session.userId, 20, 60_000),
+          429,
+          'rate_limited',
+        );
+      if (method === 'PUT' && path === '/api/leaderboard/profile') {
+        const data = object(await readBody(req, 1024), ['username']);
+        return reply(res, 200, store.leaderboard.setUsername(session.userId, data.username));
+      }
+      if (
+        (method === 'POST' && path === '/api/leaderboard/publish') ||
+        (method === 'DELETE' && path === '/api/leaderboard/entry')
+      ) {
+        const publishing = method === 'POST';
+        const data = object(
+          await readBody(req, 1024),
+          publishing ? ['runId', 'confirmation', 'expectedUsername'] : ['runId'],
+        );
+        requireApi(
+          typeof data.runId === 'string' && /^[a-zA-Z0-9_-]{1,128}$/.test(data.runId),
+          400,
+          'invalid_request',
+        );
+        if (publishing) requireApi(data.confirmation === 'PUBLISH', 400, 'confirmation_required');
+        if (publishing)
+          requireApi(
+            typeof data.expectedUsername === 'string' &&
+              /^[A-Za-z0-9_]{3,20}$/.test(data.expectedUsername),
+            400,
+            'invalid_username',
+          );
+        return reply(
+          res,
+          200,
+          publishing
+            ? store.transaction(() =>
+                store.leaderboard.publish(
+                  session.userId!,
+                  data.runId as string,
+                  data.expectedUsername as string,
+                ),
+              )
+            : store.leaderboard.withdraw(session.userId, data.runId),
+        );
+      }
+    }
     if (method === 'POST' && path === '/api/auth/logout') {
       object(await readBody(req, 1024), []);
       store.logout(session);

@@ -22,6 +22,27 @@ def info(sha, running=True):
 
 
 class RuntimeTests(unittest.TestCase):
+    def test_database_downgrade_is_refused_before_runtime_changes(self):
+        accounts.bundle.side_effect = lambda sha: 1 if sha == SHA else 2
+        with self.assertRaisesRegex(accounts.Refused, 'Database downgrade'):
+            accounts.activate(self.cfg, SHA)
+        self.assertFalse(self.calls)
+        self.assertEqual(accounts.read_state()['current'], OLD)
+        self.assertTrue(self.containers[accounts.NAME]['State']['Running'])
+
+    def test_interrupted_database_upgrade_keeps_data_and_runtimes_for_forward_recovery(self):
+        before = accounts.read_state()
+        accounts.atomic_json(self.root / 'pending.json', {'target': SHA, 'before': before})
+        self.containers[accounts.HOLD] = self.containers.pop(accounts.NAME)
+        self.containers[accounts.NAME] = info(SHA)
+        accounts.bundle.side_effect = lambda sha: 2 if sha == SHA else 1
+        with self.assertRaisesRegex(accounts.Refused, 'migration may have committed'):
+            accounts.recover_pending(rollback=True)
+        self.assertFalse(self.calls)
+        self.assertTrue((self.root / 'pending.json').exists())
+        self.assertEqual(accounts.container_commit(self.containers[accounts.NAME]), SHA)
+        self.assertEqual(accounts.container_commit(self.containers[accounts.HOLD]), OLD)
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
@@ -32,7 +53,7 @@ class RuntimeTests(unittest.TestCase):
         self.calls = []
         for patcher in [patch.object(accounts, 'STATE', self.root), patch.object(accounts, 'RELEASES', self.root / 'releases'),
                         patch.object(accounts.release, 'trusted_file', side_effect=lambda path, secret=False: Path(path).read_text()),
-                        patch.object(accounts, 'bundle'), patch.object(accounts, 'network', return_value='192.0.2.1'),
+                        patch.object(accounts, 'bundle', return_value=2), patch.object(accounts, 'network', return_value='192.0.2.1'),
                         patch.object(accounts, 'candidate'), patch.object(accounts, 'wait_healthy'),
                         patch.object(accounts, 'inspect', side_effect=lambda name: self.containers.get(name)),
                         patch.object(accounts.release, 'docker', side_effect=self.docker)]:
@@ -181,8 +202,8 @@ class HealthTests(unittest.TestCase):
             def __enter__(self): return self
             def __exit__(self, *args): pass
             def read(self, size): return json.dumps(self.value).encode()
-        for field, value in [('database', 2), ('runtime', 24), ('commit', OLD)]:
-            health = {'ok': True, 'schema': 1, 'commit': SHA, 'database': 1, 'runtime': 22, field: value}
+        for field, value in [('database', 3), ('runtime', 24), ('commit', OLD)]:
+            health = {'ok': True, 'schema': 1, 'commit': SHA, 'database': 2, 'runtime': 22, field: value}
             with self.subTest(field=field), patch.object(accounts.urllib.request, 'urlopen', return_value=Response(health)):
                 with self.assertRaises(accounts.Refused): accounts.health(8092, SHA)
 

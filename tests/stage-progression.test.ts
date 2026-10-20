@@ -1,3 +1,4 @@
+import { historicalCheckpoint } from './historical-checkpoint';
 import 'fake-indexeddb/auto';
 import { beforeEach, describe, expect, it } from 'vitest';
 import {
@@ -45,6 +46,7 @@ function oldEnvelope() {
   delete run.shopVersion;
   delete run.encounterVersion;
   delete run.discoveries;
+  historicalCheckpoint(save);
   const { stages: _, bestiary: __, ...progression } = save.progression;
   return { ...save, version: 3, progression };
 }
@@ -155,7 +157,7 @@ describe('independent stage difficulty access', () => {
       old.profile.clears = [0];
       old.profile.credits = 357;
       const migrated = parseGame(old);
-      expect(migrated.version).toBe(7);
+      expect(migrated.version).toBe(8);
       expect(migrated.profile).toEqual(old.profile);
       expect(migrated.progression.stages.map((s) => s.unlockedDifficulty)).toEqual([4, 4, 0]);
       expect(migrated.progression.stages[0]).toMatchObject({
@@ -193,7 +195,7 @@ describe('independent stage difficulty access', () => {
       expect(await readLegacyBackup(scope)).toEqual(old);
       expect(await readRawSave(scope)).toEqual(old);
       await saveGame(migrated, false, scope);
-      expect((await loadGame(scope)).version).toBe(7);
+      expect((await loadGame(scope)).version).toBe(8);
       expect(await readLegacyBackup(scope)).toEqual(old);
       expect((await loadGame(scope)).run).toEqual(old.run);
       expect(
@@ -207,7 +209,7 @@ describe('independent stage difficulty access', () => {
     const save = emptySave();
     await saveGame(save);
     for (const bad of [
-      { ...save, version: 8 },
+      { ...save, version: 9 },
       { ...save, progression: { ...save.progression, stages: [] } },
       {
         ...save,

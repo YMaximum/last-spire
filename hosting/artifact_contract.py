@@ -60,10 +60,10 @@ class StrictTarInfo(tarfile.TarInfo):
             tar._release_depth = depth
 
 
-def api_identity(identity):
+def api_identity(identity, database=2):
     return {'schema': 1, 'component': 'accounts', 'repository': REPOSITORY,
             'commit': identity['commit'], 'runId': identity['runId'], 'runAttempt': identity['runAttempt'],
-            'protocol': 1, 'database': 1, 'node': 22}
+            'protocol': 1, 'database': database, 'node': 22}
 
 
 def same_identity(value, expected):
@@ -132,7 +132,10 @@ def inspect_archive(archive, sha, run_id, attempt, collect=False):
     if identity['schema'] == 1:
         require(not api_files, 'Legacy artifacts cannot contain an API.')
     else:
-        require(api_files == API_FILES and same_identity(captured.get('api/release.json'), api_identity(identity)), 'API component identity or inventory differs.')
+        api = captured.get('api/release.json')
+        require(isinstance(api, dict) and type(api.get('database')) is int and api['database'] in (1, 2)
+                and api_files == API_FILES and same_identity(api, api_identity(identity, api['database'])),
+                'API component identity or inventory differs.')
     return contents
 
 

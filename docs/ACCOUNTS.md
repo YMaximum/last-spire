@@ -1,5 +1,7 @@
 # Accounts and cloud saves
 
+The optional [Endless ledger](LEADERBOARDS.md) uses a separate public username and explicit publication confirmation for every result. Google names and emails are never automatically published. Save schema 8 tracks completed candidates; account database schema 2 stores bounded receipts and public entries. Cloud syncing alone never publishes results.
+
 The browser supports optional Google sign-in and cloud-save controls alongside guest play. A same-origin account API must be configured separately; merging these files does not expose or deploy a production service. Existing guest saves are never uploaded automatically.
 
 ## Identity and data

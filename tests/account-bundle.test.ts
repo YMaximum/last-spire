@@ -86,7 +86,7 @@ describe.skipIf(Number(process.versions.node.split('.')[0]) !== 22)(
         ok: true,
         schema: 1,
         commit: COMMIT,
-        database: 1,
+        database: 2,
         runtime: 22,
       });
       const response = await fetch(base + '/api/session');

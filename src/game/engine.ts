@@ -2911,6 +2911,16 @@ function defensiveViews(s: RunV2): WeaponInstance[] {
 function coreKey(w: WeaponInstance): string {
   return fusionViewMeta.has(w) ? `${w.id}:${w.kind}` : w.id;
 }
+/** Read-only parameter views for inspection; fused attacks retain separate cycles. */
+export function getWeaponStatBreakdown(s: RunV2, w: WeaponInstance) {
+  return ingredientViews(w).map((view) => ({
+    kind: view.kind,
+    stats:
+      isDefensiveKind(view.kind) && s.rulesVersion === 3
+        ? corePower(s, view)
+        : getWeaponStats(s, view),
+  }));
+}
 function fusedStats(s: RunV2, w: WeaponInstance): WeaponStats {
   const [a, b] = ingredientViews(w).map((view) => getWeaponStats(s, view));
   const cooldown = Math.min(a.cooldown, b.cooldown);

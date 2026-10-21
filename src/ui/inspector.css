@@ -264,6 +264,79 @@
   flex-wrap: wrap;
   gap: 9px;
 }
+.core-stat-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1px;
+  margin: 12px 0;
+  background: var(--line, #415047);
+  border: 1px solid var(--line, #415047);
+}
+.core-detail-tabs {
+  display: flex;
+  gap: 8px;
+  margin: 14px 0;
+}
+.core-detail-tabs [aria-pressed='true'] {
+  color: var(--jade, #a1dcc0);
+  border-color: var(--brass, #d5b777);
+}
+.core-detail-sections [hidden] {
+  display: none !important;
+}
+.core-stat-grid > div {
+  padding: 10px 12px;
+  background: var(--panel, #18221d);
+  min-width: 0;
+}
+.core-stat-grid dt,
+.build-detail .core-detail-note,
+.core-fusion-partner small {
+  font-size: max(14px, 0.85rem);
+  line-height: 1.5;
+  color: var(--muted, #a8b8aa);
+}
+.core-stat-grid dd {
+  font-size: max(18px, 1rem);
+  margin: 4px 0 0;
+  overflow-wrap: anywhere;
+  color: var(--jade, #a1dcc0);
+}
+.core-projectile-details summary {
+  padding: 10px 0;
+  min-height: 44px;
+  cursor: pointer;
+  color: var(--brass, #d5b777);
+}
+.core-fusion-option {
+  padding: 14px;
+  margin: 12px 0;
+  background: #101815;
+  border: 1px solid var(--line, #415047);
+  border-left: 3px solid var(--brass-dim, #8e7951);
+}
+.build-detail .core-fusion-option header {
+  gap: 10px;
+}
+.core-fusion-option header > svg {
+  flex-shrink: 0;
+}
+.core-fusion-option p {
+  margin: 10px 0;
+}
+.core-fusion-partner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.core-fusion-partner small,
+.core-fusion-option > small {
+  display: block;
+}
+.core-fusion-option > button {
+  margin-top: 12px;
+}
 .build-reference {
   display: inline-flex;
   align-items: center;

@@ -1,4 +1,18 @@
 import type { RunV2 } from '../model/arsenal';
+import type { RunV3 } from '../game/types';
+
+export interface TelemetryPerformance {
+  fps?: number;
+  renderMs?: number;
+  simulationMs?: number;
+  frameP95Ms?: number;
+  measuredSeconds?: number;
+  catchupSeconds?: number;
+  speed?: number;
+  status?: 'foreground' | 'background' | 'warming-up';
+  effects?: 'high' | 'low';
+  spectacle?: 'subtle' | 'balanced' | 'spectacular';
+}
 
 export const MAX_TELEMETRY_RUNS = 30;
 export const MAX_TELEMETRY_BYTES = 30 * 1024 * 1024;
@@ -189,7 +203,7 @@ function completion(tx: IDBTransaction): Promise<void> {
   return result;
 }
 function snapshot(run: RunV2): Record<string, Json> {
-  const modern = run as RunV2 & { level?: number; xp?: number; xpRequired?: number };
+  const modern = run as RunV3;
   const protection = Object.fromEntries(
     Object.entries(run.counters)
       .filter(([key]) =>
@@ -199,6 +213,8 @@ function snapshot(run: RunV2): Record<string, Json> {
   );
   return payload({
     wave: run.wave,
+    waveTime: run.waveTime,
+    maxHealth: run.maxHp,
     health: run.hp,
     shield: run.shield,
     kills: run.kills,
@@ -207,6 +223,24 @@ function snapshot(run: RunV2): Record<string, Json> {
     level: modern.level,
     xp: modern.xp,
     xpRequired: modern.xpRequired,
+    rules: {
+      combat: run.rulesVersion ?? 2,
+      arsenal: modern.arsenalVersion ?? 1,
+      encounters: modern.encounterVersion ?? 1,
+      shops: modern.shopVersion ?? 1,
+      evolution: modern.evolution?.version ?? 0,
+      balanceEdition: modern.leaderboard?.balanceEdition ?? 'unranked',
+    },
+    evolution: modern.evolution
+      ? {
+          pathId: modern.evolution.path,
+          tier: modern.evolution.tier,
+          pending: modern.evolution.pending,
+        }
+      : undefined,
+    entities: { enemies: run.enemies.length, projectiles: run.projectiles.length },
+    cleared: run.cleared,
+    endless: run.endless,
     stats: run.stats,
     damageByWeapon: run.damageByWeapon,
     damageByElement: run.damageByElement,
@@ -402,6 +436,7 @@ export class LocalTelemetry {
       if (record.samples.length)
         this.lastSample.set(id, record.samples[record.samples.length - 1].at);
       this.event(id, run.time, existing ? 'resume' : 'begin', {
+        clientBuild: build,
         state: snapshot(run),
         pending: run.pendingRewards
           .map((r) => ({
@@ -440,15 +475,20 @@ export class LocalTelemetry {
       this.error = error instanceof Error ? error.message.slice(0, 160) : 'Invalid logging event';
     }
   }
-  sample(run: RunV2, perf?: { fps: number; renderMs: number }): void {
+  sample(run: RunV2, perf?: TelemetryPerformance): void {
     if (!this.enabled || !this.available || run.phase !== 'combat') return;
     const record = this.records.get(run.id);
     if (!record || run.time - (this.lastSample.get(run.id) ?? -10) < 10) return;
     try {
       const data = snapshot(run);
       if (perf) {
-        if (perf.fps < 0 || perf.renderMs < 0) throw new Error('Invalid performance measurement');
-        data.performance = payload(perf);
+        if (
+          Object.values(perf).some(
+            (value) => typeof value === 'number' && (!Number.isFinite(value) || value < 0),
+          )
+        )
+          throw new Error('Invalid performance measurement');
+        data.performance = payload({ ...perf });
       }
       payload(data);
       record.samples.push({ at: run.time, data });

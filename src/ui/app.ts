@@ -29,6 +29,7 @@ import {
 } from '../content/enemies';
 import { mergeDiscoveries } from '../game/bestiary';
 import { BuildInspector, entityMarkup, type EntityRef } from './inspector';
+import { selectCoreDetailSection } from './core-details';
 import {
   defaultAutocastConfig,
   normalizeAutocastConfig,
@@ -56,6 +57,7 @@ import {
 } from '../content/catalog';
 import type { RunV3, RunMode } from '../game/types';
 import { LocalTelemetry } from '../telemetry/local';
+import { CLIENT_BUILD } from '../telemetry/build';
 import { FrameMeter } from '../render/performance';
 import {
   step as legacyStep,
@@ -301,6 +303,7 @@ function openEntity(ref: EntityRef) {
   );
 }
 $('battlefield').addEventListener('click', (event) => {
+  if (selectCoreDetailSection(event.target)) return;
   const fuse = (event.target as HTMLElement).closest<HTMLButtonElement>('[data-fuse-recipe]');
   if (fuse && !fuse.disabled) {
     openFusionPreview(
@@ -784,7 +787,7 @@ function openLaunch() {
       data.progression.active.runes.autoSecondary > 0;
     recordDamageSample(data.run);
     void telemetry.begin(data.run, {
-      build: '3.0.0',
+      build: CLIENT_BUILD,
       mode: chosenMode,
       runes: data.progression.active.runes,
     });
@@ -1982,7 +1985,7 @@ function openTelemetry() {
       width: 600,
       height: 600,
     },
-    `<p>Balance observations are stored only in this browser, separately from your saved progress. Nothing is uploaded.</p><p>Up to 30 runs or 30 MB are retained; oldest records are removed automatically. Offers, decisions, mastery, fusions, combat outcomes and sampled performance help diagnose balance.</p><div class="stat-line"><span>Stored runs</span><b>${state.runs}</b></div><div class="stat-line"><span>Storage</span><b>${(state.bytes / 1024 / 1024).toFixed(2)} MB</b></div><p class="quiet">${state.available ? 'Local logging available.' : 'Logging unavailable. Combat and progress saving continue independently.'}</p><label>Record local gameplay<input id="analytics-enabled" type="checkbox" ${state.enabled ? 'checked' : ''}></label><div class="save-actions"><button id="analytics-export" class="outline-button">Export local logs</button><button id="analytics-clear" class="outline-button">Delete local logs</button></div><p id="analytics-message" role="status"></p><p class="quiet">Disable stops new observations. Deleting logs keeps your credits, purchases and saved expedition.</p>`,
+    `<p>Balance observations are stored only in this browser, separately from your saved progress. Nothing is uploaded.</p><p>Up to 30 runs or 30 MB are retained; oldest records are removed automatically. Offers, choices, mastery, fusions, evolution, damage, outcomes, and sampled battle load help diagnose balance. Foreground samples include simulation/render cost, frame spikes, speed, effects settings, and catch-up backlog. Background callbacks are labeled separately, not reported as FPS benchmarks.</p><div class="stat-line"><span>Stored runs</span><b>${state.runs}</b></div><div class="stat-line"><span>Storage</span><b>${(state.bytes / 1024 / 1024).toFixed(2)} MB</b></div><p class="quiet">${state.available ? 'Local logging available.' : 'Logging unavailable. Combat and progress saving continue independently.'}</p><label>Record local gameplay<input id="analytics-enabled" type="checkbox" ${state.enabled ? 'checked' : ''}></label><div class="save-actions"><button id="analytics-export" class="outline-button">Export local logs</button><button id="analytics-clear" class="outline-button">Delete local logs</button></div><p id="analytics-message" role="status"></p><p class="quiet">Disable stops new observations. Deleting logs keeps your credits, purchases and saved expedition.</p>`,
   );
   $('analytics-enabled').onchange = async () => {
     await telemetry.setEnabled($<HTMLInputElement>('analytics-enabled').checked);
@@ -2461,15 +2464,22 @@ function frame(now: number) {
     $('arena').dataset.projectiles = String(s.projectiles.length);
     perfTime = 0;
     if (playing && isV2(s))
-      telemetry.sample(
-        s,
-        reading.status === 'foreground'
+      telemetry.sample(s, {
+        status: reading.status,
+        ...(reading.status === 'foreground'
           ? {
               fps: reading.fps,
               renderMs: reading.renderMs,
+              simulationMs: reading.simulationMs,
+              frameP95Ms: reading.frameP95Ms,
+              measuredSeconds: reading.seconds,
             }
-          : undefined,
-      );
+          : {}),
+        catchupSeconds: clock.pendingSeconds,
+        speed: data.settings.speed,
+        effects: data.settings.effects,
+        spectacle: data.settings.intensity,
+      });
   }
   hudTimer += frameElapsed;
   saveTimer += frameElapsed;
@@ -2597,7 +2607,7 @@ async function init() {
     recordDamageSample(current() as RunV2);
     if (playing && data.run)
       void telemetry.begin(data.run as RunV2, {
-        build: '3.0.0',
+        build: CLIENT_BUILD,
         mode: modern(data.run)?.mode ?? 'legacy',
         runes: data.progression.active?.runes ?? {},
       });

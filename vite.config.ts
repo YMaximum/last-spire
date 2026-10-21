@@ -3,6 +3,12 @@ import { defineConfig } from 'vite';
 // Development must not serve local operational files, even when LAN access is
 // deliberately enabled. Production serves only the built static directory.
 export default defineConfig({
+  // Only a public commit identity is exposed; no environment object enters the bundle.
+  define: {
+    __LAST_SPIRE_BUILD__: JSON.stringify(
+      /^[a-f0-9]{40}$/.test(process.env.GITHUB_SHA ?? '') ? process.env.GITHUB_SHA : 'development',
+    ),
+  },
   server: {
     host: '127.0.0.1',
     // Opt in only for a separately started loopback account API. No production proxy.

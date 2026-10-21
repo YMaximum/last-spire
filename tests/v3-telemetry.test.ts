@@ -1,6 +1,7 @@
 import 'fake-indexeddb/auto';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createRun } from '../src/legacy/runeforged/engine';
+import { createRun as currentRun } from '../src/game/engine';
 import { defaultProfile } from '../src/legacy/classic/storage';
 import {
   LocalTelemetry,
@@ -28,6 +29,66 @@ async function exported(logger: LocalTelemetry) {
   return JSON.parse(await logger.exportLogs());
 }
 describe('private local telemetry', () => {
+  it('records current rules, evolution, load, and performance context without mutating combat', async () => {
+    const logger = new LocalTelemetry();
+    const current = currentRun(defaultProfile(), 'bastion', 0, 0, 123);
+    const before = JSON.stringify(current);
+    await logger.begin(current, { ...meta, build: 'a'.repeat(40) });
+    logger.sample(current, {
+      status: 'foreground',
+      fps: 42,
+      simulationMs: 9,
+      renderMs: 7,
+      frameP95Ms: 31,
+      measuredSeconds: 4,
+      catchupSeconds: 2,
+      speed: 3,
+      effects: 'high',
+      spectacle: 'spectacular',
+    });
+    const log = (await exported(logger)).runs[0];
+    expect(log.samples[0].data).toMatchObject({
+      maxHealth: current.maxHp,
+      waveTime: 0,
+      entities: { enemies: current.enemies.length, projectiles: current.projectiles.length },
+      rules: {
+        combat: 3,
+        arsenal: 2,
+        encounters: 2,
+        shops: 2,
+        evolution: 1,
+        balanceEdition: 'spire-e1',
+      },
+      performance: {
+        status: 'foreground',
+        fps: 42,
+        simulationMs: 9,
+        frameP95Ms: 31,
+        catchupSeconds: 2,
+        speed: 3,
+      },
+    });
+    expect(log.events[0].data.clientBuild).toBe('a'.repeat(40));
+    expect(JSON.stringify(current)).toBe(before);
+  });
+  it('records background context without presenting throttled callbacks as measured FPS', async () => {
+    const logger = new LocalTelemetry(),
+      current = run();
+    await logger.begin(current, meta);
+    logger.sample(current, { status: 'background', catchupSeconds: 20, speed: 2 });
+    const perf = (await exported(logger)).runs[0].samples[0].data.performance;
+    expect(perf).toEqual({ status: 'background', catchupSeconds: 20, speed: 2 });
+  });
+  it('retains the original run build while noting the client build on resume', async () => {
+    const logger = new LocalTelemetry(),
+      current = run();
+    await logger.begin(current, meta);
+    const otherBuild = 'b'.repeat(40);
+    await logger.begin(current, { ...meta, build: otherBuild });
+    const log = (await exported(logger)).runs[0];
+    expect(log.build).toBe(meta.build);
+    expect(log.events.at(-1).data.clientBuild).toBe(otherBuild);
+  });
   it('records build, seed, run choices, bounded snapshots and completed outcomes', async () => {
     const logger = new LocalTelemetry(),
       current = run();

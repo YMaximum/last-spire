@@ -10,6 +10,7 @@ import {
 } from '../content/catalog';
 import { activeSynergies, getWeaponStats } from '../game/engine';
 import { cardIcon } from './icons';
+import { coreDetailsMarkup } from './core-details';
 import './inspector.css';
 
 export type EntityRef = { kind: 'weapon' | 'card' | 'synergy' | 'fusion'; id: string };
@@ -213,7 +214,11 @@ export function entityMarkup(s: RunV2, ref: EntityRef): string {
     (r, index, all) =>
       all.findIndex((other) => other.kind === r.kind && other.id === r.id) === index,
   );
-  return `<article class="build-detail"><header>${iconFor(s, ref, 64)}<h3>${escapeHTML(summary.title)}</h3></header><p>${escapeHTML(summary.body)}</p>${
+  const core = ref.kind === 'weapon' ? equipment(s, ref.id) : undefined;
+  const intro = core
+    ? `${rarityLabel(core.rarity)} · ${masteryLabel(core)}. ${core.description || definition(core)?.description || 'Equipped arsenal core.'}${core.infusions.length ? ` Infusions: ${core.infusions.join(', ')}.` : ''}`
+    : summary.body;
+  return `<article class="build-detail"><header>${iconFor(s, ref, 64)}<h3>${escapeHTML(summary.title)}</h3></header><p>${escapeHTML(intro)}</p>${core ? coreDetailsMarkup(s, core) : ''}${
     refs.length
       ? `<h4>Connected inscriptions</h4><div class="build-references">${refs
           .map((link) => {

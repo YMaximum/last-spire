@@ -3,6 +3,8 @@ import { defineConfig } from 'vite';
 // Development must not serve local operational files, even when LAN access is
 // deliberately enabled. Production serves only the built static directory.
 export default defineConfig({
+  // Preserve the Vite 7 browser floor through the Vite 8 bundler migration.
+  build: { target: ['chrome107', 'edge107', 'firefox104', 'safari16'] },
   // Only a public commit identity is exposed; no environment object enters the bundle.
   define: {
     __LAST_SPIRE_BUILD__: JSON.stringify(

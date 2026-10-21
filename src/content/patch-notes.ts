@@ -12,6 +12,19 @@ export interface PatchNote {
 
 export const PATCH_NOTES: readonly PatchNote[] = [
   {
+    id: 'core-inspection',
+    title: 'Know your machinery',
+    summary: 'Core details put effective stats and fusion partners within reach.',
+    changes: [
+      'Click an equipped weapon or defensive core in the pinned arsenal to inspect its current parameters. Expand projectile properties for lifetime, size, speed, critical hits, and more.',
+      'See each possible fusion, its partner, missing equipment, and mastery progress alongside that core. Ready pairs open the existing consequences preview; confirmation is still required.',
+      'Fused cores show separate component parameters. Defensive cores explain their trigger-based output instead of presenting misleading sustained DPS.',
+      'Local gameplay logs now include rule versions, evolution, battle load, simulation/render cost, frame spikes, and catch-up context. Logs remain in this browser with export and deletion controls; nothing is automatically uploaded.',
+    ],
+    compatibility:
+      'No changes to combat balance, save format, credits, rewards, or leaderboard eligibility. Existing expeditions and local logs are preserved; new diagnostic fields are added only to future observations.',
+  },
+  {
     id: 'endless-ledger',
     title: 'Leave your mark in the Endless ledger',
     summary:

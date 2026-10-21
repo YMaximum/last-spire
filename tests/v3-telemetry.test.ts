@@ -79,6 +79,17 @@ describe('private local telemetry', () => {
     const perf = (await exported(logger)).runs[0].samples[0].data.performance;
     expect(perf).toEqual({ status: 'background', catchupSeconds: 20, speed: 2 });
   });
+  it('records evolution using a content identifier while filesystem path fields stay forbidden', async () => {
+    const logger = new LocalTelemetry(),
+      current = run();
+    await logger.begin(current, meta);
+    logger.event(current.id, 10, 'evolution', { pathId: 'citadel', tier: 1 });
+    logger.event(current.id, 11, 'evolution', { path: 'citadel', tier: 1 });
+    const events = (await exported(logger)).runs[0].events;
+    expect(events.filter((e: { type: string }) => e.type === 'evolution')).toEqual([
+      { at: 10, type: 'evolution', data: { pathId: 'citadel', tier: 1 } },
+    ]);
+  });
   it('retains the original run build while noting the client build on resume', async () => {
     const logger = new LocalTelemetry(),
       current = run();

@@ -42,7 +42,16 @@ dump enters the client. Existing logs remain readable without migration, but mis
 new fields mean unknown, not zero. Detailed identity or account information is not
 needed for balance analysis. No API or database migration is required.
 
+Evolution events use a `pathId` content field. Earlier events using the reserved
+`path` field could be rejected by the privacy filter; missing historical events
+cannot be reconstructed. Snapshot metadata remains separately useful. Filesystem
+path fields remain forbidden.
+
 ## Next analysis
+
+The [balance analysis tools](BALANCE-ANALYSIS.md) produce private JSON/Markdown
+reports from current-engine seeded runs or an explicitly selected local export.
+They distinguish unknown/incomplete data from defeats and keep source data local.
 
 Use exported observations alongside the current deterministic policy harness. Compare
 like rules, stages, modes, difficulties, and rune bonuses. Report sample size, missing

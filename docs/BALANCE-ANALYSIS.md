@@ -9,7 +9,7 @@ Public documentation covers tools and methods only. Use Node 22 and serialize ba
 ## Synthetic runs
 
 `npm run balance` defaults to two Bastion/Wilds/Normal cases: one build-focused
-heuristic and one random-card policy. Every case uses the current engine, real XP,
+heuristic and one random-card policy, using `controlled-v2`. Every case uses the current engine, real XP,
 offers, mastery, shops, repairs, fusions, evolution, and save validation. All permanent
 bonuses and runes are absent. Combat/content sources must be committed before an
 audit; reports identify that commit and hash the analysis-tool sources separately.
@@ -20,7 +20,7 @@ npm run balance -- --tower=all --stage=0,1,2 --mode=normal --policy=competent,ra
 npm run balance -- --tower=bastion --stage=0 --mode=endless --policy=competent --seconds=7200 --stop-wave=160 --output=.private/reports/endless-pilot.json
 ```
 
-Use `--seed-start`, `--seeds`, `--difficulty`, and `--evolution=first|second|alternating|random|off`
+Use `--seed-start`, `--seeds`, `--difficulty`, and `--evolution=first|second|both|alternating|random|off`
 to define comparisons. Seed index is converted to a 32-bit engine seed; both are
 recorded. Tower, stage, mode, and policy labels are validated. Limits are 128 cases,
 120 wall seconds per case, 900 per batch, and six simulation hours per case.
@@ -30,12 +30,12 @@ Reports checkpoint atomically after each case. Simulation-time, cleared-wave,
 and wall-clock caps are **censored observations**, not defeats or wins. Cases not
 started are listed separately. A cap with no completed case still writes a report.
 Terminal clear fractions and approximate 95% Wilson intervals are grouped by
-tower, stage, difficulty, mode, and policy. Unknown averages remain null. The
+tower, stage, difficulty, mode, policy, policy edition, and assigned evolution path. Unknown averages remain null. The
 minimum-sample check is a diagnostic gate, not proof that a policy represents humans.
 
 Per-case details include wave health/damage and duration, final damage attribution,
 card offers/picks, price affordability on shop entry, purchases per resolved shop,
-repair costs/healing, first observed mastery/eligibility, actual fusion timing,
+repair costs/healing, card purchases separately from repairs, first observed mastery/eligibility, actual fusion timing,
 evolution tiers, entity peaks, and serialized save size. Price affordability does
 not imply all offers can be bought together or that every replacement is desirable.
 Mastery/evolution observations have up to one simulation second of sampling delay.
@@ -45,23 +45,49 @@ Step timings sample one engine tick per simulation second and retain at most the
 latest 1,200 samples. Their p95 measures headless tick cost, not render time, FPS,
 browser catch-up, or certified hardware performance. Cosmetic settings are absent.
 
+### Policy editions and paired evolution paths
+
+`--policy-edition=controlled-v2` is the default. All card-selection policies share
+signature/secondary skill attempts, available-fusion attempts, the default 25%
+repair below 65% health when affordable and stocked, deterministic core targeting,
+and a maximum of two card purchases per shop. Repairs do not consume that card
+purchase budget. Real scrap costs, eligibility, stock, cooldowns, and caps apply.
+Only the order of candidate cards changes: `competent` and `fusion` use the
+existing weighted build heuristic, `defense` penalizes offensive-core acquisition,
+and `random` uses a seeded Fisher–Yates shuffle. An invalid or unaffordable offer
+is skipped. This controls the support rules; different builds can still produce
+different health, income, eligible fusions, and future offers.
+
+Use `--evolution=both` for paired first/second-path cases under the same engine and
+card-decision seeds. Both paths count toward the 128-case limit. Assigned paths
+stay separate even if a run ends before its first evolution. `alternating`
+resolves to a specific assigned path per seed; `random` remains a mixed-path
+probe, not a controlled path comparison. Controlled random evolution uses a
+separate decision stream so it cannot consume card-selection randomness.
+
+```sh
+npm run balance -- --tower=bastion --stage=0 --policy=competent,random --policy-edition=controlled-v2 --evolution=both --seeds=2 --output=.private/reports/paired-paths.json
+npm run balance -- --tower=bastion --policy-edition=selection-v1 --evolution=alternating --output=.private/reports/legacy-policy.json
+```
+
+`selection-v1` preserves the original rules and shared decision RNG for historical
+reproduction. Its random policy uses random core targets, buys at most one shop
+card, and skips strategic repairs and fusion; the other policies can buy usable
+cards while scrap permits. Do not pool the editions or attribute their differences
+to card selection alone. Report schema 3 records each case's policy edition,
+assigned path, and support rules. Historical rows without that metadata remain
+separate as `selection-v1` / `unspecified` path. Tooling hashes cover the policy
+module as well as the runner and report helpers.
+
 ### Policy limitations
 
-`competent` is the retained `selection-v1` **build-focused heuristic**, not a
-certified competent player. It prioritizes weighted survival/support cards and
-selected fusion pairs, tries available fusions, attempts the default 25% repair
-below 65% health, and buys
-usable shop offers while scrap permits. `fusion` currently shares these selection
-rules. `defense` penalizes offensive-core acquisition. `random` shuffles offers,
-chooses random targets, buys at most one shop card, and does not strategically
-repair or fuse. Both policies attempt signature skills and conditionally use Mend.
-Neither rerolls nor models human reaction, positioning, decision time, or skill.
-They resolve choices immediately; simulation time excludes those pauses.
-
-The asymmetries are deliberate characteristics of this existing baseline, not a
-fair randomized trial of human skill. Compare policies before changing their
-rules, give a changed policy a new edition, and do not infer card causality from
-the current weights.
+The name `competent` describes a **build-focused heuristic**, not a certified
+competent player. Fixed weights and preferred recipes can favor some starting
+cores. No policy rerolls or models human reaction, decision time, or skill; choices
+resolve immediately and simulation time excludes those pauses. Neither matched
+support rules nor a minimum sample count establishes human clear rates or card
+causality. Inspect policy selections and compare paired seeds/paths before tuning.
+Give future policy changes a new edition and retain the previous behavior.
 
 ## Existing local gameplay exports
 

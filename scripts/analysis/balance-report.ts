@@ -1,3 +1,4 @@
+import type { AuditPolicy, PolicyEdition, EvolutionMode } from './policy';
 import { TOWERS } from '../../src/content/catalog';
 import { resolve, relative, sep } from 'node:path';
 import { existsSync, lstatSync } from 'node:fs';
@@ -6,7 +7,8 @@ export interface AuditOptions {
   towers: string[];
   stages: number[];
   modes: ('normal' | 'quick' | 'endless')[];
-  policies: string[];
+  policies: AuditPolicy[];
+  policyEdition: PolicyEdition;
   seeds: number;
   seedStart: number;
   difficulty: number;
@@ -14,7 +16,7 @@ export interface AuditOptions {
   caseWallSeconds: number;
   batchWallSeconds: number;
   stopWave: number;
-  evolution: string;
+  evolution: EvolutionMode;
   output: string;
   requestedCases: number;
 }
@@ -33,6 +35,7 @@ export function parseAuditArgs(args: string[]): AuditOptions {
     'batch-wall-seconds': '180',
     'stop-wave': '0',
     evolution: 'alternating',
+    'policy-edition': 'controlled-v2',
     output: '.private/reports/balance-audit.json',
   };
   const values = { ...defaults };
@@ -66,11 +69,30 @@ export function parseAuditArgs(args: string[]): AuditOptions {
         );
   const stages = list('stage', ['0', '1', '2']).map(Number);
   const modes = list('mode', ['normal', 'quick', 'endless']) as AuditOptions['modes'];
-  const policies = list('policy', ['competent', 'random', 'fusion', 'defense']);
+  const policies = list('policy', ['competent', 'random', 'fusion', 'defense']) as AuditPolicy[];
+  const policyEdition = list('policy-edition', [
+    'selection-v1',
+    'controlled-v2',
+  ])[0] as PolicyEdition;
+  if (values['policy-edition'].includes(','))
+    throw new Error('Select one --policy-edition per batch.');
   const seeds = integer('seeds', 1, 50);
-  const requestedCases = towers.length * stages.length * modes.length * policies.length * seeds;
+  const requestedCases =
+    towers.length *
+    stages.length *
+    modes.length *
+    policies.length *
+    seeds *
+    (values.evolution === 'both' ? 2 : 1);
   if (requestedCases > 128) throw new Error('Split the matrix into batches of at most 128 cases.');
-  const evolution = list('evolution', ['alternating', 'first', 'second', 'random', 'off'])[0];
+  const evolution = list('evolution', [
+    'alternating',
+    'first',
+    'second',
+    'random',
+    'off',
+    'both',
+  ])[0] as EvolutionMode;
   if (values.evolution.includes(',')) throw new Error('Select one --evolution policy per batch.');
   const output = privateReportPath(values.output);
   return {
@@ -78,6 +100,7 @@ export function parseAuditArgs(args: string[]): AuditOptions {
     stages,
     modes,
     policies,
+    policyEdition,
     seeds,
     requestedCases,
     evolution,
@@ -117,6 +140,8 @@ export interface AuditResult extends Record<string, unknown> {
   difficulty: number;
   mode: string;
   policy: string;
+  policyEdition?: PolicyEdition;
+  evolutionPolicy?: string;
   outcome: string;
   seconds: number;
   wave: number;
@@ -136,18 +161,34 @@ export function wilson(successes: number, total: number): [number, number] | nul
 export function summarizeAudit(results: AuditResult[], requestedCases: number) {
   const buckets = new Map<string, AuditResult[]>();
   for (const row of results) {
-    const key = [row.tower, row.stage, row.difficulty, row.mode, row.policy].join('/');
+    const key = [
+      row.tower,
+      row.stage,
+      row.difficulty,
+      row.mode,
+      row.policy,
+      row.policyEdition ?? 'selection-v1',
+      row.evolutionPolicy ?? 'unspecified',
+    ].join('/');
     buckets.set(key, [...(buckets.get(key) ?? []), row]);
   }
   const groups = [...buckets.entries()].map(([key, rows]) => {
     const wins = rows.filter((r) => r.outcome === 'clear');
     const terminal = rows.filter((r) => ['clear', 'defeat'].includes(r.outcome));
     const shops = rows.flatMap(
-      (r) => (r.shops ?? []) as { purchases: number; affordable: number; offers: number }[],
+      (r) =>
+        (r.shops ?? []) as {
+          purchases: number;
+          cardPurchases?: number;
+          affordable: number;
+          offers: number;
+        }[],
     );
     const clearRate = terminal.length ? wins.length / terminal.length : null;
     return {
       key,
+      policyEdition: rows[0].policyEdition ?? 'selection-v1',
+      evolutionPolicy: rows[0].evolutionPolicy ?? 'unspecified',
       runs: rows.length,
       terminal: terminal.length,
       clears: wins.length,
@@ -185,6 +226,9 @@ export function summarizeAudit(results: AuditResult[], requestedCases: number) {
         }),
       ),
       purchasesPerResolvedShop: mean(shops.map((s) => s.purchases)),
+      cardPurchasesPerResolvedShop: mean(
+        shops.flatMap((s) => (s.cardPurchases === undefined ? [] : [s.cardPurchases])),
+      ),
       affordableOffersPerShop: mean(shops.map((s) => s.affordable)),
       meanWaveReached: mean(rows.map((r) => r.wave)),
     };
@@ -201,11 +245,11 @@ export function auditMarkdown(report: { summary: ReturnType<typeof summarizeAudi
   const fmt = (n: number | null, digits = 1) => (n === null ? 'unknown' : n.toFixed(digits));
   return (
     `# Synthetic balance audit\n\n${s.observedCases}/${s.requestedCases} cases observed; ${s.notStarted} not started. No player data.\n\n` +
-    '| Tower/stage/difficulty/mode/policy | Runs | Terminal | Censored | Clears | Terminal clear rate (95% interval) | Clear minutes | Fusions | Purchases/shop |\n|---|---:|---:|---:|---:|---|---:|---:|---:|\n' +
+    '| Tower/stage/difficulty/mode/policy/edition/path | Runs | Terminal | Censored | Clears | Terminal clear rate (95% interval) | Clear minutes | Fusions | Card purchases/shop |\n|---|---:|---:|---:|---:|---|---:|---:|---:|\n' +
     s.groups
       .map(
         (g) =>
-          `| ${g.key} | ${g.runs} | ${g.terminal} | ${g.censored} | ${g.clears} | ${g.terminalClearRate === null ? 'unknown' : `${fmt(g.terminalClearRate * 100)}% (${fmt(g.clearRate95![0] * 100)}–${fmt(g.clearRate95![1] * 100)}%)`} | ${fmt(g.meanClearMinutes)} | ${fmt(g.meanFusions)} | ${fmt(g.purchasesPerResolvedShop, 2)} |`,
+          `| ${g.key} | ${g.runs} | ${g.terminal} | ${g.censored} | ${g.clears} | ${g.terminalClearRate === null ? 'unknown' : `${fmt(g.terminalClearRate * 100)}% (${fmt(g.clearRate95![0] * 100)}–${fmt(g.clearRate95![1] * 100)}%)`} | ${fmt(g.meanClearMinutes)} | ${fmt(g.meanFusions)} | ${fmt(g.cardPurchasesPerResolvedShop, 2)} |`,
       )
       .join('\n') +
     '\n\nTime/wave/wall limits are censored, not defeats. Clear-rate intervals use terminal cases only and do not correct policy bias or censoring. Small samples do not establish player clear rates. Policy names describe heuristics, not certified human skill. Headless timings do not measure rendering or physical-mobile performance.\n'

@@ -12,6 +12,19 @@ export interface PatchNote {
 
 export const PATCH_NOTES: readonly PatchNote[] = [
   {
+    id: 'boss-strike-forecast',
+    title: 'Read the coming strike',
+    summary: 'Boss forecasts put burst timing and defensive choices beside your tower health.',
+    changes: [
+      'A compact boss panel shows its phase, estimated next strike, damage type, and burst damage through your current defenses. The Last Eclipse’s delayed follow-up is included.',
+      'Countdowns account for 1×, 2×, and 3× speed and stop while combat is paused. Use the panel’s 1× speed button for more time to respond.',
+      'Ready skills are outlined during a committed strike; lethal-risk text makes dangerous bursts clear without relying on color or animated effects.',
+      'Forecasts use current mitigation and barrier. Healing, other enemies, phase changes, kills, and interrupts can change the actual damage.',
+    ],
+    compatibility:
+      'Presentation only for XP expeditions, including recovered runs. No changes to combat balance, RNG, saves, rewards, or leaderboard editions. Classic and pre-XP rules are unchanged.',
+  },
+  {
     id: 'core-inspection',
     title: 'Know your machinery',
     summary: 'Core details put effective stats and fusion partners within reach.',

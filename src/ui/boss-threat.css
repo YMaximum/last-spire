@@ -1,0 +1,119 @@
+#boss-warning.boss-threat {
+  position: absolute;
+  inset: auto auto calc(100% + 12px) 0;
+  z-index: 22;
+  transform: none;
+  width: min(430px, calc(100vw - 52px));
+  padding: 14px 16px;
+  max-height: min(42vh, 360px);
+  overflow-y: auto;
+  color: #eadfc7;
+  background: linear-gradient(135deg, #172723f5, #101c19f5);
+  border: 1px solid #a08b59;
+  border-left: 4px solid #cfb174;
+  box-shadow:
+    0 8px 28px #02090780,
+    inset 0 0 18px #ba97550c;
+  text-align: left;
+  text-transform: none;
+  text-shadow: none;
+  letter-spacing: normal;
+  font-size: 0.89rem;
+  line-height: 1.4;
+}
+#boss-warning.boss-threat[hidden] {
+  display: none;
+}
+.boss-threat-heading,
+.boss-threat-clock {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.boss-threat-heading strong {
+  font-size: 1rem;
+  color: #f1dba7;
+}
+.boss-threat-heading span {
+  font-size: 0.78rem;
+  color: #c2b491;
+  flex-shrink: 0;
+}
+.boss-health-track {
+  height: 4px;
+  background: #080f0c;
+  margin: 8px 0 10px;
+}
+.boss-health-track i {
+  display: block;
+  height: 100%;
+  background: #b98260;
+}
+.boss-threat-clock {
+  align-items: flex-end;
+  margin-top: 10px;
+}
+.boss-threat-clock b {
+  font-size: 1rem;
+  font-variant-numeric: tabular-nums;
+}
+.boss-threat-clock button {
+  min-height: 44px;
+  min-width: 72px;
+  padding: 6px 10px;
+  border: 1px solid #aa9563;
+  color: #f1dba7;
+  background: #26352a;
+  font-size: 0.89rem;
+  flex-shrink: 0;
+}
+.boss-threat-clock button:hover,
+.boss-threat-clock button:focus-visible {
+  background: #3c4a34;
+  outline: 2px solid #dfc78d;
+  outline-offset: 2px;
+}
+.boss-threat p {
+  margin: 8px 0;
+  font-size: 0.89rem;
+  color: #d7d7c6;
+}
+.boss-threat [data-boss='help'] {
+  display: block;
+  font-size: 0.78rem;
+  color: #bccebf;
+}
+#boss-warning.boss-threat[data-risk='strike'] {
+  border-left-color: #e8a275;
+}
+#boss-warning.boss-threat[data-risk='lethal'] {
+  border-color: #e6a18a;
+  border-left-color: #ffb89e;
+}
+#boss-warning.boss-threat[data-risk='lethal'] [data-boss='help'] {
+  color: #ffbfa9;
+  font-weight: 600;
+}
+.ability-tray button.boss-ready {
+  outline: 2px solid #f1d28e;
+  outline-offset: 2px;
+  box-shadow: 0 0 14px #d8b66350;
+}
+.boss-live {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+@media (max-width: 650px) {
+  #boss-warning.boss-threat {
+    left: 0;
+    width: min(430px, calc(100vw - 24px));
+    padding: 10px 12px;
+  }
+}

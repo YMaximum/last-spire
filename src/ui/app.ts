@@ -1,3 +1,5 @@
+import { getBossThreat } from '../game/boss-threat';
+import { BossThreatHud } from './boss-threat';
 import './leaderboard.css';
 import { LeaderboardPanel } from './leaderboard-panel';
 import { LeaderboardClient } from '../account/leaderboard';
@@ -18,6 +20,7 @@ import type { EvolutionPathId } from '../model/evolution';
 import { CatchupStatus } from './catchup-status';
 import './style.css';
 import './interface.css';
+import './boss-threat.css';
 import './expedition.css';
 import './bestiary.css';
 import { bestiaryMarkup, type BestiaryOptions } from './bestiary';
@@ -200,6 +203,13 @@ let selectedOffer: { rewardId: string; offerId: string; purchase: boolean } | nu
 const telemetry = new LocalTelemetry();
 const app = $('app');
 app.innerHTML = `<main id="battlefield"><canvas id="arena" aria-label="Last Spire battlefield"></canvas><div class="arena-shade"></div><header class="battle-hud"><button class="brand-button" id="menu-btn" aria-label="Expedition menu">${glyph('tower')}<span>LAST SPIRE<small>THE RUNEFORGED AGE</small></span>${glyph('menu')}</button><div class="wave-hud"><span id="stage-label">VERDANT WILDS</span><strong id="wave-label">Wave 01 <em>/ 100</em></strong><div id="wave-progress"><i></i></div></div><div class="resource-hud"><span title="Scrap is spent during this expedition">${glyph('diamond')}<b id="scrap-value">0</b><small>SCRAP</small></span><span title="Credits unlock towers between expeditions">${glyph('diamond')}<b id="credit-value">0</b><small>CREDITS</small></span><button id="settings-btn" class="square-button" aria-label="Settings">${glyph('gear')}</button></div></header><div class="threat-strip"><button id="threat-text" class="threat-reference" title="Inspect upcoming enemies in the bestiary">One spire. A thousand ways to fight.</button><button id="pause-indicator" class="hidden">PAUSED · RESUME</button></div><nav class="field-tools" aria-label="Battlefield panels"><button id="expedition-btn" class="launch-tool">${glyph('play')}<span>Start expedition</span></button><button id="fusion-btn" class="fusion-tool" title="Fusion forge (F)">${glyph('diamond')}<span id="fusion-count">Fusions</span></button><button id="evolution-btn" title="Tower evolution" hidden>${glyph('tower')}<span>Evolution</span></button><button id="arsenal-btn" title="Arsenal (A)">${glyph('tower')}<span>Arsenal</span></button><button id="codex-btn" title="Codex (C)">${glyph('book')}<span>Codex</span></button><button id="bestiary-btn" title="Bestiary (B)">${glyph('beast')}<span>Bestiary</span></button><button id="stats-btn" title="Combat statistics">${glyph('stats')}<span>Ledger</span></button><button id="autocast-btn" title="Conditional skill autocast">${glyph('bolt')}<span>Autocast</span></button><button id="account-btn" title="Account and cloud saves">${glyph('shield')}<span>Guest · Local</span></button><button id="rewards-btn" class="reward-tool hidden">${glyph('diamond')}<span id="reward-count">Choose upgrade</span></button></nav><div id="buff-strip" aria-label="Active buffs"></div><div id="event-toast" role="status" aria-live="polite"></div><div id="boss-warning" class="hidden"></div><footer class="combat-controls"><div class="integrity"><div><span>${glyph('heart')} SPIRE INTEGRITY</span><strong id="hp-value">—</strong></div><div class="hp-track"><i id="hp-fill"></i><i id="shield-fill"></i></div><span id="barrier-value">Barrier dormant</span></div><div class="ability-tray"><button class="ability" id="signature-btn"><span>${glyph('shield')}</span><div><small>SIGNATURE <kbd>Q</kbd></small><b id="signature-name">Bulwark</b></div><em id="signature-cd"></em><span id="signature-auto" class="auto-indicator" hidden>AUTO</span></button><button class="ability" id="secondary-btn"><span>${glyph('bolt')}</span><div><small>SECONDARY <kbd>E</kbd></small><b id="secondary-name">Mend</b></div><em id="secondary-cd"></em><span id="secondary-auto" class="auto-indicator" hidden>AUTO</span></button></div><div class="playback"><button class="square-button" id="pause-btn" aria-label="Pause combat">${glyph('pause')}</button><button id="speed-btn" title="Speed (1, 2, 3)">1×</button><button id="target-btn" title="Target priority">${glyph('target')}<span id="target-label">Nearest</span></button></div></footer><div id="xp-hud" hidden><span id="xp-label"></span><div class="xp-track"><i id="xp-fill"></i></div></div><div id="window-host"></div><div id="window-dock"></div><div id="catchup-notice" class="catchup-notice hidden" role="status" aria-live="polite">${glyph('tower')}<span id="catchup-message"></span></div><div id="loading-screen"><div class="loading-rune">${glyph('tower')}</div><h1>LAST SPIRE</h1><p>Waking the ancient machines…</p></div></main>`;
+document.querySelector('.combat-controls')!.append($('boss-warning'));
+const bossThreatHud = new BossThreatHud($('boss-warning'), () => {
+  data.settings.speed = 1;
+  scheduleSave();
+  updateHud();
+});
+
 const manager = new WindowManager(
   $('window-host'),
   $('window-dock'),
@@ -565,6 +575,12 @@ function updateHud() {
     );
   }
 
+  bossThreatHud.update(getBossThreat(playing ? modern(s) : null), {
+    speed: data.settings.speed,
+    paused: paused || decisionPaused(s),
+    signature: $<HTMLButtonElement>('signature-btn'),
+    secondary: $<HTMLButtonElement>('secondary-btn'),
+  });
   $('speed-btn').textContent = `${data.settings.speed}×`;
   $('target-label').textContent = s.targeting[0].toUpperCase() + s.targeting.slice(1);
   $('pause-btn').innerHTML = glyph(paused ? 'play' : 'pause');

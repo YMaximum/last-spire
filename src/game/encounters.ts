@@ -14,6 +14,36 @@ export interface EncounterActions {
   hurt: (damage: number, type: Element | 'physical', attacker: EnemyV2) => void;
   summon: (id: EnemyArchetypeId, x: number, y: number) => void;
 }
+/** Shared by the simulation and the read-only boss forecast. */
+export const ENCOUNTER_WINDUP_SECONDS: Readonly<Record<string, number>> = {
+  mend: 0.9,
+  barrier: 1,
+  burrow: 1.1,
+  rift: 1,
+  artillery: 1.2,
+  pulse: 1.1,
+  echo: 0.9,
+  'root-boss': 1.3,
+  'forge-boss': 1.5,
+  'eclipse-boss': 1.7,
+};
+export function encounterStrikeDamage(e: EnemyV2): number {
+  const mechanic = e.archetypeId ? ENEMY_BY_ID[e.archetypeId].mechanic : 'shared';
+  return (
+    e.damage *
+    (mechanic === 'pulse'
+      ? 0.6
+      : mechanic === 'echo'
+        ? 0.8
+        : mechanic === 'eclipse-boss'
+          ? 0.65
+          : 1) *
+    (e.kind === 'boss' ? 1 + e.bossPhase * 0.1 : 1)
+  );
+}
+export function encounterFollowupDamage(e: EnemyV2): number {
+  return e.damage * (e.kind === 'boss' ? 0.65 : 0.45);
+}
 export function interruptEncounter(s: RunV3, e: EnemyV2): void {
   if (encounterValue(s, e, 'windup') || encounterValue(s, e, 'echo')) {
     remove(s, e, 'windup');
@@ -123,7 +153,7 @@ export function stepEncounter(
   e.attackCd -= dt;
   const echo = encounterValue(s, e, 'echo');
   if (echo && s.time >= echo) {
-    actions.hurt(e.damage * (boss ? 0.65 : 0.45), e.damageType, e);
+    actions.hurt(encounterFollowupDamage(e), e.damageType, e);
     remove(s, e, 'echo');
     if (boss) {
       set(s, e, 'recovery', s.time + 3);
@@ -168,20 +198,7 @@ export function stepEncounter(
         allowed = (s.counters['enc-pulse-hits'] || 0) < 3;
         if (allowed) s.counters['enc-pulse-hits'] = (s.counters['enc-pulse-hits'] || 0) + 1;
       }
-      if (allowed)
-        actions.hurt(
-          e.damage *
-            (mechanic === 'pulse'
-              ? 0.6
-              : mechanic === 'echo'
-                ? 0.8
-                : mechanic === 'eclipse-boss'
-                  ? 0.65
-                  : 1) *
-            (boss ? 1 + e.bossPhase * 0.1 : 1),
-          e.damageType,
-          e,
-        );
+      if (allowed) actions.hurt(encounterStrikeDamage(e), e.damageType, e);
       e.attackCd = mechanic === 'artillery' ? 3.8 : boss ? 3.8 : 4;
       if (mechanic === 'echo' || mechanic === 'eclipse-boss')
         set(s, e, 'echo', s.time + (boss ? 0.8 : 1.4));
@@ -227,19 +244,7 @@ export function stepEncounter(
     }
     return true;
   }
-  const duration: Record<string, number> = {
-    mend: 0.9,
-    barrier: 1,
-    burrow: 1.1,
-    rift: 1,
-    artillery: 1.2,
-    pulse: 1.1,
-    echo: 0.9,
-    'root-boss': 1.3,
-    'forge-boss': 1.5,
-    'eclipse-boss': 1.7,
-  };
-  set(s, e, 'windup', s.time + duration[mechanic]);
+  set(s, e, 'windup', s.time + ENCOUNTER_WINDUP_SECONDS[mechanic]);
   if (mechanic === 'burrow' || mechanic === 'rift') {
     const angle = Math.atan2(e.y - CENTER.y, e.x - CENTER.x) + (mechanic === 'rift' ? 0.3 : 0),
       radius = Math.max(65, d - (mechanic === 'rift' ? 55 : 70));

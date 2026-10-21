@@ -6,6 +6,10 @@ See [SECURITY.md](SECURITY.md) for safe publication, development boundaries, rel
 
 Player-facing updates are available in **What’s new** inside the game. Optional [Endless rankings](docs/LEADERBOARDS.md) use separately chosen public usernames and explicit publication; Google identity and full saves remain private. The original arcane spire favicon is bundled locally.
 
+For bounded synthetic audits and offline analysis of explicitly exported local logs,
+see [Balance analysis](docs/BALANCE-ANALYSIS.md). Reports remain private; analysis does
+not change combat or upload gameplay data.
+
 An original single-player browser roguelite about building one ancient arcane machine. TypeScript, Canvas 2D, Vite, and local IndexedDB saves. No account or network service is required.
 
 ## Play locally

@@ -14,6 +14,7 @@
 - The user reviews and merges; prefer squash merges. Do not merge, enable auto-merge, publish, or deploy unless explicitly authorized.
 - Describe the player-visible problem and resulting behavior in plain language. Include relevant validation, save compatibility, and screenshots for visible changes. Keep private infrastructure details and actual gameplay logs out of public PRs.
 - Include a concise player-facing entry in `src/content/patch-notes.ts` for gameplay or visible usability changes, with save compatibility. Describe only behavior included in the build; do not imply merge means deployment.
+- Keep analysis outputs and findings private, including synthetic balance results, aggregate tables, benchmark reports, and player logs. Store them under ignored `.private/`; do not commit them or include them in public PRs, issues, or documentation without explicit user approval. Public changes may contain reusable tools, methods, and pass/fail validation.
 - Keep QA screenshots outside Git. Share synthetic visual evidence in chat or as a review attachment; do not commit screenshots unless the user explicitly asks. Real player identities and saves must remain private.
 - When work is interrupted, keep a concise private checkpoint with the branch, validation, pending work, and service state.
 

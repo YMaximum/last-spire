@@ -1304,7 +1304,7 @@ function openEvolution() {
             return;
           }
           $<HTMLButtonElement>('confirm-evolution').disabled = true;
-          telemetry.event(s.id, s.time, 'evolution', { path: path.id, tier: state.tier });
+          telemetry.event(s.id, s.time, 'evolution', { pathId: path.id, tier: state.tier });
           clearTimeout(persistTimer);
           await persist();
           manager.close('evolution');

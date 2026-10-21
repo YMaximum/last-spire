@@ -2,37 +2,70 @@
 import * as engine from '../src/game/engine';
 import { CARDS, TOWERS, FUSIONS, isDefensiveKind } from '../src/content/catalog';
 import { defaultProfile } from '../src/legacy/classic/storage';
-import type { CardOffer, RunV2 } from '../src/model/arsenal';
+import type { CardOffer } from '../src/model/arsenal';
 import { emptySave, exportGame } from '../src/persistence/storage';
 import { defaultAutocastConfig } from '../src/game/controls';
 import { chooseEvolution, evolutionOptions, evolutionState } from '../src/game/evolution';
-import type { RunMode } from '../src/game/types';
-import { mkdirSync, writeFileSync } from 'node:fs';
-import { dirname } from 'node:path';
+import { writeReportFiles } from './analysis/report-files';
+import { execFileSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import {
+  parseAuditArgs,
+  summarizeAudit,
+  auditMarkdown,
+  type AuditResult,
+} from './analysis/balance-report';
+import { AuditObserver } from './analysis/observer';
+import { BALANCE_EDITION } from '../src/model/leaderboard';
 if (process.argv.includes('--help')) {
   console.log(
-    'Usage: node --import tsx scripts/audit-v3.ts --tower=all --stage=0,1,2 --mode=normal,quick --policy=competent,random --seeds=1 --seed-start=1 --seconds=5400 --output=.private/reports/audit-v3.json',
+    'Usage: node --import tsx scripts/audit-v3.ts --tower=bastion --stage=0 --mode=normal --policy=competent,random --seeds=1 --seed-start=1 --seconds=5400 --case-wall-seconds=30 --batch-wall-seconds=180 --stop-wave=0 --evolution=alternating --output=.private/reports/balance-audit.json',
   );
   process.exit(0);
 }
-const value = (key: string, fallback: string) =>
-  process.argv
-    .find((a) => a.startsWith(`--${key}=`))
-    ?.split('=')
-    .slice(1)
-    .join('=') || fallback;
-const selectedTowers = value('tower', 'all').split(','),
-  stages = value('stage', '0,1,2').split(',').map(Number),
-  modes = value('mode', 'normal,quick').split(',') as RunMode[],
-  policies = value('policy', 'competent,random').split(','),
-  seeds = Number(value('seeds', '1')),
-  seedStart = Number(value('seed-start', '1'));
-const output = value('output', '.private/reports/audit-v3.json');
+const options = parseAuditArgs(process.argv.slice(2));
+const { towers: selectedTowers, stages, modes, policies, seeds, seedStart, output } = options;
+const batchStarted = performance.now();
+const sourceCommit = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
+// Report tooling may be under development; the measured simulation must be committed.
+execFileSync('git', ['diff', '--quiet', 'HEAD', '--', 'src/game', 'src/model', 'src/content']);
+const toolingSha256 = createHash('sha256');
+for (const file of [
+  'scripts/audit-v3.ts',
+  'scripts/analysis/balance-report.ts',
+  'scripts/analysis/observer.ts',
+  'scripts/analysis/report-files.ts',
+])
+  toolingSha256.update(file).update('\0').update(readFileSync(file));
+const toolingIdentity = toolingSha256.digest('hex');
 const profile = defaultProfile();
 profile.unlocked = TOWERS.map((t) => t.id);
 profile.stageUnlocked = 3;
 profile.tutorialDone = true;
-const results: Record<string, unknown>[] = [];
+const results: AuditResult[] = [];
+function writeReport() {
+  const summary = summarizeAudit(results, options.requestedCases);
+  const { output: _output, ...publicOptions } = options;
+  const report = {
+    schema: 2,
+    audit: {
+      source: 'synthetic-simulation',
+      sourceCommit,
+      balanceEdition: BALANCE_EDITION,
+      policyEdition: 'selection-v1',
+      toolingSha256: toolingIdentity,
+      options: publicOptions,
+      node: process.versions.node,
+      runes: 'none',
+      elapsedWallSeconds: (performance.now() - batchStarted) / 1000,
+    },
+    summary,
+    results,
+  };
+  writeReportFiles(output, report, auditMarkdown(report));
+  return summary;
+}
 const weights: Record<string, number> = {
   regen: 22,
   lifesteal: 18,
@@ -77,20 +110,26 @@ const weights: Record<string, number> = {
 };
 const recipePairs = FUSIONS.map((recipe) => recipe.ingredients);
 
-for (const tower of TOWERS.filter(
+cases: for (const tower of TOWERS.filter(
   (t) => selectedTowers.includes('all') || selectedTowers.includes(t.id),
 ))
   for (const stage of stages)
     for (const mode of modes)
       for (let seed = seedStart; seed < seedStart + seeds; seed++)
         for (const policy of policies) {
+          if (performance.now() - batchStarted >= options.batchWallSeconds * 1000) break cases;
+          const caseStarted = performance.now();
+          const observer = new AuditObserver();
+          let ticks = 0,
+            stopReason = 'time-cap';
+          const stepCosts: number[] = [];
           const s = engine.createRun(
             profile,
             tower.id,
             stage,
-            Number(value('difficulty', '0')),
-            seed * 1299709,
-            { mode, evolutionVersion: value('evolution', 'alternating') === 'off' ? 0 : 1 },
+            options.difficulty,
+            Math.imul(seed, 1299709) >>> 0,
+            { mode, evolutionVersion: options.evolution === 'off' ? 0 : 1 },
           );
           let decision =
             (Math.imul(seed, 3157) ^
@@ -172,26 +211,44 @@ for (const tower of TOWERS.filter(
             if (c.group === 'infusion') v = s.weapons.some((w) => !w.infusions.length) ? 9 : 3;
             return v + ['normal', 'rare', 'epic', 'legendary', 'mythic'].indexOf(o.rarity) * 2;
           };
-          while (
-            s.phase === 'combat' &&
-            s.time < Number(value('seconds', mode === 'endless' ? '300' : '5400'))
-          ) {
+          while (s.phase === 'combat' && s.time < options.seconds) {
+            if (
+              ticks++ % 300 === 0 &&
+              (performance.now() - caseStarted >= options.caseWallSeconds * 1000 ||
+                performance.now() - batchStarted >= options.batchWallSeconds * 1000)
+            ) {
+              stopReason = 'wall-budget';
+              break;
+            }
+            if (options.stopWave && observer.lastClearedWave >= options.stopWave) {
+              stopReason = 'wave-cap';
+              break;
+            }
             if (evolutionState(s)?.pending) {
               const paths = evolutionOptions(s);
               const index =
-                value('evolution', 'alternating') === 'first'
+                options.evolution === 'first'
                   ? 0
-                  : value('evolution', 'alternating') === 'second'
+                  : options.evolution === 'second'
                     ? paths.length - 1
                     : paths.length === 1
                       ? 0
-                      : value('evolution', 'alternating') === 'random'
+                      : options.evolution === 'random'
                         ? Math.floor(random() * paths.length)
                         : (seed + 1) % paths.length;
               if (!chooseEvolution(s, paths[index].id))
                 throw Error('Evolution decision could not resolve');
             }
+            const waveBefore = s.wave;
+            const measure = ticks % 60 === 0;
+            const started = measure ? performance.now() : 0;
             engine.step(s);
+            if (measure) {
+              stepCosts.push(performance.now() - started);
+              if (stepCosts.length > 1200) stepCosts.shift();
+            }
+            if (measure || s.wave !== waveBefore || s.phase !== 'combat')
+              observer.observe(s, waveBefore);
             if (s.wave % 10 === 0 && checkpointWave !== s.wave) {
               checkpointWave = s.wave;
               checkpoint();
@@ -201,15 +258,16 @@ for (const tower of TOWERS.filter(
               engine.useSkill(s, 'signature');
               if (s.hp < s.maxHp * 0.8 || s.secondary !== 'repair') engine.useSkill(s, 'secondary');
             }
-            const fuse = engine as unknown as {
-              availableFusions?: (s: RunV2) => { recipeId: string; ingredientIds: string[] }[];
-              fuseCores?: (s: RunV2, id: string, a: string, b: string) => boolean;
-            };
-            if (policy !== 'random' && fuse.availableFusions && fuse.fuseCores)
-              for (const f of fuse.availableFusions(s)) {
-                fuse.fuseCores(s, f.recipeId, f.ingredientIds[0], f.ingredientIds[1]);
+            if (policy !== 'random') {
+              const candidates = engine.availableFusions(s);
+              if (candidates.length) observer.observe(s);
+              for (const f of candidates) {
+                if (engine.fuseCores(s, f.recipeId, f.ingredientIds[0], f.ingredientIds[1]))
+                  observer.observe(s);
               }
+            }
             for (const reward of [...s.pendingRewards]) {
+              observer.offers(reward);
               const offers = [...reward.offers];
               if (policy === 'random') {
                 // Fisher–Yates avoids engine-dependent bias from a random sort comparator.
@@ -241,19 +299,36 @@ for (const tower of TOWERS.filter(
                 for (const offer of offers)
                   if (engine.chooseReward(s, reward.id, offer.id, targetFor(offer))) {
                     chosen = true;
+                    observer.choice(offer, false);
                     break;
                   }
                 if (!chosen && ++failures > 10) throw Error('No valid queued offer');
               } else {
+                const beforeShop = {
+                  scrap: s.scrap,
+                  hp: s.hp,
+                  purchases: s.stats.shopPurchases,
+                  repairHealing: 0,
+                  repairSpend: 0,
+                };
+                const shopSnapshot = { ...reward, offers: [...reward.offers] };
                 if (policy !== 'random' && s.hp < s.maxHp * 0.65) engine.repair(s, reward.id);
-                for (const o of offers)
-                  if (engine.buyOffer(s, reward.id, o.id, targetFor(o)) && policy === 'random')
-                    break;
+                beforeShop.repairHealing = s.hp - beforeShop.hp;
+                beforeShop.repairSpend = beforeShop.scrap - s.scrap;
+                for (const o of offers) {
+                  if (engine.buyOffer(s, reward.id, o.id, targetFor(o))) {
+                    observer.choice(o, true);
+                    if (policy === 'random') break;
+                  }
+                }
+                observer.shop(s, shopSnapshot, beforeShop);
                 engine.closeShop(s, reward.id);
               }
             }
           }
           checkpoint();
+          observer.observe(s);
+          stepCosts.sort((a, b) => a - b);
           const result = {
             evolution: evolutionState(s)?.path,
             evolutionTier: evolutionState(s)?.tier,
@@ -265,16 +340,23 @@ for (const tower of TOWERS.filter(
             policy,
             cleared: s.cleared,
             terminalPhase: s.phase,
-            outcome:
-              mode === 'endless'
-                ? s.phase === 'ended'
-                  ? 'defeat'
-                  : 'survival'
-                : s.cleared
-                  ? 'clear'
-                  : s.phase === 'ended'
-                    ? 'defeat'
-                    : 'timeout',
+            outcome: s.phase === 'victory' ? 'clear' : s.phase === 'ended' ? 'defeat' : stopReason,
+            difficulty: options.difficulty,
+            actualSeed: s.seed,
+            clearedWaves: observer.lastClearedWave,
+            wallSeconds: (performance.now() - caseStarted) / 1000,
+            stepSamples: stepCosts.length,
+            sampledStepP95Ms: stepCosts.length
+              ? stepCosts[Math.ceil(stepCosts.length * 0.95) - 1]
+              : null,
+            waves: observer.waves,
+            droppedWaveSamples: observer.droppedWaveSamples,
+            shops: observer.shops,
+            mastery: observer.mastery,
+            fusionEligibility: observer.fusionEligibility,
+            fusionTimeline: observer.fusions,
+            evolutionTimeline: observer.evolutions,
+            cardObservations: observer.cards,
             wave: s.wave,
             seconds: Math.round(s.time),
             level: s.level,
@@ -297,30 +379,6 @@ for (const tower of TOWERS.filter(
           console.error(
             `${tower.id} ${stage} ${mode} ${seed} ${policy}: ${result.outcome} ${s.wave}`,
           );
-          mkdirSync(dirname(output), { recursive: true });
-          writeFileSync(output, JSON.stringify({ results }, null, 2));
+          writeReport();
         }
-const summary = Object.fromEntries(
-  modes.flatMap((mode) =>
-    policies.map((policy) => {
-      const rows = results.filter((r) => r.mode === mode && r.policy === policy),
-        wins = rows.filter((r) => r.outcome === 'clear');
-      const sum = (key: string, rs = rows) => rs.reduce((a, r) => a + Number(r[key] || 0), 0);
-      return [
-        `${mode}/${policy}`,
-        {
-          runs: rows.length,
-          clears: wins.length,
-          clearRate: wins.length / Math.max(1, rows.length),
-          meanClearMinutes: sum('seconds', wins) / Math.max(1, wins.length) / 60,
-          meanClearLevels: sum('choices', wins) / Math.max(1, wins.length),
-          purchasesPerShop: sum('shopPurchases') / Math.max(1, sum('shopsVisited')),
-          creditsPerMinute: (sum('credits') / Math.max(1, sum('seconds'))) * 60,
-          timeouts: rows.filter((r) => r.outcome === 'timeout').length,
-        },
-      ];
-    }),
-  ),
-);
-writeFileSync(output, JSON.stringify({ summary, results }, null, 2));
-console.log(JSON.stringify(summary, null, 2));
+console.log(JSON.stringify(writeReport(), null, 2));

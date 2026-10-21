@@ -22,6 +22,7 @@ export class AuditObserver {
     affordable: number;
     offers: number;
     purchases: number;
+    cardPurchases: number;
     repairHealing: number;
     repairSpend: number;
   })[] = [];
@@ -117,6 +118,7 @@ export class AuditObserver {
       affordable: reward.offers.filter((o) => o.price <= before.scrap).length,
       offers: reward.offers.length,
       purchases: run.stats.shopPurchases - before.purchases,
+      cardPurchases: run.stats.shopPurchases - before.purchases - (before.repairSpend > 0 ? 1 : 0),
       repairHealing: before.repairHealing,
       repairSpend: before.repairSpend,
     });

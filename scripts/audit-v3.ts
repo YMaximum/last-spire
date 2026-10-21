@@ -18,9 +18,18 @@ import {
 } from './analysis/balance-report';
 import { AuditObserver } from './analysis/observer';
 import { BALANCE_EDITION } from '../src/model/leaderboard';
+import {
+  auditRules,
+  auditRandom,
+  evolutionPolicies,
+  orderAuditOffers,
+  auditTarget,
+  applyAuditFusions,
+  resolveAuditShop,
+} from './analysis/policy';
 if (process.argv.includes('--help')) {
   console.log(
-    'Usage: node --import tsx scripts/audit-v3.ts --tower=bastion --stage=0 --mode=normal --policy=competent,random --seeds=1 --seed-start=1 --seconds=5400 --case-wall-seconds=30 --batch-wall-seconds=180 --stop-wave=0 --evolution=alternating --output=.private/reports/balance-audit.json',
+    'Usage: node --import tsx scripts/audit-v3.ts --tower=bastion --stage=0 --mode=normal --policy=competent,random --seeds=1 --seed-start=1 --seconds=5400 --case-wall-seconds=30 --batch-wall-seconds=180 --stop-wave=0 --evolution=both --policy-edition=controlled-v2 --output=.private/reports/balance-audit.json',
   );
   process.exit(0);
 }
@@ -36,6 +45,7 @@ for (const file of [
   'scripts/analysis/balance-report.ts',
   'scripts/analysis/observer.ts',
   'scripts/analysis/report-files.ts',
+  'scripts/analysis/policy.ts',
 ])
   toolingSha256.update(file).update('\0').update(readFileSync(file));
 const toolingIdentity = toolingSha256.digest('hex');
@@ -48,12 +58,12 @@ function writeReport() {
   const summary = summarizeAudit(results, options.requestedCases);
   const { output: _output, ...publicOptions } = options;
   const report = {
-    schema: 2,
+    schema: 3,
     audit: {
       source: 'synthetic-simulation',
       sourceCommit,
       balanceEdition: BALANCE_EDITION,
-      policyEdition: 'selection-v1',
+      policyEdition: options.policyEdition,
       toolingSha256: toolingIdentity,
       options: publicOptions,
       node: process.versions.node,
@@ -116,7 +126,10 @@ cases: for (const tower of TOWERS.filter(
   for (const stage of stages)
     for (const mode of modes)
       for (let seed = seedStart; seed < seedStart + seeds; seed++)
-        for (const policy of policies) {
+        for (const { policy, evolutionPolicy } of evolutionPolicies(
+          options.evolution,
+          seed,
+        ).flatMap((evolutionPolicy) => policies.map((policy) => ({ policy, evolutionPolicy })))) {
           if (performance.now() - batchStarted >= options.batchWallSeconds * 1000) break cases;
           const caseStarted = performance.now();
           const observer = new AuditObserver();
@@ -129,18 +142,20 @@ cases: for (const tower of TOWERS.filter(
             stage,
             options.difficulty,
             Math.imul(seed, 1299709) >>> 0,
-            { mode, evolutionVersion: options.evolution === 'off' ? 0 : 1 },
+            { mode, evolutionVersion: evolutionPolicy === 'off' ? 0 : 1 },
           );
-          let decision =
+          const decisionSeed =
             (Math.imul(seed, 3157) ^
               Math.imul(TOWERS.indexOf(tower) + 1, 73856093) ^
               Math.imul(stage + 1, 19349663) ^
               (mode === 'quick' ? 83492791 : 1299709)) >>>
             0;
-          const random = () => {
-            decision = (Math.imul(decision, 1664525) + 1013904223) >>> 0;
-            return decision / 4294967296;
-          };
+          const random = auditRandom(decisionSeed);
+          const evolutionRandom =
+            options.policyEdition === 'selection-v1'
+              ? random
+              : auditRandom(decisionSeed ^ 0x9e3779b9);
+          const rules = auditRules(options.policyEdition, policy);
           let checkpointWave = 0,
             peakSaveBytes = 0;
           const checkpoint = () => {
@@ -227,15 +242,13 @@ cases: for (const tower of TOWERS.filter(
             if (evolutionState(s)?.pending) {
               const paths = evolutionOptions(s);
               const index =
-                options.evolution === 'first'
+                evolutionPolicy === 'first'
                   ? 0
-                  : options.evolution === 'second'
+                  : evolutionPolicy === 'second'
                     ? paths.length - 1
                     : paths.length === 1
                       ? 0
-                      : options.evolution === 'random'
-                        ? Math.floor(random() * paths.length)
-                        : (seed + 1) % paths.length;
+                      : Math.floor(evolutionRandom() * paths.length);
               if (!chooseEvolution(s, paths[index].id))
                 throw Error('Evolution decision could not resolve');
             }
@@ -258,42 +271,12 @@ cases: for (const tower of TOWERS.filter(
               engine.useSkill(s, 'signature');
               if (s.hp < s.maxHp * 0.8 || s.secondary !== 'repair') engine.useSkill(s, 'secondary');
             }
-            if (policy !== 'random') {
-              const candidates = engine.availableFusions(s);
-              if (candidates.length) observer.observe(s);
-              for (const f of candidates) {
-                if (engine.fuseCores(s, f.recipeId, f.ingredientIds[0], f.ingredientIds[1]))
-                  observer.observe(s);
-              }
-            }
+            applyAuditFusions(s, rules, observer);
             for (const reward of [...s.pendingRewards]) {
               observer.offers(reward);
-              const offers = [...reward.offers];
-              if (policy === 'random') {
-                // Fisher–Yates avoids engine-dependent bias from a random sort comparator.
-                for (let i = offers.length - 1; i > 0; i--) {
-                  const j = Math.floor(random() * (i + 1));
-                  [offers[i], offers[j]] = [offers[j], offers[i]];
-                }
-              } else offers.sort((a, b) => score(b) - score(a));
-              const targetFor = (o: CardOffer) => {
-                const c = CARDS.find((c) => c.id === o.cardId)!;
-                if (
-                  c.group === 'weapon' &&
-                  !s.weapons.some((w) => w.kind === c.weapon) &&
-                  s.weapons.length >= 6
-                )
-                  return (
-                    s.weapons.find((w) => !w.fusion && !targetKinds.has(w.kind))?.id ||
-                    s.weapons.find((w) => !w.fusion)?.id
-                  );
-                if (policy === 'random')
-                  return s.weapons[Math.floor(random() * s.weapons.length)]?.id;
-                return (
-                  s.weapons.find((w) => targetKinds.has(w.kind) && w.masteryRank! < 6)?.id ||
-                  s.weapons[0].id
-                );
-              };
+              const offers = orderAuditOffers(reward.offers, policy, score, random);
+              const targetFor = (offer: CardOffer) =>
+                auditTarget(s, offer, targetKinds, rules, random);
               if (reward.kind === 'draft') {
                 let chosen = false;
                 for (const offer of offers)
@@ -304,25 +287,7 @@ cases: for (const tower of TOWERS.filter(
                   }
                 if (!chosen && ++failures > 10) throw Error('No valid queued offer');
               } else {
-                const beforeShop = {
-                  scrap: s.scrap,
-                  hp: s.hp,
-                  purchases: s.stats.shopPurchases,
-                  repairHealing: 0,
-                  repairSpend: 0,
-                };
-                const shopSnapshot = { ...reward, offers: [...reward.offers] };
-                if (policy !== 'random' && s.hp < s.maxHp * 0.65) engine.repair(s, reward.id);
-                beforeShop.repairHealing = s.hp - beforeShop.hp;
-                beforeShop.repairSpend = beforeShop.scrap - s.scrap;
-                for (const o of offers) {
-                  if (engine.buyOffer(s, reward.id, o.id, targetFor(o))) {
-                    observer.choice(o, true);
-                    if (policy === 'random') break;
-                  }
-                }
-                observer.shop(s, shopSnapshot, beforeShop);
-                engine.closeShop(s, reward.id);
+                resolveAuditShop(s, reward, offers, targetFor, rules, observer);
               }
             }
           }
@@ -338,6 +303,9 @@ cases: for (const tower of TOWERS.filter(
             mode,
             seed,
             policy,
+            policyEdition: options.policyEdition,
+            evolutionPolicy,
+            decisionRules: rules,
             cleared: s.cleared,
             terminalPhase: s.phase,
             outcome: s.phase === 'victory' ? 'clear' : s.phase === 'ended' ? 'defeat' : stopReason,
@@ -377,7 +345,7 @@ cases: for (const tower of TOWERS.filter(
           };
           results.push(result);
           console.error(
-            `${tower.id} ${stage} ${mode} ${seed} ${policy}: ${result.outcome} ${s.wave}`,
+            `${tower.id} ${stage} ${mode} ${seed} ${policy} ${evolutionPolicy}: ${result.outcome} ${s.wave}`,
           );
           writeReport();
         }
